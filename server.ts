@@ -26,6 +26,7 @@ if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
 
 const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 
+
 function haversineDistanceMeters(
   lat1: number,
   lng1: number,
@@ -54,6 +55,8 @@ async function startServer() {
 
   app.use(cors());
   app.use(express.json({ limit: "10mb" }));
+  app.use('/assets', express.static(path.join(__dirname, 'assets')));
+
 
   const upload = multer({
     storage: multer.memoryStorage(),

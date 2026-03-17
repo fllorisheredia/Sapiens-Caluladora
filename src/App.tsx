@@ -95,7 +95,7 @@ const requiredNumberField = z.preprocess(
           ? "Este campo es obligatorio"
           : "Debe ser un número válido",
     })
-    .min(0, { error: "Debe ser un número válido" })
+    .min(0, { error: "Debe ser un número válido" }),
 );
 
 const optionalNumberField = z.preprocess(
@@ -105,7 +105,7 @@ const optionalNumberField = z.preprocess(
       error: "Debe ser un número válido",
     })
     .min(0, { error: "Debe ser un número válido" })
-    .optional()
+    .optional(),
 );
 
 const ValidationBillDataSchema = BillDataSchema.extend({
@@ -134,11 +134,9 @@ const ValidationBillDataSchema = BillDataSchema.extend({
 type ValidationBillDataFormInput = z.input<typeof ValidationBillDataSchema>;
 type ValidationBillData = z.output<typeof ValidationBillDataSchema>;
 
-const PERIODS = ["P1", "P2", "P3", "P4", "P5", "P6"] as const;
-
 function buildLastName(
   lastname1: string | null | undefined,
-  lastname2: string | null | undefined
+  lastname2: string | null | undefined,
 ): string {
   return [lastname1, lastname2].filter(Boolean).join(" ").trim();
 }
@@ -154,11 +152,11 @@ function displayPercentage(value: number | null | undefined): number {
 }
 
 function mapExtractedToBillData(
-  data: ExtractedBillData
+  data: ExtractedBillData,
 ): Partial<ValidationBillData> {
   const fullLastName = buildLastName(
     data.customer.lastname1,
-    data.customer.lastname2
+    data.customer.lastname2,
   );
 
   const rawBillType = data.invoice_data.type;
@@ -241,14 +239,14 @@ function showExtractionToasts(extraction: ExtractedBillData) {
   if (extraction.extraction.fallbackUsed) {
     queueInfo(
       "Extracción completada con apoyo del fallback",
-      "Revisa los datos detectados antes de continuar."
+      "Revisa los datos detectados antes de continuar.",
     );
   }
 
   if (extraction.customer.ibanNeedsCompletion) {
     queueInfo(
       "Revisión del IBAN",
-      "La factura oculta parte del IBAN con asteriscos. El cliente debe completar manualmente los dígitos faltantes."
+      "La factura oculta parte del IBAN con asteriscos. El cliente debe completar manualmente los dígitos faltantes.",
     );
   }
 
@@ -263,14 +261,14 @@ function showExtractionToasts(extraction: ExtractedBillData) {
 
     queueError(
       "Campos que requieren revisión",
-      `Comprueba manualmente estos campos: ${fields}`
+      `Comprueba manualmente estos campos: ${fields}`,
     );
   }
 
   if (extraction.extraction.missingFields?.length) {
     queueInfo(
       "Campos incompletos",
-      `Hay ${extraction.extraction.missingFields.length} campos que pueden necesitar revisión manual.`
+      `Hay ${extraction.extraction.missingFields.length} campos que pueden necesitar revisión manual.`,
     );
   }
 }
@@ -297,15 +295,136 @@ function FormSection({
   );
 }
 
+type PdfArtifact =
+  | Blob
+  | Uint8Array
+  | ArrayBuffer
+  | {
+      save: (fileName?: string) => void;
+      output?: (type?: string) => unknown;
+    }
+  | null
+  | undefined;
+
+function isBlob(value: unknown): value is Blob {
+  return typeof Blob !== "undefined" && value instanceof Blob;
+}
+
+function isArrayBuffer(value: unknown): value is ArrayBuffer {
+  return value instanceof ArrayBuffer;
+}
+
+function isUint8Array(value: unknown): value is Uint8Array {
+  return value instanceof Uint8Array;
+}
+
+function hasSaveMethod(value: unknown): value is {
+  save: (fileName?: string) => void;
+  output?: (type?: string) => unknown;
+} {
+  return (
+    typeof value === "object" &&
+    value !== null &&
+    "save" in value &&
+    typeof (value as { save?: unknown }).save === "function"
+  );
+}
+
+function uint8ArrayToArrayBuffer(value: Uint8Array): ArrayBuffer {
+  return value.buffer.slice(
+    value.byteOffset,
+    value.byteOffset + value.byteLength,
+  ) as ArrayBuffer;
+}
+
+const buildPdfArtifact = async (
+  billData: BillData,
+  calculationResult: CalculationResult,
+): Promise<PdfArtifact> => {
+  const result = await generateStudyPDF(billData, calculationResult);
+  return result as PdfArtifact;
+};
+
+function downloadBlob(blob: Blob, fileName: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = fileName;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function savePdfArtifactLocally(pdfArtifact: PdfArtifact, fileName: string) {
+  if (!pdfArtifact) {
+    throw new Error("No se pudo generar el PDF");
+  }
+
+  if (hasSaveMethod(pdfArtifact)) {
+    pdfArtifact.save(fileName);
+    return;
+  }
+
+  if (isBlob(pdfArtifact)) {
+    downloadBlob(pdfArtifact, fileName);
+    return;
+  }
+
+  if (isUint8Array(pdfArtifact)) {
+    const buffer = uint8ArrayToArrayBuffer(pdfArtifact);
+    downloadBlob(new Blob([buffer], { type: "application/pdf" }), fileName);
+    return;
+  }
+
+  if (isArrayBuffer(pdfArtifact)) {
+    downloadBlob(
+      new Blob([pdfArtifact], { type: "application/pdf" }),
+      fileName,
+    );
+    return;
+  }
+
+  throw new Error("Formato de PDF no soportado");
+}
+
+async function sendStudyEmailWithFallback(params: {
+  to: string;
+  customerName: string;
+  billData: BillData;
+  calculationResult: CalculationResult;
+  pdfArtifact: PdfArtifact;
+}) {
+  const { to, customerName, billData, calculationResult, pdfArtifact } = params;
+
+  let attachment: Blob | undefined;
+
+  if (isBlob(pdfArtifact)) {
+    attachment = pdfArtifact; // Si el pdfArtifact es un Blob, lo usamos directamente.
+  } else if (isUint8Array(pdfArtifact)) {
+    const buffer = uint8ArrayToArrayBuffer(pdfArtifact);
+    attachment = new Blob([buffer], { type: "application/pdf" });
+  } else if (isArrayBuffer(pdfArtifact)) {
+    attachment = new Blob([pdfArtifact], { type: "application/pdf" });
+  }
+
+  await sendStudyByEmail({
+    to,
+    customerName,
+    attachment, // Aquí adjuntamos el PDF
+    billData,
+    calculationResult,
+  });
+}
+
 export default function App() {
   const [view, setView] = useState<"public" | "admin">("public");
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
   const [currentStep, setCurrentStep] = useState<Step>("upload");
-  const [extractedData, setExtractedData] = useState<
-    Partial<ValidationBillData> | null
-  >(null);
+  const [extractedData, setExtractedData] =
+    useState<Partial<ValidationBillData> | null>(null);
   const [rawExtraction, setRawExtraction] = useState<ExtractedBillData | null>(
-    null
+    null,
   );
   const [calculationResult, setCalculationResult] =
     useState<CalculationResult | null>(null);
@@ -322,11 +441,14 @@ export default function App() {
     formState: { errors },
   } = useForm<ValidationBillDataFormInput, unknown, ValidationBillData>({
     resolver: zodResolver(ValidationBillDataSchema),
+    defaultValues: {
+      billType: "2TD",
+    },
   });
 
   const watchedBillType = watch("billType");
   const watchedAverageMonthlyConsumption = watch(
-    "averageMonthlyConsumptionKwh"
+    "averageMonthlyConsumptionKwh",
   );
 
   useEffect(() => {
@@ -345,18 +467,183 @@ export default function App() {
     sileo.promise(
       (async () => {
         const billData = toBaseBillData(extractedData);
-        const doc = generateStudyPDF(billData, calculationResult);
-        doc.save(`Estudio_Solar_${billData.name || "cliente"}.pdf`);
+        const pdfArtifact = await buildPdfArtifact(billData, calculationResult);
+        savePdfArtifactLocally(
+          pdfArtifact,
+          `Estudio_Solar_${billData.name || "cliente"}.pdf`,
+        );
       })(),
       {
         loading: { title: "Generando tu estudio en PDF..." },
         success: { title: "PDF generado y descargado con éxito" },
         error: { title: "No se pudo generar el PDF" },
-      }
+      },
     );
   };
 
+  // const handleSendEmail = async () => {
+  //   if (!calculationResult || !extractedData?.email) {
+  //     sileo.error({
+  //       title: "Falta el email del cliente",
+  //       description: "Añade un correo válido antes de enviarlo.",
+  //     });
+  //     return;
+  //   }
+
+  //   sileo.promise(
+  //     (async () => {
+  //       const billData = toBaseBillData(extractedData);
+  //       const pdfArtifact = await buildPdfArtifact(billData, calculationResult);
+
+  //       await sendStudyEmailWithFallback({
+  //         to: extractedData.email,
+  //         customerName: extractedData.name || "Cliente",
+  //         billData,
+  //         calculationResult,
+  //         pdfArtifact,
+  //       });
+  //     })(),
+  //     {
+  //       loading: { title: "Enviando estudio por email..." },
+  //       success: { title: "Estudio enviado por email con éxito" },
+  //       error: { title: "No se pudo enviar el email" },
+  //     }
+  //   );
+  // };
+  // const handleSendEmail = async () => {
+  //   if (!calculationResult || !extractedData?.email) {
+  //     sileo.error({
+  //       title: "Falta el email del cliente",
+  //       description: "Añade un correo válido antes de enviarlo.",
+  //     });
+  //     return;
+  //   }
+
+  //   sileo.promise(
+  //     (async () => {
+  //       const billData = toBaseBillData(extractedData);
+  //       const pdfArtifact = await buildPdfArtifact(billData, calculationResult);
+
+  //       // Asegúrate de que pdfArtifact sea convertido a un Blob correctamente
+  //       let pdfBlob: Blob | undefined;
+
+  //       if (
+  //         pdfArtifact instanceof ArrayBuffer ||
+  //         pdfArtifact instanceof Uint8Array
+  //       ) {
+  //         // Convertimos ArrayBuffer o Uint8Array a un Blob
+  //         pdfBlob = new Blob([pdfArtifact as ArrayBuffer], {
+  //           type: "application/pdf",
+  //         });
+  //       } else if (pdfArtifact instanceof Blob) {
+  //         // Si ya es un Blob, lo usamos directamente
+  //         pdfBlob = pdfArtifact;
+  //       } else if (pdfArtifact && typeof pdfArtifact.output === "function") {
+  //         // Si es un objeto con el método 'output', como PDFDocument
+  //         const pdfAsBlob = pdfArtifact.output("blob");
+
+  //         // Verificamos si la salida es un Blob, de lo contrario, lo convertimos
+  //         if (pdfAsBlob instanceof Blob) {
+  //           pdfBlob = pdfAsBlob;
+  //         } else {
+  //           pdfBlob = new Blob([pdfAsBlob as ArrayBuffer], {
+  //             type: "application/pdf",
+  //           });
+  //         }
+  //       } else {
+  //         // Si no es un Blob, ArrayBuffer ni Uint8Array
+  //         sileo.error({
+  //           title: "Error al generar el PDF",
+  //           description: "El archivo PDF no tiene el formato adecuado.",
+  //         });
+  //         return;
+  //       }
+
+  //       // Ahora pasamos este Blob al servicio de envío de email
+  //       await sendStudyEmailWithFallback({
+  //         to: extractedData.email,
+  //         customerName: extractedData.name || "Cliente",
+  //         billData,
+  //         calculationResult,
+  //         pdfArtifact: pdfBlob, // Aquí le pasamos el archivo PDF como un Blob
+  //       });
+  //     })(),
+  //     {
+  //       loading: { title: "Enviando estudio por email..." },
+  //       success: { title: "Estudio enviado por email con éxito" },
+  //       error: { title: "No se pudo enviar el email" },
+  //     },
+  //   );
+  // };
+  // const handleSendEmail = async () => {
+  //   if (!calculationResult || !extractedData?.email) {
+  //     sileo.error({
+  //       title: "Falta el email del cliente",
+  //       description: "Añade un correo válido antes de enviarlo.",
+  //     });
+  //     return;
+  //   }
+
+  //   sileo.promise(
+  //     (async () => {
+  //       const billData = toBaseBillData(extractedData);
+  //       const pdfArtifact = await buildPdfArtifact(billData, calculationResult);
+
+  //       // Asegúrate de que pdfArtifact sea convertido a un Blob correctamente
+  //       let pdfBlob: Blob | undefined;
+
+  //       // Si pdfArtifact es un ArrayBuffer o Uint8Array, lo convertimos a un Blob
+  //       if (
+  //         pdfArtifact instanceof ArrayBuffer ||
+  //         pdfArtifact instanceof Uint8Array
+  //       ) {
+  //         pdfBlob = new Blob([pdfArtifact as ArrayBuffer], {
+  //           type: "application/pdf",
+  //         });
+  //       } else if (pdfArtifact instanceof Blob) {
+  //         // Si ya es un Blob, lo usamos directamente
+  //         pdfBlob = pdfArtifact;
+  //       } else if (pdfArtifact && typeof pdfArtifact.output === "function") {
+  //         // Si es un objeto con el método 'output', como PDFDocument
+  //         const pdfAsBlob = pdfArtifact.output("blob");
+
+  //         // Verificamos si la salida es un Blob, de lo contrario, lo convertimos
+  //         if (pdfAsBlob instanceof Blob) {
+  //           pdfBlob = pdfAsBlob;
+  //         } else {
+  //           // Si la salida no es un Blob, intentamos convertirla
+  //           pdfBlob = new Blob([pdfAsBlob as ArrayBuffer], {
+  //             type: "application/pdf",
+  //           });
+  //         }
+  //       } else {
+  //         // Si no es un Blob, ArrayBuffer ni Uint8Array
+  //         sileo.error({
+  //           title: "Error al generar el PDF",
+  //           description: "El archivo PDF no tiene el formato adecuado.",
+  //         });
+  //         return;
+  //       }
+
+  //       // Ahora pasamos este Blob al servicio de envío de email
+  //       await sendStudyEmailWithFallback({
+  //         to: extractedData.email,
+  //         customerName: extractedData.name || "Cliente",
+  //         billData,
+  //         calculationResult,
+  //         pdfArtifact: pdfBlob, // Aquí le pasamos el archivo PDF como un Blob
+  //       });
+  //     })(),
+  //     {
+  //       loading: { title: "Enviando estudio por email..." },
+  //       success: { title: "Estudio enviado por email con éxito" },
+  //       error: { title: "No se pudo enviar el email" },
+  //     },
+  //   );
+  // };
   const handleSendEmail = async () => {
+    console.log("Enviando email...");
+
     if (!calculationResult || !extractedData?.email) {
       sileo.error({
         title: "Falta el email del cliente",
@@ -366,19 +653,90 @@ export default function App() {
     }
 
     sileo.promise(
-      sendStudyByEmail(
-        extractedData.email,
-        extractedData.name || "Cliente",
-        "https://example.com/study.pdf"
-      ),
+      (async () => {
+        const billData = toBaseBillData(extractedData);
+        const pdfArtifact = await buildPdfArtifact(billData, calculationResult);
+
+        // Verificar que el PDF se ha generado
+        console.log("PDF generado:", pdfArtifact);
+
+        let pdfBlob: Blob | undefined;
+
+        // Si pdfArtifact es un ArrayBuffer o Uint8Array, lo convertimos a un Blob
+        if (
+          pdfArtifact instanceof ArrayBuffer ||
+          pdfArtifact instanceof Uint8Array
+        ) {
+          pdfBlob = new Blob([pdfArtifact as ArrayBuffer], {
+            type: "application/pdf",
+          });
+        } else if (pdfArtifact instanceof Blob) {
+          pdfBlob = pdfArtifact;
+        } else if (pdfArtifact && typeof pdfArtifact.output === "function") {
+          const pdfAsBlob = pdfArtifact.output("blob");
+
+          // Verificamos si la salida es un Blob, de lo contrario, lo convertimos
+          if (pdfAsBlob instanceof Blob) {
+            pdfBlob = pdfAsBlob;
+          } else {
+            pdfBlob = new Blob([pdfAsBlob as ArrayBuffer], {
+              type: "application/pdf",
+            });
+          }
+        }
+
+        console.log("PDF convertido a Blob:", pdfBlob);
+
+        if (!pdfBlob) {
+          sileo.error({
+            title: "Error al generar el PDF",
+            description: "No se pudo generar el PDF correctamente.",
+          });
+          return;
+        }
+
+        // Aquí guardamos el archivo PDF localmente
+        savePdfArtifactLocally(
+          pdfBlob,
+          `Estudio_Solar_${billData.name || "cliente"}.pdf`,
+        );
+
+        // Convertir el PDF Blob a Base64
+        const pdfBase64 = await blobToBase64DataUrl(pdfBlob);
+        console.log("PDF convertido a Base64:", pdfBase64);
+
+        // Ahora pasamos este Blob al servicio de envío de email
+        await sendStudyEmailWithFallback({
+          to: extractedData.email,
+          customerName: extractedData.name || "Cliente",
+          billData,
+          calculationResult,
+          pdfArtifact: pdfBlob, // Aquí le pasamos el archivo PDF como un Blob
+        });
+      })(),
       {
         loading: { title: "Enviando estudio por email..." },
         success: { title: "Estudio enviado por email con éxito" },
         error: { title: "No se pudo enviar el email" },
-      }
+      },
     );
   };
+  function blobToBase64DataUrl(blob: Blob): Promise<string> {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const result = reader.result;
+        if (typeof result === "string") {
+          resolve(result); // Devuelve la cadena Base64
+        } else {
+          reject(new Error("No se pudo convertir el PDF a Base64"));
+        }
+      };
 
+      reader.onerror = () => reject(new Error("Error leyendo el PDF"));
+      reader.readAsDataURL(blob); // Convierte el Blob en Base64
+    });
+  }
   const handleFileSelect = async (file: File) => {
     sileo.promise(
       (async () => {
@@ -408,14 +766,14 @@ export default function App() {
         if (typeof mappedData.currentInvoiceConsumptionKwh === "number") {
           setValue(
             "currentInvoiceConsumptionKwh",
-            mappedData.currentInvoiceConsumptionKwh
+            mappedData.currentInvoiceConsumptionKwh,
           );
         }
 
         if (typeof mappedData.averageMonthlyConsumptionKwh === "number") {
           setValue(
             "averageMonthlyConsumptionKwh",
-            mappedData.averageMonthlyConsumptionKwh
+            mappedData.averageMonthlyConsumptionKwh,
           );
         }
 
@@ -466,7 +824,7 @@ export default function App() {
         loading: { title: "Procesando factura..." },
         success: { title: "Factura procesada con éxito" },
         error: { title: "No se pudo extraer la información de la factura" },
-      }
+      },
     );
   };
 
@@ -478,8 +836,10 @@ export default function App() {
     };
 
     setExtractedData(normalizedData);
+    setCalculationResult(null);
+    setSelectedInstallation(null);
     setCurrentStep("map");
-    fetchInstallations();
+    void fetchInstallations();
     sileo.success({ title: "Datos validados correctamente" });
   };
 
@@ -487,14 +847,27 @@ export default function App() {
     setIsLoadingInstallations(true);
 
     try {
-      const response = await axios.get<ApiInstallation[]>("/api/installations");
-      setInstallations(response.data);
+      const response = await axios.get<
+        ApiInstallation[] | { data: ApiInstallation[] }
+      >("/api/installations");
+
+      const responseData = response.data;
+      const parsedInstallations = Array.isArray(responseData)
+        ? responseData
+        : Array.isArray(responseData?.data)
+          ? responseData.data
+          : [];
+
+      setInstallations(
+        parsedInstallations.filter((item) => item.active !== false),
+      );
     } catch (error) {
       console.error("Error fetching installations:", error);
       sileo.error({
         title: "Error al cargar instalaciones",
         description: "Inténtalo de nuevo más tarde",
       });
+      setInstallations([]);
     } finally {
       setIsLoadingInstallations(false);
     }
@@ -507,32 +880,30 @@ export default function App() {
 
   useEffect(() => {
     if (currentStep !== "calculation") return;
+    if (!extractedData || !selectedInstallation) return;
 
-    const timer = setTimeout(() => {
-      if (extractedData && selectedInstallation) {
-        const result = calculateEnergyStudy({
-          monthlyConsumptionKwh:
-            extractedData.averageMonthlyConsumptionKwh ??
-            extractedData.monthlyConsumption ??
-            0,
-          billType:
-            (extractedData.billType as BillData["billType"] | undefined) ||
-            "2TD",
-          effectiveHours: selectedInstallation.horas_efectivas,
-          investmentCostKwh: selectedInstallation.coste_kwh_inversion,
-          serviceCostKwh: selectedInstallation.coste_kwh_servicio,
-          selfConsumptionRatio: normalizeSelfConsumption(
-            selectedInstallation.porcentaje_autoconsumo
-          ),
-        });
+    const timer = window.setTimeout(() => {
+      const result = calculateEnergyStudy({
+        monthlyConsumptionKwh:
+          extractedData.averageMonthlyConsumptionKwh ??
+          extractedData.monthlyConsumption ??
+          0,
+        billType:
+          (extractedData.billType as BillData["billType"] | undefined) || "2TD",
+        effectiveHours: selectedInstallation.horas_efectivas,
+        investmentCostKwh: selectedInstallation.coste_kwh_inversion,
+        serviceCostKwh: selectedInstallation.coste_kwh_servicio,
+        selfConsumptionRatio: normalizeSelfConsumption(
+          selectedInstallation.porcentaje_autoconsumo,
+        ),
+      });
 
-        setCalculationResult(result);
-        setCurrentStep("result");
-        sileo.success({ title: "Estudio generado con éxito" });
-      }
-    }, 4000);
+      setCalculationResult(result);
+      setCurrentStep("result");
+      sileo.success({ title: "Estudio generado con éxito" });
+    }, 2500);
 
-    return () => clearTimeout(timer);
+    return () => window.clearTimeout(timer);
   }, [currentStep, extractedData, selectedInstallation]);
 
   return (
@@ -566,7 +937,12 @@ export default function App() {
                   { label: "Ubicación", icon: MapPin },
                   { label: "Resultado", icon: Zap },
                 ].map((step, i) => {
-                  const steps = ["upload", "validation", "map", "result"] as const;
+                  const steps = [
+                    "upload",
+                    "validation",
+                    "map",
+                    "result",
+                  ] as const;
                   const currentVisualStep =
                     currentStep === "calculation" ? "map" : currentStep;
                   const currentIndex = steps.indexOf(currentVisualStep);
@@ -583,7 +959,7 @@ export default function App() {
                           "w-10 h-10 md:w-14 md:h-14 rounded-xl md:rounded-2xl flex items-center justify-center transition-all duration-700 shadow-lg",
                           isActive
                             ? "brand-gradient text-brand-navy scale-110 shadow-brand-mint/20"
-                            : "bg-white border-2 border-brand-navy/5 text-brand-navy/20"
+                            : "bg-white border-2 border-brand-navy/5 text-brand-navy/20",
                         )}
                       >
                         {isActive && i < currentIndex ? (
@@ -597,7 +973,7 @@ export default function App() {
                         className={cn(
                           "text-[8px] md:text-[10px] uppercase tracking-[0.15em] md:tracking-[0.2em] font-bold transition-colors duration-500",
                           isActive ? "text-brand-navy" : "text-brand-navy/20",
-                          !isCurrent && "hidden md:block"
+                          !isCurrent && "hidden md:block",
                         )}
                       >
                         {step.label}
@@ -636,8 +1012,8 @@ export default function App() {
 
                   <p className="text-brand-gray text-lg mb-16 max-w-2xl mx-auto leading-relaxed">
                     Sube tu última factura eléctrica y deja que nuestra
-                    inteligencia artificial diseñe la solución de ahorro perfecta
-                    para tu hogar.
+                    inteligencia artificial diseñe la solución de ahorro
+                    perfecta para tu hogar.
                   </p>
 
                   <FileUploader onFileSelect={handleFileSelect} />
@@ -999,7 +1375,8 @@ export default function App() {
                               Tu Ubicación
                             </p>
                             <p className="font-bold text-brand-navy">
-                              {extractedData?.address || "Cargando dirección..."}
+                              {extractedData?.address ||
+                                "Cargando dirección..."}
                             </p>
                           </div>
                         </div>
@@ -1062,7 +1439,8 @@ export default function App() {
                                   Potencia
                                 </p>
                                 <p className="font-bold text-brand-navy">
-                                  {formatNumber(inst.potencia_instalada_kwp)} kWp
+                                  {formatNumber(inst.potencia_instalada_kwp)}{" "}
+                                  kWp
                                 </p>
                               </div>
 
@@ -1072,7 +1450,7 @@ export default function App() {
                                 </p>
                                 <p className="font-bold text-brand-navy">
                                   {displayPercentage(
-                                    inst.porcentaje_autoconsumo
+                                    inst.porcentaje_autoconsumo,
                                   )}
                                   %
                                 </p>
@@ -1171,7 +1549,7 @@ export default function App() {
                           <h2 className="text-4xl md:text-6xl font-bold mb-4 leading-tight">
                             Ahorra hasta <br className="hidden md:block" />
                             {formatCurrency(
-                              calculationResult.annualSavingsInvestment
+                              calculationResult.annualSavingsInvestment,
                             )}{" "}
                             / año
                           </h2>
@@ -1187,7 +1565,7 @@ export default function App() {
                           </p>
                           <p className="text-3xl md:text-4xl font-bold">
                             {formatCurrency(
-                              calculationResult.annualSavingsInvestment * 25
+                              calculationResult.annualSavingsInvestment * 25,
                             )}
                           </p>
                         </div>
@@ -1202,16 +1580,25 @@ export default function App() {
                           {
                             label: "Consumo Anual",
                             value: `${formatNumber(
-                              calculationResult.annualConsumptionKwh
+                              calculationResult.annualConsumptionKwh,
                             )} kWh`,
                           },
                           {
                             label: "Inversión",
                             value: formatCurrency(
-                              calculationResult.investmentCost
+                              calculationResult.investmentCost,
                             ),
                           },
-                          { label: "Payback", value: "4.2 años" },
+                          {
+                            label: "Payback",
+                            value:
+                              calculationResult.annualSavingsInvestment > 0
+                                ? `${(
+                                    calculationResult.investmentCost /
+                                    calculationResult.annualSavingsInvestment
+                                  ).toFixed(1)} años`
+                                : "-",
+                          },
                         ].map((stat, i) => (
                           <div key={i} className="space-y-2">
                             <p className="text-[10px] uppercase tracking-[0.2em] font-bold text-brand-navy/40">
