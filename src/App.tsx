@@ -87,6 +87,13 @@ const parseFormNumber = (value: unknown): number | undefined => {
   return Number.NaN;
 };
 
+type ProposalMode = "investment" | "service" | "comparison";
+
+type StudyComparisonResult = {
+  investment: CalculationResult;
+  service: CalculationResult;
+};
+
 const requiredNumberField = z.preprocess(
   (value) => parseFormNumber(value),
   z
@@ -455,6 +462,235 @@ async function sendStudyEmailWithFallback(params: {
     calculationResult,
   });
 }
+type ProposalCardData = {
+  id: "investment" | "service";
+  title: string;
+  badge: string;
+  annualSavings: number;
+  totalSavings25Years: number;
+  upfrontCost: number;
+  monthlyFee: number | null;
+  annualMaintenance: number;
+  monthlyMaintenance: number | null;
+  paybackYears: number;
+  recommendedPowerKwp: number;
+  annualConsumptionKwh: number;
+  description: string;
+  valuePoints: string[];
+};
+
+function getFirstNumericField(
+  source: unknown,
+  keys: string[],
+  fallback = 0,
+): number {
+  if (!source || typeof source !== "object") return fallback;
+
+  const record = source as Record<string, unknown>;
+
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+  }
+
+  return fallback;
+}
+
+function getServiceMonthlyFeeFromInstallation(
+  installation: ApiInstallation | null,
+  annualConsumptionKwh: number,
+): number | null {
+  if (!installation) return null;
+
+  const directMonthlyFee = getFirstNumericField(
+    installation,
+    [
+      "serviceMonthlyFee",
+      "monthlyServiceFee",
+      "precio_mensual_servicio",
+      "cuota_mensual_servicio",
+    ],
+    Number.NaN,
+  );
+
+  if (Number.isFinite(directMonthlyFee)) {
+    return directMonthlyFee;
+  }
+
+  const serviceCostPerKwh = installation.coste_kwh_servicio;
+
+  if (
+    typeof serviceCostPerKwh === "number" &&
+    Number.isFinite(serviceCostPerKwh) &&
+    annualConsumptionKwh > 0
+  ) {
+    return (annualConsumptionKwh * serviceCostPerKwh) / 12;
+  }
+
+  return null;
+}
+
+function getAnnualMaintenanceFromInstallation(
+  installation: ApiInstallation | null,
+  recommendedPowerKwp: number,
+): number {
+  if (!installation) return 0;
+
+  const directAnnualMaintenance = getFirstNumericField(
+    installation,
+    [
+      "annualMaintenance",
+      "maintenanceAnnual",
+      "mantenimiento_anual",
+      "coste_anual_mantenimiento",
+    ],
+    Number.NaN,
+  );
+
+  if (Number.isFinite(directAnnualMaintenance)) {
+    return directAnnualMaintenance;
+  }
+
+  const maintenancePerKwp = installation.coste_anual_mantenimiento_por_kwp;
+
+  if (
+    typeof maintenancePerKwp === "number" &&
+    Number.isFinite(maintenancePerKwp) &&
+    recommendedPowerKwp > 0
+  ) {
+    return maintenancePerKwp * recommendedPowerKwp;
+  }
+
+  return 0;
+}
+
+function buildProposalCardData(
+  result: CalculationResult | null,
+  mode: "investment" | "service",
+  installation: ApiInstallation | null,
+): ProposalCardData {
+  const recommendedPowerKwp = getFirstNumericField(result, [
+    "recommendedPowerKwp",
+  ]);
+
+  const annualConsumptionKwh = getFirstNumericField(result, [
+    "annualConsumptionKwh",
+  ]);
+
+  const annualMaintenance = getAnnualMaintenanceFromInstallation(
+    installation,
+    recommendedPowerKwp,
+  );
+
+  const monthlyMaintenance =
+    annualMaintenance > 0 ? annualMaintenance / 12 : null;
+
+  if (mode === "investment") {
+    const annualSavings = getFirstNumericField(result, [
+      "annualSavingsInvestment",
+      "annualSavings",
+    ]);
+
+    const upfrontCost = getFirstNumericField(result, [
+      "investmentCost",
+      "initialInvestment",
+      "upfrontCost",
+    ]);
+
+    const totalSavings25Years = getFirstNumericField(
+      result,
+      [
+        "totalSavings25YearsInvestment",
+        "investmentSavings25Years",
+        "totalSavings25Years",
+      ],
+      annualSavings * 25,
+    );
+
+    const paybackYears = annualSavings > 0 ? upfrontCost / annualSavings : 0;
+
+    return {
+      id: "investment",
+      title: "Inversión",
+      badge: "Mayor rentabilidad",
+      annualSavings,
+      totalSavings25Years,
+      upfrontCost,
+      monthlyFee: null,
+      annualMaintenance,
+      monthlyMaintenance,
+      paybackYears,
+      recommendedPowerKwp,
+      annualConsumptionKwh,
+      description:
+        "Realizas la inversión inicial y maximizas el ahorro a largo plazo.",
+      valuePoints: [
+        "Mayor ahorro acumulado en 25 años",
+        "La instalación se amortiza y el retorno es más alto",
+        "Ideal si buscas rentabilidad y control total del ahorro",
+        "Sin cuota mensual recurrente",
+      ],
+    };
+  }
+
+  const annualSavings = getFirstNumericField(result, [
+    "annualSavingsService",
+    "serviceAnnualSavings",
+    "annualSavings",
+    "annualSavingsInvestment",
+  ]);
+
+  const upfrontCost = getFirstNumericField(result, [
+    "serviceInitialCost",
+    "initialCostService",
+    "serviceUpfrontCost",
+  ]);
+
+  const totalSavings25Years = getFirstNumericField(
+    result,
+    [
+      "totalSavings25YearsService",
+      "serviceSavings25Years",
+      "serviceTotalSavings25Years",
+    ],
+    annualSavings * 25,
+  );
+
+  const monthlyFee = getServiceMonthlyFeeFromInstallation(
+    installation,
+    annualConsumptionKwh,
+  );
+
+  const paybackYears = getFirstNumericField(result, [
+    "servicePaybackYears",
+    "paybackYearsService",
+  ]);
+
+  return {
+    id: "service",
+    title: "Servicio",
+    badge: "Menor entrada",
+    annualSavings,
+    totalSavings25Years,
+    upfrontCost,
+    monthlyFee,
+    annualMaintenance,
+    monthlyMaintenance,
+    paybackYears,
+    recommendedPowerKwp,
+    annualConsumptionKwh,
+    description:
+      "Modelo pensado para reducir la barrera de entrada y facilitar la contratación.",
+    valuePoints: [
+      "Menor o nulo desembolso inicial",
+      "Cuota más predecible y entrada más cómoda",
+      "Ideal si priorizas liquidez inmediata",
+      "Proceso de contratación más accesible para el cliente",
+    ],
+  };
+}
 
 export default function App() {
   const [view, setView] = useState<"public" | "admin">("public");
@@ -465,11 +701,147 @@ export default function App() {
   const [rawExtraction, setRawExtraction] = useState<ExtractedBillData | null>(
     null,
   );
-  const [calculationResult, setCalculationResult] =
-    useState<CalculationResult | null>(null);
-  const [installations, setInstallations] = useState<ApiInstallation[]>([]);
+  const [proposalResults, setProposalResults] =
+    useState<StudyComparisonResult | null>(null);
+
+  const [selectedProposalView, setSelectedProposalView] =
+    useState<ProposalMode>("investment");
+
+  const investmentResult = proposalResults?.investment ?? null;
+  const serviceResult =
+    proposalResults?.service ?? proposalResults?.investment ?? null;
+
+  const activeProposalMode: "investment" | "service" =
+    selectedProposalView === "service" ? "service" : "investment";
   const [selectedInstallation, setSelectedInstallation] =
     useState<ApiInstallation | null>(null);
+
+  const activeCalculationResult =
+    activeProposalMode === "service"
+      ? (serviceResult ?? investmentResult)
+      : investmentResult;
+
+  const investmentProposal = buildProposalCardData(
+    investmentResult,
+    "investment",
+    selectedInstallation,
+  );
+  const getMonthlyFeeLabel = (
+    proposal: ProposalCardData,
+    isInvestment = false,
+  ) => {
+    if (isInvestment) return "Sin cuota";
+
+    return proposal.monthlyFee && proposal.monthlyFee > 0
+      ? `${formatCurrency(proposal.monthlyFee)} / mes`
+      : "Consultar";
+  };
+
+  const getPaybackLabel = (proposal: ProposalCardData) => {
+    return proposal.paybackYears > 0
+      ? `${proposal.paybackYears.toFixed(1)} años`
+      : "-";
+  };
+
+  const getProposalMetrics = (proposal: ProposalCardData) => ({
+    annualSavings: formatCurrency(proposal.annualSavings),
+    totalSavings25Years: formatCurrency(proposal.totalSavings25Years),
+    upfrontCost: formatCurrency(proposal.upfrontCost),
+    monthlyFee: getMonthlyFeeLabel(proposal, proposal.id === "investment"),
+    payback: getPaybackLabel(proposal),
+  });
+
+  const serviceProposal = buildProposalCardData(
+    serviceResult,
+    "service",
+    selectedInstallation,
+  );
+
+  const activeProposal =
+    activeProposalMode === "service" ? serviceProposal : investmentProposal;
+  const investmentMetrics = getProposalMetrics(investmentProposal);
+  const serviceMetrics = getProposalMetrics(serviceProposal);
+  const activeMetrics = getProposalMetrics(activeProposal);
+
+  const activeProposalStats =
+    activeProposal.id === "investment"
+      ? [
+          {
+            label: "Ahorro anual",
+            value: activeMetrics.annualSavings,
+          },
+          {
+            label: "Inversión inicial",
+            value: activeMetrics.upfrontCost,
+          },
+          {
+            label: "Payback",
+            value: activeMetrics.payback,
+          },
+        ]
+      : [
+          {
+            label: "Ahorro anual",
+            value: activeMetrics.annualSavings,
+          },
+          {
+            label: "Cuota mensual",
+            value: activeMetrics.monthlyFee,
+          },
+          {
+            label: "Ahorro 25 años",
+            value: activeMetrics.totalSavings25Years,
+          },
+        ];
+
+  const proposalSlides = [investmentProposal, serviceProposal];
+  const comparisonRows = [
+    {
+      label: "Ahorro anual",
+      investment: investmentMetrics.annualSavings,
+      service: serviceMetrics.annualSavings,
+    },
+    {
+      label: "Ahorro a 25 años",
+      investment: investmentMetrics.totalSavings25Years,
+      service: serviceMetrics.totalSavings25Years,
+    },
+    {
+      label: "Coste inicial",
+      investment: investmentMetrics.upfrontCost,
+      service: serviceMetrics.upfrontCost,
+    },
+    {
+      label: "Cuota mensual",
+      investment: investmentMetrics.monthlyFee,
+      service: serviceMetrics.monthlyFee,
+    },
+    {
+      label: "Payback",
+      investment: investmentMetrics.payback,
+      service: serviceMetrics.payback,
+    },
+  ];
+
+  const activeSlideIndex = activeProposalMode === "investment" ? 0 : 1;
+
+  const goToProposal = (mode: "investment" | "service") => {
+    setSelectedProposalView(mode);
+  };
+
+  const goNextProposal = () => {
+    setSelectedProposalView(
+      activeProposalMode === "investment" ? "service" : "investment",
+    );
+  };
+
+  const goPrevProposal = () => {
+    setSelectedProposalView(
+      activeProposalMode === "service" ? "investment" : "service",
+    );
+  };
+  const [installations, setInstallations] = useState<ApiInstallation[]>([]);
+
   const [isLoadingInstallations, setIsLoadingInstallations] = useState(false);
   const [uploadedInvoiceFile, setUploadedInvoiceFile] = useState<File | null>(
     null,
@@ -506,15 +878,19 @@ export default function App() {
   }, [watchedAverageMonthlyConsumption, setValue]);
 
   const handleDownloadPDF = async () => {
-    if (!calculationResult || !extractedData) return;
+    if (!activeCalculationResult || !extractedData) return;
 
     sileo.promise(
       (async () => {
         const billData = toBaseBillData(extractedData);
-        const pdfArtifact = await buildPdfArtifact(billData, calculationResult);
+        const pdfArtifact = await buildPdfArtifact(
+          billData,
+          activeCalculationResult,
+        );
+
         savePdfArtifactLocally(
           pdfArtifact,
-          `Estudio_Solar_${billData.name || "cliente"}.pdf`,
+          `Estudio_Solar_${activeProposal.id}_${billData.name || "cliente"}.pdf`,
         );
       })(),
       {
@@ -612,8 +988,41 @@ export default function App() {
 
     return response;
   };
+  const handleSendEmail = async () => {
+    if (!activeCalculationResult || !extractedData?.email) {
+      sileo.error({
+        title: "Falta el email del cliente",
+        description: "Añade un correo válido antes de enviarlo.",
+      });
+      return;
+    }
 
+    sileo.promise(
+      (async () => {
+        const billData = toBaseBillData(extractedData);
+        const pdfArtifact = await buildPdfArtifact(
+          billData,
+          activeCalculationResult,
+        );
+
+        await sendStudyEmailWithFallback({
+          to: extractedData.email,
+          customerName: extractedData.name || "Cliente",
+          billData,
+          calculationResult: activeCalculationResult,
+          pdfArtifact,
+        });
+      })(),
+      {
+        loading: { title: "Enviando estudio por email..." },
+        success: { title: "Estudio enviado por email con éxito" },
+        error: { title: "No se pudo enviar el email" },
+      },
+    );
+  };
   // const handleSendEmail = async () => {
+  //   console.log("Enviando email...");
+
   //   if (!calculationResult || !extractedData?.email) {
   //     sileo.error({
   //       title: "Falta el email del cliente",
@@ -627,101 +1036,9 @@ export default function App() {
   //       const billData = toBaseBillData(extractedData);
   //       const pdfArtifact = await buildPdfArtifact(billData, calculationResult);
 
-  //       await sendStudyEmailWithFallback({
-  //         to: extractedData.email,
-  //         customerName: extractedData.name || "Cliente",
-  //         billData,
-  //         calculationResult,
-  //         pdfArtifact,
-  //       });
-  //     })(),
-  //     {
-  //       loading: { title: "Enviando estudio por email..." },
-  //       success: { title: "Estudio enviado por email con éxito" },
-  //       error: { title: "No se pudo enviar el email" },
-  //     }
-  //   );
-  // };
-  // const handleSendEmail = async () => {
-  //   if (!calculationResult || !extractedData?.email) {
-  //     sileo.error({
-  //       title: "Falta el email del cliente",
-  //       description: "Añade un correo válido antes de enviarlo.",
-  //     });
-  //     return;
-  //   }
+  //       // Verificar que el PDF se ha generado
+  //       console.log("PDF generado:", pdfArtifact);
 
-  //   sileo.promise(
-  //     (async () => {
-  //       const billData = toBaseBillData(extractedData);
-  //       const pdfArtifact = await buildPdfArtifact(billData, calculationResult);
-
-  //       // Asegúrate de que pdfArtifact sea convertido a un Blob correctamente
-  //       let pdfBlob: Blob | undefined;
-
-  //       if (
-  //         pdfArtifact instanceof ArrayBuffer ||
-  //         pdfArtifact instanceof Uint8Array
-  //       ) {
-  //         // Convertimos ArrayBuffer o Uint8Array a un Blob
-  //         pdfBlob = new Blob([pdfArtifact as ArrayBuffer], {
-  //           type: "application/pdf",
-  //         });
-  //       } else if (pdfArtifact instanceof Blob) {
-  //         // Si ya es un Blob, lo usamos directamente
-  //         pdfBlob = pdfArtifact;
-  //       } else if (pdfArtifact && typeof pdfArtifact.output === "function") {
-  //         // Si es un objeto con el método 'output', como PDFDocument
-  //         const pdfAsBlob = pdfArtifact.output("blob");
-
-  //         // Verificamos si la salida es un Blob, de lo contrario, lo convertimos
-  //         if (pdfAsBlob instanceof Blob) {
-  //           pdfBlob = pdfAsBlob;
-  //         } else {
-  //           pdfBlob = new Blob([pdfAsBlob as ArrayBuffer], {
-  //             type: "application/pdf",
-  //           });
-  //         }
-  //       } else {
-  //         // Si no es un Blob, ArrayBuffer ni Uint8Array
-  //         sileo.error({
-  //           title: "Error al generar el PDF",
-  //           description: "El archivo PDF no tiene el formato adecuado.",
-  //         });
-  //         return;
-  //       }
-
-  //       // Ahora pasamos este Blob al servicio de envío de email
-  //       await sendStudyEmailWithFallback({
-  //         to: extractedData.email,
-  //         customerName: extractedData.name || "Cliente",
-  //         billData,
-  //         calculationResult,
-  //         pdfArtifact: pdfBlob, // Aquí le pasamos el archivo PDF como un Blob
-  //       });
-  //     })(),
-  //     {
-  //       loading: { title: "Enviando estudio por email..." },
-  //       success: { title: "Estudio enviado por email con éxito" },
-  //       error: { title: "No se pudo enviar el email" },
-  //     },
-  //   );
-  // };
-  // const handleSendEmail = async () => {
-  //   if (!calculationResult || !extractedData?.email) {
-  //     sileo.error({
-  //       title: "Falta el email del cliente",
-  //       description: "Añade un correo válido antes de enviarlo.",
-  //     });
-  //     return;
-  //   }
-
-  //   sileo.promise(
-  //     (async () => {
-  //       const billData = toBaseBillData(extractedData);
-  //       const pdfArtifact = await buildPdfArtifact(billData, calculationResult);
-
-  //       // Asegúrate de que pdfArtifact sea convertido a un Blob correctamente
   //       let pdfBlob: Blob | undefined;
 
   //       // Si pdfArtifact es un ArrayBuffer o Uint8Array, lo convertimos a un Blob
@@ -733,29 +1050,79 @@ export default function App() {
   //           type: "application/pdf",
   //         });
   //       } else if (pdfArtifact instanceof Blob) {
-  //         // Si ya es un Blob, lo usamos directamente
   //         pdfBlob = pdfArtifact;
   //       } else if (pdfArtifact && typeof pdfArtifact.output === "function") {
-  //         // Si es un objeto con el método 'output', como PDFDocument
   //         const pdfAsBlob = pdfArtifact.output("blob");
 
   //         // Verificamos si la salida es un Blob, de lo contrario, lo convertimos
   //         if (pdfAsBlob instanceof Blob) {
   //           pdfBlob = pdfAsBlob;
   //         } else {
-  //           // Si la salida no es un Blob, intentamos convertirla
   //           pdfBlob = new Blob([pdfAsBlob as ArrayBuffer], {
   //             type: "application/pdf",
   //           });
   //         }
-  //       } else {
-  //         // Si no es un Blob, ArrayBuffer ni Uint8Array
+  //       }
+
+  //       console.log("PDF convertido a Blob:", pdfBlob);
+
+  //       if (!pdfBlob) {
   //         sileo.error({
   //           title: "Error al generar el PDF",
-  //           description: "El archivo PDF no tiene el formato adecuado.",
+  //           description: "No se pudo generar el PDF correctamente.",
   //         });
   //         return;
   //       }
+
+  //       // Aquí guardamos el archivo PDF localmente
+  //       savePdfArtifactLocally(
+  //         pdfBlob,
+  //         `Estudio_Solar_${billData.name || "cliente"}.pdf`,
+  //       );
+  //       function pdfArtifactToBlob(pdfArtifact: PdfArtifact): Blob {
+  //         if (!pdfArtifact) {
+  //           throw new Error("No se pudo generar el PDF");
+  //         }
+
+  //         if (isBlob(pdfArtifact)) {
+  //           return pdfArtifact;
+  //         }
+
+  //         if (isUint8Array(pdfArtifact)) {
+  //           const buffer = uint8ArrayToArrayBuffer(pdfArtifact);
+  //           return new Blob([buffer], { type: "application/pdf" });
+  //         }
+
+  //         if (isArrayBuffer(pdfArtifact)) {
+  //           return new Blob([pdfArtifact], { type: "application/pdf" });
+  //         }
+
+  //         if (
+  //           hasSaveMethod(pdfArtifact) &&
+  //           typeof pdfArtifact.output === "function"
+  //         ) {
+  //           const output = pdfArtifact.output("blob");
+
+  //           if (output instanceof Blob) {
+  //             return output;
+  //           }
+
+  //           if (output instanceof Uint8Array) {
+  //             const buffer = uint8ArrayToArrayBuffer(output);
+  //             return new Blob([buffer], { type: "application/pdf" });
+  //           }
+
+  //           if (output instanceof ArrayBuffer) {
+  //             return new Blob([output], { type: "application/pdf" });
+  //           }
+  //         }
+
+  //         throw new Error("Formato de PDF no soportado");
+  //       }
+
+  //       // Convertir el PDF Blob a Base64
+  //       const pdfBase64 = await blobToBase64DataUrl(pdfBlob);
+  //       console.log("PDF convertido a Base64:", pdfBase64);
 
   //       // Ahora pasamos este Blob al servicio de envío de email
   //       await sendStudyEmailWithFallback({
@@ -773,126 +1140,6 @@ export default function App() {
   //     },
   //   );
   // };
-  const handleSendEmail = async () => {
-    console.log("Enviando email...");
-
-    if (!calculationResult || !extractedData?.email) {
-      sileo.error({
-        title: "Falta el email del cliente",
-        description: "Añade un correo válido antes de enviarlo.",
-      });
-      return;
-    }
-
-    sileo.promise(
-      (async () => {
-        const billData = toBaseBillData(extractedData);
-        const pdfArtifact = await buildPdfArtifact(billData, calculationResult);
-
-        // Verificar que el PDF se ha generado
-        console.log("PDF generado:", pdfArtifact);
-
-        let pdfBlob: Blob | undefined;
-
-        // Si pdfArtifact es un ArrayBuffer o Uint8Array, lo convertimos a un Blob
-        if (
-          pdfArtifact instanceof ArrayBuffer ||
-          pdfArtifact instanceof Uint8Array
-        ) {
-          pdfBlob = new Blob([pdfArtifact as ArrayBuffer], {
-            type: "application/pdf",
-          });
-        } else if (pdfArtifact instanceof Blob) {
-          pdfBlob = pdfArtifact;
-        } else if (pdfArtifact && typeof pdfArtifact.output === "function") {
-          const pdfAsBlob = pdfArtifact.output("blob");
-
-          // Verificamos si la salida es un Blob, de lo contrario, lo convertimos
-          if (pdfAsBlob instanceof Blob) {
-            pdfBlob = pdfAsBlob;
-          } else {
-            pdfBlob = new Blob([pdfAsBlob as ArrayBuffer], {
-              type: "application/pdf",
-            });
-          }
-        }
-
-        console.log("PDF convertido a Blob:", pdfBlob);
-
-        if (!pdfBlob) {
-          sileo.error({
-            title: "Error al generar el PDF",
-            description: "No se pudo generar el PDF correctamente.",
-          });
-          return;
-        }
-
-        // Aquí guardamos el archivo PDF localmente
-        savePdfArtifactLocally(
-          pdfBlob,
-          `Estudio_Solar_${billData.name || "cliente"}.pdf`,
-        );
-        function pdfArtifactToBlob(pdfArtifact: PdfArtifact): Blob {
-          if (!pdfArtifact) {
-            throw new Error("No se pudo generar el PDF");
-          }
-
-          if (isBlob(pdfArtifact)) {
-            return pdfArtifact;
-          }
-
-          if (isUint8Array(pdfArtifact)) {
-            const buffer = uint8ArrayToArrayBuffer(pdfArtifact);
-            return new Blob([buffer], { type: "application/pdf" });
-          }
-
-          if (isArrayBuffer(pdfArtifact)) {
-            return new Blob([pdfArtifact], { type: "application/pdf" });
-          }
-
-          if (
-            hasSaveMethod(pdfArtifact) &&
-            typeof pdfArtifact.output === "function"
-          ) {
-            const output = pdfArtifact.output("blob");
-
-            if (output instanceof Blob) {
-              return output;
-            }
-
-            if (output instanceof Uint8Array) {
-              const buffer = uint8ArrayToArrayBuffer(output);
-              return new Blob([buffer], { type: "application/pdf" });
-            }
-
-            if (output instanceof ArrayBuffer) {
-              return new Blob([output], { type: "application/pdf" });
-            }
-          }
-
-          throw new Error("Formato de PDF no soportado");
-        }
-
-        // Convertir el PDF Blob a Base64
-        const pdfBase64 = await blobToBase64DataUrl(pdfBlob);
-        console.log("PDF convertido a Base64:", pdfBase64);
-
-        // Ahora pasamos este Blob al servicio de envío de email
-        await sendStudyEmailWithFallback({
-          to: extractedData.email,
-          customerName: extractedData.name || "Cliente",
-          billData,
-          calculationResult,
-          pdfArtifact: pdfBlob, // Aquí le pasamos el archivo PDF como un Blob
-        });
-      })(),
-      {
-        loading: { title: "Enviando estudio por email..." },
-        success: { title: "Estudio enviado por email con éxito" },
-        error: { title: "No se pudo enviar el email" },
-      },
-    );
-  };
   function blobToBase64DataUrl(blob: Blob): Promise<string> {
     return new Promise((resolve, reject) => {
       const reader = new FileReader();
@@ -1009,7 +1256,8 @@ export default function App() {
     };
 
     setExtractedData(normalizedData);
-    setCalculationResult(null);
+    setProposalResults(null);
+    setSelectedProposalView("investment");
     setSelectedInstallation(null);
     setCurrentStep("map");
     void fetchInstallations();
@@ -1073,7 +1321,11 @@ export default function App() {
         ),
       });
 
-      setCalculationResult(result);
+      setProposalResults({
+        investment: result,
+        service: result,
+      });
+      setSelectedProposalView("investment");
       setCurrentStep("result");
       sileo.success({ title: "Estudio generado con éxito" });
 
@@ -1731,18 +1983,18 @@ export default function App() {
                 </motion.div>
               )}
 
-              {currentStep === "result" && calculationResult && (
+              {currentStep === "result" && proposalResults && (
                 <motion.div
                   key="result"
                   initial={{ opacity: 0, y: 30 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="space-y-12"
+                  className="space-y-8 md:space-y-12"
                 >
-                  <div className="brand-gradient rounded-[2.5rem] md:rounded-[3.5rem] p-8 md:p-12 text-brand-navy shadow-2xl shadow-brand-mint/20 relative overflow-hidden">
+                  <div className="brand-gradient rounded-[2rem] md:rounded-[3.5rem] p-5 md:p-12 text-brand-navy shadow-2xl shadow-brand-mint/20 relative overflow-hidden">
+                    {" "}
                     <div className="absolute top-0 right-0 w-64 md:w-96 h-64 md:h-96 bg-white/10 blur-3xl rounded-full -mr-32 md:-mr-48 -mt-32 md:-mt-48" />
-
-                    <div className="relative z-10">
-                      <div className="flex flex-col lg:flex-row justify-between items-start gap-8 mb-12 md:mb-16">
+                    <div className="relative z-10 space-y-10">
+                      <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-8">
                         <div>
                           <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/20 text-brand-navy text-[10px] font-bold uppercase tracking-widest mb-4">
                             <Sparkles className="w-3 h-3" />
@@ -1750,142 +2002,534 @@ export default function App() {
                           </div>
 
                           <h2 className="text-4xl md:text-6xl font-bold mb-4 leading-tight">
-                            Ahorra hasta <br className="hidden md:block" />
-                            {formatCurrency(
-                              calculationResult.annualSavingsInvestment,
-                            )}{" "}
-                            / año
+                            Compara tu modalidad{" "}
+                            <br className="hidden md:block" />y elige cómo
+                            ahorrar
                           </h2>
 
-                          <p className="text-brand-navy/60 font-medium text-base md:text-lg">
-                            Tu independencia energética comienza hoy mismo.
+                          <p className="text-brand-navy/60 font-medium text-base md:text-lg max-w-2xl">
+                            Hemos preparado una comparativa entre inversión y
+                            servicio para que puedas ver rápidamente cuál encaja
+                            mejor con tu perfil.
                           </p>
                         </div>
 
-                        <div className="bg-white/30 backdrop-blur-xl p-6 md:p-8 rounded-[2rem] md:rounded-[2.5rem] border border-white/20 shadow-2xl text-center w-full lg:w-auto lg:min-w-[240px]">
+                        <div className="bg-white/30 backdrop-blur-xl p-4 md:p-8 rounded-[1.4rem] md:rounded-[2.5rem] border border-white/20 shadow-xl text-center w-full xl:w-auto xl:min-w-[260px]">
+                          {" "}
                           <p className="text-[10px] uppercase tracking-[0.2em] font-bold text-brand-navy/40 mb-2">
-                            Ahorro a 25 años
+                            Opción seleccionada
                           </p>
-                          <p className="text-3xl md:text-4xl font-bold">
-                            {formatCurrency(
-                              calculationResult.annualSavingsInvestment * 25,
-                            )}
+                          <p className="text-2xl md:text-4xl font-bold">
+                            {" "}
+                            {activeProposal.title}
+                          </p>
+                          <p className="text-sm text-brand-navy/60 mt-3">
+                            Ahorro estimado anual
+                          </p>
+                          <p className="text-xl md:text-2xl font-bold mt-1">
+                            {" "}
+                            {formatCurrency(activeProposal.annualSavings)}
                           </p>
                         </div>
                       </div>
 
-                      <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
-                        {[
-                          {
-                            label: "Potencia Rec.",
-                            value: `${calculationResult.recommendedPowerKwp} kWp`,
-                          },
-                          {
-                            label: "Consumo Anual",
-                            value: `${formatNumber(
-                              calculationResult.annualConsumptionKwh,
-                            )} kWh`,
-                          },
-                          {
-                            label: "Inversión",
-                            value: formatCurrency(
-                              calculationResult.investmentCost,
-                            ),
-                          },
-                          {
-                            label: "Payback",
-                            value:
-                              calculationResult.annualSavingsInvestment > 0
-                                ? `${(
-                                    calculationResult.investmentCost /
-                                    calculationResult.annualSavingsInvestment
-                                  ).toFixed(1)} años`
-                                : "-",
-                          },
-                        ].map((stat, i) => (
-                          <div key={i} className="space-y-2">
-                            <p className="text-[10px] uppercase tracking-[0.2em] font-bold text-brand-navy/40">
-                              {stat.label}
-                            </p>
-                            <p className="text-2xl font-bold">{stat.value}</p>
-                          </div>
-                        ))}
+                      <div className="w-full md:w-auto">
+                        <div className="inline-flex w-full md:w-auto rounded-[1.4rem] bg-white/35 p-1.5 backdrop-blur-xl border border-white/30 shadow-lg shadow-brand-navy/5">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              setSelectedProposalView("investment")
+                            }
+                            className={cn(
+                              "flex-1 md:flex-none px-4 py-3 rounded-[1rem] text-sm font-semibold transition-all",
+                              activeProposalMode === "investment"
+                                ? "bg-brand-navy text-white shadow-md"
+                                : "text-brand-navy/70 hover:text-brand-navy",
+                            )}
+                          >
+                            Inversión
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => setSelectedProposalView("service")}
+                            className={cn(
+                              "flex-1 md:flex-none px-4 py-3 rounded-[1rem] text-sm font-semibold transition-all",
+                              activeProposalMode === "service"
+                                ? "bg-brand-navy text-white shadow-md"
+                                : "text-brand-navy/70 hover:text-brand-navy",
+                            )}
+                          >
+                            Servicio
+                          </button>
+                        </div>
+                      </div>
+
+                      <div className="overflow-x-auto pb-2 -mx-1 md:mx-0 md:overflow-visible">
+                        <div className="flex gap-3 px-1 md:grid md:grid-cols-4 md:gap-8 md:px-0">
+                          {[
+                            {
+                              label: "Potencia Rec.",
+                              value: `${formatNumber(activeProposal.recommendedPowerKwp)} kWp`,
+                            },
+                            {
+                              label: "Consumo Anual",
+                              value: `${formatNumber(activeProposal.annualConsumptionKwh)} kWh`,
+                            },
+                            {
+                              label:
+                                activeProposalMode === "investment"
+                                  ? "Inversión inicial"
+                                  : "Coste inicial",
+                              value: formatCurrency(activeProposal.upfrontCost),
+                            },
+                            {
+                              label:
+                                activeProposalMode === "investment"
+                                  ? "Payback"
+                                  : "Cuota mensual",
+                              value:
+                                activeProposalMode === "investment"
+                                  ? activeProposal.paybackYears > 0
+                                    ? `${formatNumber(activeProposal.paybackYears)} años`
+                                    : "-"
+                                  : activeProposal.monthlyFee &&
+                                      activeProposal.monthlyFee > 0
+                                    ? `${formatCurrency(activeProposal.monthlyFee)} / mes`
+                                    : "Sin cuota",
+                            },
+                          ].map((stat, i) => (
+                            <div
+                              key={i}
+                              className="min-w-[145px] rounded-[1.25rem] bg-white/35 backdrop-blur-xl border border-white/25 p-3.5 shadow-md shadow-brand-navy/5 md:min-w-0 md:bg-transparent md:backdrop-blur-0 md:border-0 md:p-0 md:shadow-none"
+                            >
+                              <p className="text-[9px] uppercase tracking-[0.16em] font-bold text-brand-navy/40">
+                                {" "}
+                                {stat.label}
+                              </p>
+                              <p className="text-base md:text-2xl font-bold mt-1.5 text-brand-navy leading-tight">
+                                {" "}
+                                {stat.value}
+                              </p>
+                            </div>
+                          ))}
+                        </div>
                       </div>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-10">
+                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-10">
+                    {" "}
                     <div className="lg:col-span-2 space-y-8">
+                      <div className="bg-white rounded-[3rem] p-6 md:p-8 border border-brand-navy/5 shadow-xl shadow-brand-navy/5">
+                        <div className="flex items-start justify-between gap-3 mb-5">
+                          {" "}
+                          <div>
+                            <p className="text-[10px] uppercase tracking-[0.2em] font-bold text-brand-navy/40 mb-2">
+                              Modalidad
+                            </p>
+                            <h3 className="text-2xl font-bold text-brand-navy">
+                              {activeProposal.title}
+                            </h3>
+                          </div>
+                          <div className="flex items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={goPrevProposal}
+                              className="w-11 h-11 rounded-2xl bg-brand-navy/5 hover:bg-brand-navy/10 text-brand-navy font-bold transition"
+                            >
+                              ←
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={goNextProposal}
+                              className="w-11 h-11 rounded-2xl bg-brand-navy/5 hover:bg-brand-navy/10 text-brand-navy font-bold transition"
+                            >
+                              →
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="hidden md:flex gap-3 mb-6">
+                          <button
+                            type="button"
+                            onClick={() => goToProposal("investment")}
+                            className={cn(
+                              "px-4 py-2 rounded-2xl text-sm font-bold transition-all border",
+                              activeProposalMode === "investment"
+                                ? "bg-brand-navy text-white border-brand-navy"
+                                : "bg-white text-brand-navy border-brand-navy/10 hover:bg-brand-navy/5",
+                            )}
+                          >
+                            Inversión
+                          </button>
+
+                          <button
+                            type="button"
+                            onClick={() => goToProposal("service")}
+                            className={cn(
+                              "px-4 py-2 rounded-2xl text-sm font-bold transition-all border",
+                              activeProposalMode === "service"
+                                ? "bg-brand-navy text-white border-brand-navy"
+                                : "bg-white text-brand-navy border-brand-navy/10 hover:bg-brand-navy/5",
+                            )}
+                          >
+                            Servicio
+                          </button>
+                        </div>
+
+                        <div className="relative overflow-hidden">
+                          <AnimatePresence mode="wait">
+                            <motion.div
+                              key={activeProposal.id}
+                              initial={{
+                                opacity: 0,
+                                x:
+                                  activeProposalMode === "investment"
+                                    ? -40
+                                    : 40,
+                              }}
+                              animate={{ opacity: 1, x: 0 }}
+                              exit={{
+                                opacity: 0,
+                                x:
+                                  activeProposalMode === "investment"
+                                    ? 40
+                                    : -40,
+                              }}
+                              transition={{ duration: 0.28 }}
+                              className={cn(
+                                "rounded-[2rem] md:rounded-[2.5rem] p-5 md:p-10 border relative overflow-hidden min-h-[unset] md:min-h-[420px]",
+                                activeProposal.id === "investment"
+                                  ? "bg-brand-navy text-white border-brand-navy shadow-2xl shadow-brand-navy/20"
+                                  : "bg-gradient-to-br from-white to-brand-sky/10 text-brand-navy border-brand-navy/5 shadow-lg",
+                              )}
+                            >
+                              <div
+                                className={cn(
+                                  "absolute top-0 right-0 w-40 h-40 rounded-full blur-3xl",
+                                  activeProposal.id === "investment"
+                                    ? "bg-brand-mint/20"
+                                    : "bg-brand-sky/20",
+                                )}
+                              />
+
+                              <div className="relative z-10">
+                                <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
+                                  <div>
+                                    <span
+                                      className={cn(
+                                        "inline-flex px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest mb-4",
+                                        activeProposal.id === "investment"
+                                          ? "bg-white/10 text-white"
+                                          : "bg-brand-mint/10 text-brand-navy",
+                                      )}
+                                    >
+                                      {activeProposal.badge}
+                                    </span>
+
+                                    <h3 className="text-3xl md:text-4xl font-bold">
+                                      {activeProposal.title}
+                                    </h3>
+
+                                    <p
+                                      className={cn(
+                                        "mt-3 text-sm leading-relaxed max-w-xl",
+                                        activeProposal.id === "investment"
+                                          ? "text-white/75"
+                                          : "text-brand-gray",
+                                      )}
+                                    >
+                                      {activeProposal.description}
+                                    </p>
+                                  </div>
+
+                                  <div
+                                    className={cn(
+                                      "rounded-[1.4rem] px-4 py-3 border w-full sm:w-auto sm:min-w-[180px]",
+                                      activeProposal.id === "investment"
+                                        ? "bg-white/10 border-white/10"
+                                        : "bg-white border-brand-navy/5",
+                                    )}
+                                  >
+                                    <p
+                                      className={cn(
+                                        "text-[10px] uppercase tracking-[0.2em] font-bold mb-2",
+                                        activeProposal.id === "investment"
+                                          ? "text-white/50"
+                                          : "text-brand-navy/40",
+                                      )}
+                                    >
+                                      Ahorro anual
+                                    </p>
+                                    <p className="text-2xl font-bold">
+                                      {formatCurrency(
+                                        activeProposal.annualSavings,
+                                      )}
+                                    </p>
+                                  </div>
+                                </div>
+
+                                <div className="overflow-x-auto pb-1 -mx-1 mb-8 md:mx-0 md:overflow-visible">
+                                  <div className="flex gap-3 px-1 md:grid md:grid-cols-3 md:gap-4 md:px-0">
+                                    {activeProposalStats.map((stat) => (
+                                      <div
+                                        key={stat.label}
+                                        className={cn(
+                                          "min-w-[145px] rounded-[1.2rem] p-3 border md:min-w-0 md:rounded-2xl md:p-4",
+                                          activeProposal.id === "investment"
+                                            ? "bg-white/10 border-white/10"
+                                            : "bg-white border-brand-navy/5",
+                                        )}
+                                      >
+                                        <p
+                                          className={cn(
+                                            "text-[9px] md:text-[10px] uppercase tracking-[0.14em] md:tracking-widest font-bold mb-1",
+                                            activeProposal.id === "investment"
+                                              ? "text-white/50"
+                                              : "text-brand-navy/40",
+                                          )}
+                                        >
+                                          {stat.label}
+                                        </p>
+                                        <p className="text-sm md:text-lg font-bold leading-tight">
+                                          {stat.value}
+                                        </p>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </div>
+
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-5">
+                                  {activeProposal.valuePoints.map((item, i) => (
+                                    <div
+                                      key={i}
+                                      className={cn(
+                                        "flex gap-3 rounded-[1.2rem] md:rounded-none p-3 md:p-0",
+                                        activeProposal.id === "investment"
+                                          ? "bg-white/5 md:bg-transparent"
+                                          : "bg-brand-navy/[0.03] md:bg-transparent",
+                                      )}
+                                    >
+                                      <div
+                                        className={cn(
+                                          "w-8 h-8 md:w-10 md:h-10 rounded-xl flex items-center justify-center shrink-0",
+                                          activeProposal.id === "investment"
+                                            ? "bg-white/10"
+                                            : "brand-gradient shadow-md shadow-brand-mint/20",
+                                        )}
+                                      >
+                                        <Check
+                                          className={cn(
+                                            "w-4 h-4 md:w-5 md:h-5",
+                                            activeProposal.id === "investment"
+                                              ? "text-white"
+                                              : "text-brand-navy",
+                                          )}
+                                        />
+                                      </div>
+
+                                      <div>
+                                        <h4 className="font-semibold md:font-bold text-sm md:text-base mb-0.5 md:mb-1">
+                                          {item}
+                                        </h4>
+
+                                        <p
+                                          className={cn(
+                                            "hidden md:block text-xs leading-relaxed",
+                                            activeProposal.id === "investment"
+                                              ? "text-white/70"
+                                              : "text-brand-gray",
+                                          )}
+                                        >
+                                          {activeProposal.id === "investment"
+                                            ? "Pensada para clientes que quieren maximizar el retorno y consolidar el ahorro a largo plazo."
+                                            : "Pensada para clientes que quieren una entrada más cómoda y una decisión más flexible."}
+                                        </p>
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            </motion.div>
+                          </AnimatePresence>
+                        </div>
+
+                        <div className="flex items-center justify-center gap-2 mt-6">
+                          {proposalSlides.map((slide, index) => (
+                            <button
+                              key={slide.id}
+                              type="button"
+                              onClick={() => goToProposal(slide.id)}
+                              className={cn(
+                                "h-2.5 rounded-full transition-all",
+                                index === activeSlideIndex
+                                  ? "w-10 bg-brand-navy"
+                                  : "w-2.5 bg-brand-navy/20 hover:bg-brand-navy/40",
+                              )}
+                            />
+                          ))}
+                        </div>
+                      </div>
+
+                      <div className="bg-white rounded-[2rem] md:rounded-[3rem] p-5 md:p-10 border border-brand-navy/5 shadow-xl shadow-brand-navy/5">
+                        <h3 className="font-bold text-xl md:text-2xl text-brand-navy mb-6 md:mb-8 flex items-center gap-3">
+                          <TrendingUp className="w-5 h-5 md:w-6 md:h-6 text-brand-mint" />
+                          Comparativa rápida
+                        </h3>
+
+                        {/* Mobile */}
+                        <div className="md:hidden space-y-3">
+                          {comparisonRows.map((row) => (
+                            <div
+                              key={row.label}
+                              className="rounded-[1.25rem] border border-brand-navy/5 bg-gradient-to-b from-white to-brand-sky/5 p-3.5 shadow-sm"
+                            >
+                              <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-brand-navy/35 mb-3">
+                                {row.label}
+                              </p>
+
+                              <div className="grid grid-cols-2 gap-3">
+                                <div className="rounded-[1rem] bg-brand-navy text-white p-3">
+                                  <p className="text-[10px] uppercase tracking-widest text-white/50 font-bold mb-1">
+                                    Inversión
+                                  </p>
+                                  <p className="text-[13px] font-semibold leading-snug">
+                                    {" "}
+                                    {row.investment}
+                                  </p>
+                                </div>
+
+                                <div className="rounded-[1rem] bg-brand-navy/[0.04] p-3">
+                                  <p className="text-[10px] uppercase tracking-widest text-brand-navy/40 font-bold mb-1">
+                                    Servicio
+                                  </p>
+                                  <p className="text-[13px] font-semibold leading-snug">
+                                    {" "}
+                                    {row.service}
+                                  </p>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Desktop */}
+                        <div className="hidden md:block overflow-hidden rounded-[2rem] border border-brand-navy/5">
+                          <div className="grid grid-cols-3 bg-brand-navy/[0.03]">
+                            <div className="p-4 text-xs font-bold uppercase tracking-widest text-brand-navy/40">
+                              Concepto
+                            </div>
+                            <div className="p-4 text-xs font-bold uppercase tracking-widest text-brand-navy/40">
+                              Inversión
+                            </div>
+                            <div className="p-4 text-xs font-bold uppercase tracking-widest text-brand-navy/40">
+                              Servicio
+                            </div>
+                          </div>
+
+                          {comparisonRows.map((row, index) => (
+                            <div
+                              key={row.label}
+                              className={cn(
+                                "grid grid-cols-3",
+                                index % 2 === 0
+                                  ? "bg-white"
+                                  : "bg-brand-navy/[0.02]",
+                              )}
+                            >
+                              <div className="p-4 text-sm font-bold text-brand-navy">
+                                {row.label}
+                              </div>
+                              <div className="p-4 text-sm text-brand-gray">
+                                {row.investment}
+                              </div>
+                              <div className="p-4 text-sm text-brand-gray">
+                                {row.service}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                      {/* 
                       <div className="bg-white rounded-[3rem] p-10 border border-brand-navy/5 shadow-xl shadow-brand-navy/5">
                         <h3 className="font-bold text-2xl text-brand-navy mb-8 flex items-center gap-3">
-                          <TrendingUp className="w-6 h-6 text-brand-mint" />
-                          Tu Propuesta de Valor
+                          <Check className="w-6 h-6 text-brand-mint" />
+                          Propuesta activa: {activeProposal.title}
                         </h3>
 
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                          {[
-                            {
-                              title: "Ahorro Inmediato",
-                              desc: "Reduce tu factura hasta un 45% desde el primer día de conexión.",
-                            },
-                            {
-                              title: "Energía Local",
-                              desc: "Consume energía generada a menos de 2 km de tu vivienda.",
-                            },
-                            {
-                              title: "Sin Obras",
-                              desc: "No necesitas instalar paneles en tu tejado, nosotros nos encargamos.",
-                            },
-                            {
-                              title: "Mantenimiento",
-                              desc: "Monitorización 24/7 y mantenimiento preventivo incluido.",
-                            },
-                          ].map((item, i) => (
+                          {activeProposal.valuePoints.map((item, i) => (
                             <div key={i} className="flex gap-4">
                               <div className="w-10 h-10 rounded-xl brand-gradient flex items-center justify-center shrink-0 shadow-md shadow-brand-mint/20">
                                 <Check className="w-5 h-5 text-brand-navy" />
                               </div>
                               <div>
                                 <h4 className="font-bold text-brand-navy mb-1">
-                                  {item.title}
+                                  {item}
                                 </h4>
                                 <p className="text-xs text-brand-gray leading-relaxed">
-                                  {item.desc}
+                                  {activeProposal.id === "investment"
+                                    ? "Pensada para clientes que quieren maximizar el retorno y consolidar su ahorro en el tiempo."
+                                    : "Pensada para clientes que prefieren una entrada más cómoda y una decisión de contratación más simple."}
                                 </p>
                               </div>
                             </div>
                           ))}
                         </div>
-                      </div>
+                      </div> */}
                     </div>
-
                     <div className="space-y-6">
-                      <div className="bg-brand-navy rounded-[3rem] p-10 text-white shadow-2xl shadow-brand-navy/20">
-                        <h3 className="font-bold text-xl mb-8">
+                      <div className="bg-brand-navy rounded-[2rem] md:rounded-[3rem] p-5 md:p-10 text-white shadow-2xl shadow-brand-navy/20 md:sticky md:top-8">
+                        {" "}
+                        <h3 className="font-bold text-xl mb-3">
                           Próximos Pasos
                         </h3>
-
+                        <p className="text-white/60 text-sm mb-8 leading-relaxed">
+                          Las acciones de abajo se generarán usando la modalidad
+                          activa:
+                          <span className="font-bold text-white">
+                            {" "}
+                            {activeProposal.title}
+                          </span>
+                          .
+                        </p>
                         <div className="space-y-4">
                           <Button
-                            className="w-full py-8 text-lg rounded-2xl brand-gradient text-brand-navy border-none"
+                            className="w-full py-5 md:py-8 text-base md:text-lg rounded-[1.2rem] md:rounded-2xl brand-gradient text-brand-navy border-none"
                             onClick={handleDownloadPDF}
                           >
                             <Download className="mr-3 w-6 h-6" /> Descargar PDF
                           </Button>
 
                           <Button
-                            className="w-full py-8 text-lg rounded-2xl bg-white/10 hover:bg-white/20 border-white/10 text-white"
+                            className="w-full py-5 md:py-8 text-base md:text-lg rounded-[1.2rem] md:rounded-2xl bg-white/10 hover:bg-white/20 border-white/10 text-white"
                             variant="outline"
                             onClick={handleSendEmail}
                           >
                             <Mail className="mr-3 w-6 h-6" /> Enviar por Email
                           </Button>
 
-                          <Button className="w-full py-8 text-lg rounded-2xl bg-brand-mint text-brand-navy hover:bg-brand-mint/90 border-none font-bold">
+                          <Button className="w-full py-5 md:py-8 text-base md:text-lg rounded-[1.2rem] md:rounded-2xl bg-brand-mint text-brand-navy hover:bg-brand-mint/90 border-none font-bold">
                             Hablar con Asesor
                           </Button>
                         </div>
-
+                        <div className="mt-8 rounded-2xl bg-white/10 p-5 border border-white/10">
+                          <p className="text-[10px] font-bold uppercase tracking-widest text-white/50 mb-2">
+                            Resumen activo
+                          </p>
+                          <p className="text-2xl font-bold">
+                            {formatCurrency(activeProposal.annualSavings)} / año
+                          </p>
+                          <p className="text-sm text-white/60 mt-2">
+                            {activeProposal.id === "investment"
+                              ? `Inversión inicial ${formatCurrency(activeProposal.upfrontCost)}`
+                              : activeProposal.monthlyFee > 0
+                                ? `Cuota estimada ${formatCurrency(activeProposal.monthlyFee)} / mes`
+                                : "Sin cuota mensual"}
+                          </p>
+                        </div>
                         <p className="text-center text-[10px] font-bold uppercase tracking-widest text-white/40 mt-8">
                           Oferta válida por 7 días
                         </p>

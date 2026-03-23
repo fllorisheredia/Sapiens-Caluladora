@@ -1,12 +1,10 @@
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useMemo } from "react";
 import {
   LayoutDashboard,
   Users,
   Zap,
-  Settings,
   LogOut,
   Search,
-  Filter,
   Trash2,
   Edit,
   MapPin,
@@ -15,6 +13,11 @@ import {
   Sparkles,
   Loader2,
   ExternalLink,
+  TrendingUp,
+  AlertTriangle,
+  RefreshCcw,
+  Mail,
+  Activity,
 } from "lucide-react";
 import Button from "../ui/Button";
 import { formatCurrency, formatNumber, cn } from "../../lib/utils";
@@ -36,19 +39,595 @@ interface InstallationRow {
   coste_kwh_inversion: number;
   coste_kwh_servicio: number;
   porcentaje_autoconsumo: number;
-  modalidad: "inversion" | "servicio" | "ambas";
+  modalidad: "Inversion" | "Servicio" | "Ambas";
   active: boolean;
   created_at?: string;
   updated_at?: string;
 }
 
+function getStudyCustomerName(study: any) {
+  const customer = study?.customer ?? {};
+  const name = customer?.name ?? customer?.nombre ?? "";
+  const lastName = customer?.lastName ?? customer?.apellidos ?? "";
+  return `${name} ${lastName}`.trim() || "Sin nombre";
+}
+
+function getStudyInstallationName(
+  study: any,
+  installationsList: InstallationRow[] = [],
+) {
+  const snapshot = study?.selected_installation_snapshot ?? {};
+
+  const snapshotName =
+    snapshot?.installationName ||
+    snapshot?.installationData?.nombre_instalacion;
+
+  if (snapshotName) return snapshotName;
+
+  const selectedId = study?.selected_installation_id;
+  if (selectedId) {
+    const matched = installationsList.find(
+      (inst) => String(inst.id) === String(selectedId),
+    );
+    if (matched?.nombre_instalacion) return matched.nombre_instalacion;
+  }
+
+  return "Sin instalación";
+}
+
+function getStudyAnnualSavings(study: any) {
+  return Number(
+    study?.calculation?.annualSavings ?? study?.calculation?.ahorro_anual ?? 0,
+  );
+}
+
+function buildDailySeries(items: any[], days = 7) {
+  const now = new Date();
+  const map = new Map<string, number>();
+
+  for (let i = days - 1; i >= 0; i--) {
+    const d = new Date(now);
+    d.setDate(now.getDate() - i);
+    const key = d.toISOString().slice(0, 10);
+    map.set(key, 0);
+  }
+
+  items.forEach((item) => {
+    const rawDate = item?.created_at ?? item?.createdAt;
+    if (!rawDate) return;
+
+    const key = new Date(rawDate).toISOString().slice(0, 10);
+    if (map.has(key)) {
+      map.set(key, (map.get(key) || 0) + 1);
+    }
+  });
+
+  return Array.from(map.entries()).map(([date, total]) => ({
+    date,
+    label: new Date(date).toLocaleDateString("es-ES", {
+      day: "2-digit",
+      month: "2-digit",
+    }),
+    total,
+  }));
+}
+
+function AnimatedBarChart({
+  title,
+  data,
+}: {
+  title: string;
+  data: { key: string; label: string; total: number }[];
+}) {
+  const max = Math.max(...data.map((item) => item.total), 1);
+
+  return (
+    <div className="bg-white rounded-[2.5rem] border border-brand-navy/5 shadow-xl shadow-brand-navy/5 p-8 min-w-0 overflow-hidden">
+      <h3 className="text-lg font-bold text-brand-navy">{title}</h3>
+      <p className="text-xs text-brand-navy/40 font-bold uppercase tracking-wider mt-1">
+        Datos reales
+      </p>
+
+      <div className="mt-8 space-y-5">
+        {data.map((item, index) => (
+          <div key={item.key} className="min-w-0">
+            <div className="flex items-start justify-between gap-3 mb-2">
+              <span
+                title={item.label}
+                className="text-sm font-bold text-brand-navy/70 block min-w-0 break-all leading-tight"
+              >
+                {item.label}
+              </span>
+
+              <span className="text-xs font-bold text-brand-navy/40 shrink-0">
+                {item.total}
+              </span>
+            </div>
+
+            <div className="h-3 rounded-full bg-brand-navy/5 overflow-hidden">
+              <motion.div
+                initial={{ width: 0 }}
+                animate={{ width: `${(item.total / max) * 100}%` }}
+                transition={{ duration: 0.7, delay: index * 0.08 }}
+                className="h-full rounded-full brand-gradient"
+              />
+            </div>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+type ChartItem = {
+  key: string;
+  label: string;
+  total: number;
+};
+
+function getStudyStatusLabel(status?: string) {
+  const labels: Record<string, string> = {
+    uploaded: "Subido",
+    validated: "Validado",
+    location_selected: "Ubicación",
+    calculating: "Calculando",
+    completed: "Completado",
+    error: "Error",
+  };
+
+  return labels[status || ""] || status || "Sin estado";
+}
+
+function getStudyStatusClasses(status?: string) {
+  switch (status) {
+    case "completed":
+      return "bg-green-100 text-green-700";
+    case "error":
+      return "bg-red-100 text-red-600";
+    case "calculating":
+      return "bg-amber-100 text-amber-700";
+    case "validated":
+    case "uploaded":
+    case "location_selected":
+      return "bg-brand-sky/10 text-brand-sky";
+    default:
+      return "bg-brand-navy/5 text-brand-navy/50";
+  }
+}
+
+function DashboardStatCard({
+  label,
+  value,
+  subtext,
+  icon: Icon,
+  tone = "sky",
+  delay = 0,
+}: {
+  label: string;
+  value: string;
+  subtext: string;
+  icon: React.ComponentType<{ className?: string }>;
+  tone?: "sky" | "mint" | "navy" | "amber";
+  delay?: number;
+}) {
+  const toneClasses = {
+    sky: "bg-brand-sky/10 text-brand-sky",
+    mint: "bg-brand-mint/10 text-brand-mint",
+    navy: "bg-brand-navy/10 text-brand-navy",
+    amber: "bg-amber-100 text-amber-700",
+  };
+
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 18 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ delay }}
+      className="relative overflow-hidden rounded-[2.2rem] bg-white border border-brand-navy/5 shadow-xl shadow-brand-navy/5 p-7"
+    >
+      <div className="absolute inset-x-0 top-0 h-1 brand-gradient opacity-70" />
+      <div className="absolute -right-10 -bottom-10 h-28 w-28 rounded-full bg-brand-mint/10 blur-2xl pointer-events-none" />
+
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <p className="text-[10px] font-bold text-brand-navy/30 uppercase tracking-[0.2em]">
+            {label}
+          </p>
+          <p className="text-3xl font-bold text-brand-navy leading-none mt-4">
+            {value}
+          </p>
+        </div>
+
+        <div
+          className={cn(
+            "w-14 h-14 rounded-2xl flex items-center justify-center",
+            toneClasses[tone],
+          )}
+        >
+          <Icon className="w-6 h-6" />
+        </div>
+      </div>
+
+      <div className="mt-5 inline-flex rounded-full bg-brand-navy/[0.04] px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-brand-navy/50">
+        {subtext}
+      </div>
+    </motion.div>
+  );
+}
+
+function TrendChart({
+  title,
+  data,
+}: {
+  title: string;
+  data: { label: string; total: number }[];
+}) {
+  if (!data.length) {
+    return (
+      <div className="bg-white rounded-[2.5rem] border border-brand-navy/5 shadow-xl shadow-brand-navy/5 p-8">
+        <h3 className="text-lg font-bold text-brand-navy">{title}</h3>
+        <p className="mt-6 text-sm text-brand-navy/40">No hay datos aún.</p>
+      </div>
+    );
+  }
+
+  const width = 640;
+  const height = 230;
+  const padding = 28;
+  const max = Math.max(...data.map((item) => item.total), 1);
+
+  const points = data.map((item, index) => {
+    const x =
+      padding + (index * (width - padding * 2)) / Math.max(data.length - 1, 1);
+    const y = height - padding - (item.total / max) * (height - padding * 2);
+    return { x, y, ...item };
+  });
+
+  const linePath = points
+    .map(
+      (point, index) =>
+        `${index === 0 ? "M" : "L"} ${point.x.toFixed(2)} ${point.y.toFixed(2)}`,
+    )
+    .join(" ");
+
+  const areaPath = `${linePath} L ${points[points.length - 1].x} ${
+    height - padding
+  } L ${points[0].x} ${height - padding} Z`;
+
+  return (
+    <div className="bg-white rounded-[2.5rem] border border-brand-navy/5 shadow-xl shadow-brand-navy/5 p-8">
+      <div className="flex items-center justify-between gap-4">
+        <div>
+          <h3 className="text-lg font-bold text-brand-navy">{title}</h3>
+          <p className="text-xs text-brand-navy/40 font-bold uppercase tracking-wider mt-1">
+            Últimos 7 días
+          </p>
+        </div>
+
+        <div className="inline-flex items-center gap-2 rounded-full bg-brand-mint/10 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-brand-mint">
+          <TrendingUp className="w-3.5 h-3.5" />
+          Tendencia real
+        </div>
+      </div>
+
+      <div className="mt-6">
+        <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-56">
+          {[0, 1, 2, 3].map((line) => {
+            const y = padding + (line * (height - padding * 2)) / 3;
+            return (
+              <line
+                key={line}
+                x1={padding}
+                x2={width - padding}
+                y1={y}
+                y2={y}
+                stroke="rgba(15,23,42,0.08)"
+                strokeDasharray="6 6"
+              />
+            );
+          })}
+
+          <defs>
+            <linearGradient
+              id="dashboardTrendStroke"
+              x1="0"
+              y1="0"
+              x2="1"
+              y2="0"
+            >
+              <stop offset="0%" stopColor="#57d9d3" />
+              <stop offset="100%" stopColor="#7fb8ff" />
+            </linearGradient>
+            <linearGradient id="dashboardTrendFill" x1="0" y1="0" x2="0" y2="1">
+              <stop offset="0%" stopColor="rgba(87,217,211,0.22)" />
+              <stop offset="100%" stopColor="rgba(87,217,211,0.02)" />
+            </linearGradient>
+          </defs>
+
+          <motion.path
+            d={areaPath}
+            fill="url(#dashboardTrendFill)"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            transition={{ duration: 0.8 }}
+          />
+
+          <motion.path
+            d={linePath}
+            fill="none"
+            stroke="url(#dashboardTrendStroke)"
+            strokeWidth="5"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+            initial={{ pathLength: 0, opacity: 0.4 }}
+            animate={{ pathLength: 1, opacity: 1 }}
+            transition={{ duration: 1.1 }}
+          />
+
+          {points.map((point, index) => (
+            <motion.g
+              key={point.label}
+              initial={{ opacity: 0, scale: 0.6 }}
+              animate={{ opacity: 1, scale: 1 }}
+              transition={{ delay: index * 0.08 }}
+            >
+              <circle
+                cx={point.x}
+                cy={point.y}
+                r="8"
+                fill="rgba(87,217,211,0.18)"
+              />
+              <circle cx={point.x} cy={point.y} r="4.5" fill="#57d9d3" />
+            </motion.g>
+          ))}
+        </svg>
+
+        <div className="grid grid-cols-7 gap-2 mt-2">
+          {data.map((item) => (
+            <div key={item.label} className="text-center">
+              <p className="text-[10px] font-bold text-brand-navy/30">
+                {item.label}
+              </p>
+              <p className="text-xs font-bold text-brand-navy">{item.total}</p>
+            </div>
+          ))}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function DonutChart({
+  title,
+  items,
+}: {
+  title: string;
+  items: { key: string; label: string; total: number }[];
+}) {
+  const total = Math.max(
+    items.reduce((acc, item) => acc + item.total, 0),
+    1,
+  );
+
+  const colors = ["#57d9d3", "#7fb8ff", "#12263f", "#f59e0b", "#8b5cf6"];
+  const size = 190;
+  const stroke = 16;
+  const radius = (size - stroke) / 2;
+  const circumference = 2 * Math.PI * radius;
+
+  let accumulated = 0;
+
+  return (
+    <div className="bg-white rounded-[2.5rem] border border-brand-navy/5 shadow-xl shadow-brand-navy/5 p-8 min-w-0 overflow-hidden">
+      <h3 className="text-lg font-bold text-brand-navy">{title}</h3>
+      <p className="text-xs text-brand-navy/40 font-bold uppercase tracking-wider mt-1">
+        Distribución actual
+      </p>
+
+      <div className="mt-6 flex flex-col items-center gap-6">
+        <div className="relative shrink-0">
+          <svg
+            width={size}
+            height={size}
+            viewBox={`0 0 ${size} ${size}`}
+            className="-rotate-90"
+          >
+            <circle
+              cx={size / 2}
+              cy={size / 2}
+              r={radius}
+              stroke="rgba(15,23,42,0.08)"
+              strokeWidth={stroke}
+              fill="none"
+            />
+
+            {items.map((item, index) => {
+              const fraction = item.total / total;
+              const dashLength = fraction * circumference;
+              const dashOffset = -accumulated * circumference;
+              accumulated += fraction;
+
+              return (
+                <motion.circle
+                  key={item.key}
+                  cx={size / 2}
+                  cy={size / 2}
+                  r={radius}
+                  stroke={colors[index % colors.length]}
+                  strokeWidth={stroke}
+                  strokeLinecap="round"
+                  fill="none"
+                  strokeDasharray={`${dashLength} ${circumference}`}
+                  strokeDashoffset={dashOffset}
+                  initial={{ strokeDasharray: `0 ${circumference}` }}
+                  animate={{
+                    strokeDasharray: `${dashLength} ${circumference}`,
+                  }}
+                  transition={{ duration: 0.8, delay: index * 0.12 }}
+                />
+              );
+            })}
+          </svg>
+
+          <div className="absolute inset-0 flex flex-col items-center justify-center">
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-navy/30">
+              Total
+            </p>
+            <p className="text-3xl font-bold text-brand-navy leading-none mt-2">
+              {items.reduce((acc, item) => acc + item.total, 0)}
+            </p>
+          </div>
+        </div>
+
+        <div className="w-full grid grid-cols-1 gap-3">
+          {items.map((item, index) => {
+            const percentage =
+              total > 0 ? Math.round((item.total / total) * 100) : 0;
+
+            return (
+              <div
+                key={item.key}
+                className="flex items-center justify-between rounded-2xl bg-brand-navy/[0.02] px-4 py-3 min-w-0"
+              >
+                <div className="flex items-center gap-3 min-w-0">
+                  <span
+                    className="block h-3 w-3 rounded-full shrink-0"
+                    style={{ backgroundColor: colors[index % colors.length] }}
+                  />
+                  <span className="text-sm font-bold text-brand-navy/70 truncate">
+                    {item.label}
+                  </span>
+                </div>
+
+                <div className="text-right shrink-0 ml-4">
+                  <p className="text-sm font-bold text-brand-navy">
+                    {item.total}
+                  </p>
+                  <p className="text-[10px] font-bold uppercase tracking-widest text-brand-navy/30">
+                    {percentage}%
+                  </p>
+                </div>
+              </div>
+            );
+          })}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function RecentStudiesCard({ studies }: { studies: any[] }) {
+  const [showAll, setShowAll] = useState(false);
+
+  const visibleStudies = showAll ? studies : studies.slice(0, 3);
+
+  return (
+    <div className="bg-white rounded-[2.5rem] border border-brand-navy/5 shadow-xl shadow-brand-navy/5 p-8">
+      <div className="flex items-center justify-between gap-4">
+        <h3 className="text-lg font-bold text-brand-navy">Últimos estudios</h3>
+        <div className="inline-flex items-center gap-2 rounded-full bg-brand-sky/10 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-brand-sky">
+          <Activity className="w-3.5 h-3.5" />
+          Actividad reciente
+        </div>
+      </div>
+
+      <div className="mt-6 space-y-4">
+        {visibleStudies.length === 0 ? (
+          <p className="text-sm text-brand-navy/40">No hay estudios aún.</p>
+        ) : (
+          visibleStudies.map((study, index) => (
+            <motion.div
+              key={study.id ?? study._id ?? index}
+              initial={{ opacity: 0, x: -12 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: index * 0.06 }}
+              className="rounded-[1.6rem] bg-brand-navy/[0.02] px-5 py-4 flex items-center justify-between gap-4"
+            >
+              <div className="min-w-0">
+                <p className="text-sm font-bold text-brand-navy truncate">
+                  {getStudyCustomerName(study)}
+                </p>
+                <p className="text-xs text-brand-navy/40 mt-1 truncate">
+                  {study.installationDisplayName || "Sin instalación"}
+                </p>
+              </div>
+
+              <div className="text-right shrink-0">
+                <span
+                  className={cn(
+                    "inline-flex rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-widest",
+                    getStudyStatusClasses(study?.status),
+                  )}
+                >
+                  {getStudyStatusLabel(study?.status)}
+                </span>
+
+                <p className="text-[10px] font-bold uppercase tracking-widest text-brand-navy/30 mt-3">
+                  {study?.created_at || study?.createdAt
+                    ? new Date(
+                        study.created_at ?? study.createdAt,
+                      ).toLocaleDateString("es-ES")
+                    : "-"}
+                </p>
+              </div>
+            </motion.div>
+          ))
+        )}
+      </div>
+
+      {studies.length > 3 && (
+        <div className="mt-6 flex justify-center">
+          <button
+            onClick={() => setShowAll((prev) => !prev)}
+            className="px-5 py-3 rounded-2xl bg-brand-navy/[0.04] hover:bg-brand-navy/[0.07] text-sm font-bold text-brand-navy transition-all"
+          >
+            {showAll ? "Mostrar menos" : "Mostrar más"}
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function AlertsCard({ alerts }: { alerts: string[] }) {
+  return (
+    <div className="bg-white rounded-[2.5rem] border border-brand-navy/5 shadow-xl shadow-brand-navy/5 p-8">
+      <div className="flex items-center justify-between gap-4">
+        <h3 className="text-lg font-bold text-brand-navy">Alertas</h3>
+        <div className="inline-flex items-center gap-2 rounded-full bg-amber-100 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-amber-700">
+          <AlertTriangle className="w-3.5 h-3.5" />
+          Supervisión
+        </div>
+      </div>
+
+      <div className="mt-6 space-y-3">
+        {alerts.length === 0 ? (
+          <div className="rounded-2xl bg-green-50 text-green-700 px-4 py-4 text-sm font-bold">
+            Todo controlado. No hay alertas críticas.
+          </div>
+        ) : (
+          alerts.map((alert, index) => (
+            <motion.div
+              key={alert}
+              initial={{ opacity: 0, x: -12 }}
+              animate={{ opacity: 1, x: 0 }}
+              transition={{ delay: index * 0.08 }}
+              className="rounded-2xl bg-amber-50 text-amber-700 px-4 py-4 text-sm font-bold"
+            >
+              {alert}
+            </motion.div>
+          ))
+        )}
+      </div>
+    </div>
+  );
+}
+
 function normalizeInstallation(row: any): InstallationRow {
   const modalidadRaw = String(row?.modalidad ?? "ambas").toLowerCase();
 
-  let modalidad: InstallationRow["modalidad"] = "ambas";
-  if (modalidadRaw === "inversion") modalidad = "inversion";
-  else if (modalidadRaw === "servicio") modalidad = "servicio";
-  else modalidad = "ambas";
+  let modalidad: InstallationRow["modalidad"] = "Ambas";
+  if (modalidadRaw === "inversion") modalidad = "Inversion";
+  else if (modalidadRaw === "servicio") modalidad = "Servicio";
+  else modalidad = "Ambas";
 
   return {
     id: String(row?.id ?? ""),
@@ -60,7 +639,7 @@ function normalizeInstallation(row: any): InstallationRow {
     potencia_instalada_kwp: Number(row?.potencia_instalada_kwp ?? 0),
     almacenamiento_kwh: Number(row?.almacenamiento_kwh ?? 0),
     coste_anual_mantenimiento_por_kwp: Number(
-      row?.coste_anual_mantenimiento_por_kwp ?? 0
+      row?.coste_anual_mantenimiento_por_kwp ?? 0,
     ),
     coste_kwh_inversion: Number(row?.coste_kwh_inversion ?? 0),
     coste_kwh_servicio: Number(row?.coste_kwh_servicio ?? 0),
@@ -79,11 +658,11 @@ function normalizeInstallations(rows: any[]): InstallationRow[] {
 
 function formatModalidad(modalidad: InstallationRow["modalidad"]) {
   switch (modalidad) {
-    case "inversion":
+    case "Inversion":
       return "Inversión";
-    case "servicio":
+    case "Servicio":
       return "Servicio";
-    case "ambas":
+    case "Ambas":
     default:
       return "Ambas";
   }
@@ -95,8 +674,135 @@ function formatAutoconsumo(value?: number) {
   return `${formatNumber(normalized)}%`;
 }
 
+function TopInstallationsExecutive({
+  title,
+  data,
+}: {
+  title: string;
+  data: { key: string; label: string; total: number }[];
+}) {
+  const sortedData = [...data]
+    .filter((item) => item.total > 0)
+    .sort((a, b) => b.total - a.total);
+
+  const totalUses = sortedData.reduce((acc, item) => acc + item.total, 0);
+  const topItem = sortedData[0];
+
+  return (
+    <div className="bg-white rounded-[2.5rem] border border-brand-navy/5 shadow-xl shadow-brand-navy/5 p-8 min-w-0 overflow-hidden self-start">
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <h3 className="text-lg font-bold text-brand-navy">{title}</h3>
+          <p className="text-xs text-brand-navy/40 font-bold uppercase tracking-wider mt-1">
+            Ranking actual
+          </p>
+        </div>
+
+        <div className="inline-flex items-center gap-2 rounded-full bg-brand-mint/10 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-brand-mint">
+          Top
+        </div>
+      </div>
+
+      {sortedData.length === 0 ? (
+        <div className="mt-6 rounded-[1.8rem] bg-brand-navy/[0.03] px-5 py-6">
+          <p className="text-sm font-bold text-brand-navy">
+            No hay instalaciones usadas todavía
+          </p>
+          <p className="text-xs text-brand-navy/40 mt-2">
+            Cuando haya estudios asociados, aparecerá aquí el ranking.
+          </p>
+        </div>
+      ) : (
+        <>
+          <div className="mt-6 rounded-[2rem] bg-[linear-gradient(135deg,rgba(87,217,211,0.10),rgba(127,184,255,0.10))] border border-brand-navy/5 px-5 py-5">
+            <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-navy/30">
+              Instalación líder
+            </p>
+
+            <div className="flex items-center justify-between gap-4 mt-3">
+              <div className="min-w-0">
+                <p className="text-xl font-bold text-brand-navy truncate">
+                  {topItem.label}
+                </p>
+                <p className="text-sm text-brand-navy/45 mt-1">
+                  {topItem.total} estudio(s) asociados
+                </p>
+              </div>
+
+              <div className="text-right shrink-0">
+                <p className="text-2xl font-bold text-brand-navy">
+                  {totalUses > 0
+                    ? Math.round((topItem.total / totalUses) * 100)
+                    : 0}
+                  %
+                </p>
+                <p className="text-[10px] font-bold uppercase tracking-widest text-brand-navy/30">
+                  del uso total
+                </p>
+              </div>
+            </div>
+          </div>
+
+          <div className="mt-5 space-y-3">
+            {sortedData.map((item, index) => {
+              const percentage =
+                totalUses > 0 ? Math.round((item.total / totalUses) * 100) : 0;
+
+              return (
+                <motion.div
+                  key={item.key}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: index * 0.06 }}
+                  className="rounded-[1.6rem] bg-brand-navy/[0.025] px-4 py-4 flex items-center justify-between gap-4"
+                >
+                  <div className="flex items-center gap-4 min-w-0">
+                    <div
+                      className={cn(
+                        "w-10 h-10 rounded-2xl flex items-center justify-center text-sm font-bold shrink-0",
+                        index === 0
+                          ? "bg-brand-mint/15 text-brand-mint"
+                          : "bg-brand-navy/6 text-brand-navy/60",
+                      )}
+                    >
+                      #{index + 1}
+                    </div>
+
+                    <div className="min-w-0">
+                      <p
+                        title={item.label}
+                        className="text-sm font-bold text-brand-navy truncate"
+                      >
+                        {item.label}
+                      </p>
+                      <p className="text-[11px] text-brand-navy/40 mt-1">
+                        {percentage}% del total
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="text-right shrink-0">
+                    <p className="text-lg font-bold text-brand-navy">
+                      {item.total}
+                    </p>
+                    <p className="text-[10px] font-bold uppercase tracking-widest text-brand-navy/30">
+                      estudios
+                    </p>
+                  </div>
+                </motion.div>
+              );
+            })}
+          </div>
+        </>
+      )}
+    </div>
+  );
+}
+
 export default function AdminDashboard() {
-  const [activeTab, setActiveTab] = useState("studies");
+  // const [activeTab, setActiveTab] = useState("studies");
+  const [activeTab, setActiveTab] = useState("dashboard");
+  const [searchTerm, setSearchTerm] = useState("");
   const [studies, setStudies] = useState<any[]>([]);
   const [clients, setClients] = useState<Client[]>([]);
   const [installations, setInstallations] = useState<InstallationRow[]>([]);
@@ -107,15 +813,28 @@ export default function AdminDashboard() {
     InstallationRow | undefined
   >(undefined);
 
+  // useEffect(() => {
+  //   fetchAllData();
+  // }, []);
   useEffect(() => {
-    fetchAllData();
-  }, []);
+    if (activeTab === "dashboard") {
+      fetchAllData(true);
+    } else {
+      fetchTabData();
+    }
+  }, [activeTab]);
+
+  useEffect(() => {
+    setSearchTerm("");
+  }, [activeTab]);
 
   useEffect(() => {
     fetchTabData();
   }, [activeTab]);
 
-  const fetchAllData = async () => {
+  const fetchAllData = async (showLoader = false) => {
+    if (showLoader) setIsLoading(true);
+
     try {
       const [studiesRes, clientsRes, installationsRes, docsRes] =
         await Promise.all([
@@ -131,6 +850,8 @@ export default function AdminDashboard() {
       setDocuments(Array.isArray(docsRes.data) ? docsRes.data : []);
     } catch (error) {
       console.error("Error fetching initial data:", error);
+    } finally {
+      if (showLoader) setIsLoading(false);
     }
   };
 
@@ -138,16 +859,19 @@ export default function AdminDashboard() {
     setIsLoading(true);
 
     try {
+      if (activeTab === "dashboard") {
+        await fetchAllData(false);
+        return;
+      }
+
       if (activeTab === "studies") {
         const res = await axios.get("/api/studies");
-        console.log("Fetched studies:", res.data);
         setStudies(Array.isArray(res.data) ? res.data : []);
       } else if (activeTab === "clients") {
         const res = await axios.get("/api/clients");
         setClients(Array.isArray(res.data) ? res.data : []);
       } else if (activeTab === "installations") {
         const res = await axios.get("/api/installations");
-        console.log("Fetched installations:", res.data);
         setInstallations(normalizeInstallations(res.data));
       } else if (activeTab === "documents") {
         const res = await axios.get("/api/documents");
@@ -159,10 +883,9 @@ export default function AdminDashboard() {
       setIsLoading(false);
     }
   };
-
   const handleDeleteInstallation = async (id: string) => {
     const confirmed = window.confirm(
-      "¿Seguro que quieres desactivar esta instalación?"
+      "¿Seguro que quieres desactivar esta instalación?",
     );
 
     if (!confirmed) return;
@@ -177,6 +900,263 @@ export default function AdminDashboard() {
       console.error("Error deleting installation:", error);
     }
   };
+  const displayedStudies = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase();
+    if (!q) return studies;
+
+    return studies.filter((study) =>
+      [
+        getStudyCustomerName(study),
+        getStudyInstallationName(study),
+        study?.status,
+        study?.clientType,
+        study?.customer?.email,
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(q),
+    );
+  }, [studies, searchTerm]);
+
+  const displayedClients = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase();
+    if (!q) return clients;
+
+    return clients.filter((client) =>
+      [
+        client.name,
+        client.lastname1,
+        client.email,
+        client.phone,
+        client.dni,
+        (client as any).status,
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(q),
+    );
+  }, [clients, searchTerm]);
+
+  const displayedInstallations = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase();
+    if (!q) return installations;
+
+    return installations.filter((inst) =>
+      [
+        inst.nombre_instalacion,
+        inst.direccion,
+        formatModalidad(inst.modalidad),
+        inst.active ? "activa" : "inactiva",
+      ]
+        .join(" ")
+        .toLowerCase()
+        .includes(q),
+    );
+  }, [installations, searchTerm]);
+
+  const displayedDocuments = useMemo(() => {
+    const q = searchTerm.trim().toLowerCase();
+    if (!q) return documents;
+
+    return documents.filter((doc: any) =>
+      [doc.fileName, doc.type, doc.status, doc.client?.name]
+        .join(" ")
+        .toLowerCase()
+        .includes(q),
+    );
+  }, [documents, searchTerm]);
+
+  const tabLabels: Record<string, string> = {
+    dashboard: "Dashboard",
+    studies: "Estudios",
+    clients: "Clientes",
+    installations: "Instalaciones",
+    documents: "Documentos",
+  };
+
+  const dashboardData = useMemo(() => {
+    const safeStudies = Array.isArray(studies) ? studies : [];
+    const safeClients = Array.isArray(clients) ? clients : [];
+    const safeInstallations = Array.isArray(installations) ? installations : [];
+    const safeDocuments = Array.isArray(documents) ? documents : [];
+
+    const completedStudies = safeStudies.filter(
+      (study) => study?.status === "completed",
+    ).length;
+
+    const errorStudies = safeStudies.filter(
+      (study) => study?.status === "error",
+    ).length;
+
+    const inProgressStudies = safeStudies.filter((study) =>
+      ["uploaded", "validated", "location_selected", "calculating"].includes(
+        study?.status,
+      ),
+    ).length;
+
+    const pendingEmails = safeStudies.filter(
+      (study) => study?.email_status === "pending",
+    ).length;
+
+    const sentEmails = safeStudies.filter(
+      (study) => study?.email_status === "sent",
+    ).length;
+
+    const failedEmails = safeStudies.filter(
+      (study) => study?.email_status === "failed",
+    ).length;
+
+    const annualSavingsTotal = safeStudies.reduce(
+      (acc, study) => acc + getStudyAnnualSavings(study),
+      0,
+    );
+
+    const averageSavings =
+      safeStudies.length > 0 ? annualSavingsTotal / safeStudies.length : 0;
+
+    const activeInstallations = safeInstallations.filter(
+      (inst) => inst.active,
+    ).length;
+
+    const totalInstalledPower = safeInstallations
+      .filter((inst) => inst.active)
+      .reduce((acc, inst) => acc + Number(inst.potencia_instalada_kwp || 0), 0);
+
+    const completionRate =
+      safeStudies.length > 0
+        ? Math.round((completedStudies / safeStudies.length) * 100)
+        : 0;
+
+    const totalEmailsTracked = pendingEmails + sentEmails + failedEmails;
+    const emailSuccessRate =
+      totalEmailsTracked > 0
+        ? Math.round((sentEmails / totalEmailsTracked) * 100)
+        : 0;
+
+    const statusOrder = [
+      "uploaded",
+      "validated",
+      "location_selected",
+      "calculating",
+      "completed",
+      "error",
+    ];
+
+    const statusLabels: Record<string, string> = {
+      uploaded: "Subido",
+      validated: "Validado",
+      location_selected: "Ubicación",
+      calculating: "Calculando",
+      completed: "Completado",
+      error: "Error",
+    };
+
+    const statusCounts = statusOrder.map((status) => ({
+      key: status,
+      label: statusLabels[status] || status,
+      total: safeStudies.filter((study) => study?.status === status).length,
+    }));
+
+    const emailCounts = [
+      { key: "pending", label: "Pendientes", total: pendingEmails },
+      { key: "sent", label: "Enviados", total: sentEmails },
+      { key: "failed", label: "Fallidos", total: failedEmails },
+    ];
+
+    const modalityCounts = [
+      {
+        key: "Inversion",
+        label: "Inversión",
+        total: safeInstallations.filter(
+          (inst) => inst.modalidad === "Inversion",
+        ).length,
+      },
+      {
+        key: "Servicio",
+        label: "Servicio",
+        total: safeInstallations.filter((inst) => inst.modalidad === "Servicio")
+          .length,
+      },
+      {
+        key: "Ambas",
+        label: "Ambas",
+        total: safeInstallations.filter((inst) => inst.modalidad === "Ambas")
+          .length,
+      },
+    ];
+
+    const topInstallationsMap = safeStudies.reduce<Record<string, number>>(
+      (acc, study) => {
+        const name = getStudyInstallationName(study, safeInstallations);
+        if (!name || name === "Sin instalación") return acc;
+        acc[name] = (acc[name] || 0) + 1;
+        return acc;
+      },
+      {},
+    );
+
+    const topInstallationsChartData = Object.entries(topInstallationsMap)
+      .map(([name, total]) => ({
+        key: name,
+        label: name,
+        total,
+      }))
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 5);
+
+    const studiesPerDay = buildDailySeries(safeStudies, 7);
+
+    const recentStudies = [...safeStudies]
+      .sort(
+        (a, b) =>
+          new Date(b?.created_at ?? b?.createdAt ?? 0).getTime() -
+          new Date(a?.created_at ?? a?.createdAt ?? 0).getTime(),
+      )
+      .slice(0, 10)
+      .map((study) => ({
+        ...study,
+        installationDisplayName: getStudyInstallationName(
+          study,
+          safeInstallations,
+        ),
+      }));
+
+    const alerts = [
+      errorStudies > 0 ? `${errorStudies} estudio(s) con error` : null,
+      pendingEmails > 0 ? `${pendingEmails} email(s) pendientes` : null,
+      safeStudies.filter((study) => !study?.selected_installation_id).length > 0
+        ? `${
+            safeStudies.filter((study) => !study?.selected_installation_id)
+              .length
+          } estudio(s) sin instalación asignada`
+        : null,
+    ].filter(Boolean) as string[];
+
+    return {
+      totalStudies: safeStudies.length,
+      totalClients: safeClients.length,
+      totalDocuments: safeDocuments.length,
+      completedStudies,
+      inProgressStudies,
+      errorStudies,
+      pendingEmails,
+      sentEmails,
+      failedEmails,
+      annualSavingsTotal,
+      averageSavings,
+      activeInstallations,
+      totalInstalledPower,
+      completionRate,
+      emailSuccessRate,
+      statusCounts,
+      emailCounts,
+      modalityCounts,
+      topInstallationsChartData,
+      studiesPerDay,
+      recentStudies,
+      alerts,
+    };
+  }, [studies, clients, installations, documents]);
 
   return (
     <div className="flex flex-col lg:flex-row gap-10">
@@ -194,8 +1174,8 @@ export default function AdminDashboard() {
             { id: "studies", icon: Zap, label: "Estudios" },
             { id: "clients", icon: Users, label: "Clientes" },
             { id: "installations", icon: MapPin, label: "Instalaciones" },
-            { id: "documents", icon: FileText, label: "Documentos" },
-            { id: "settings", icon: Settings, label: "Configuración" },
+            // { id: "documents", icon: FileText, label: "Documentos" },
+            // { id: "settings", icon: Settings, label: "Configuración" },
           ].map((item) => (
             <button
               key={item.id}
@@ -204,7 +1184,7 @@ export default function AdminDashboard() {
                 "w-full flex items-center gap-4 px-6 py-4 rounded-2xl text-sm font-bold transition-all duration-300 group",
                 activeTab === item.id
                   ? "brand-gradient text-brand-navy shadow-lg shadow-brand-mint/20"
-                  : "text-brand-navy/60 hover:bg-brand-navy/5 hover:text-brand-navy"
+                  : "text-brand-navy/60 hover:bg-brand-navy/5 hover:text-brand-navy",
               )}
             >
               <item.icon
@@ -212,7 +1192,7 @@ export default function AdminDashboard() {
                   "w-5 h-5 transition-transform duration-300 group-hover:scale-110",
                   activeTab === item.id
                     ? "text-brand-navy"
-                    : "text-brand-navy/40"
+                    : "text-brand-navy/40",
                 )}
               />
               {item.label}
@@ -236,27 +1216,44 @@ export default function AdminDashboard() {
               <Sparkles className="w-3 h-3 text-brand-sky" />
               Panel Administrativo
             </div>
-            <h1 className="text-4xl font-bold text-brand-navy capitalize">
-              {activeTab}
+            <h1 className="text-4xl font-bold text-brand-navy">
+              {tabLabels[activeTab] || activeTab}
             </h1>
+            <p className="text-sm text-brand-navy/40 mt-2">
+              Vista optimizada para gestión, seguimiento y control comercial.
+            </p>
           </div>
 
           <div className="flex flex-wrap gap-3 w-full md:w-auto">
-            <div className="relative flex-1 md:flex-none">
-              <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-navy/20" />
-              <input
-                type="text"
-                placeholder="Buscar estudios..."
-                className="pl-12 pr-6 py-3 rounded-2xl border border-brand-navy/5 bg-white text-sm font-medium focus:outline-none focus:ring-2 focus:ring-brand-mint/20 w-full md:w-64 shadow-sm"
-              />
-            </div>
+            {activeTab !== "dashboard" && (
+              <div className="bg-white rounded-[3rem] border border-brand-navy/5 shadow-2xl shadow-brand-navy/5 overflow-hidden min-h-[400px] flex flex-col">
+                <div className="relative flex-1 md:flex-none">
+                  <Search className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4 text-brand-navy/20" />
+                  <input
+                    type="text"
+                    value={searchTerm}
+                    onChange={(e) => setSearchTerm(e.target.value)}
+                    placeholder={`Buscar en ${tabLabels[activeTab]?.toLowerCase() || "datos"}...`}
+                    className="pl-12 pr-6 py-3 rounded-2xl border border-brand-navy/5 bg-white text-sm font-medium focus:outline-none focus:ring-2 focus:ring-brand-mint/20 w-full md:w-72 shadow-sm"
+                  />
+                </div>
+              </div>
+            )}
 
             <Button
               variant="outline"
               size="sm"
+              onClick={() => {
+                if (activeTab === "dashboard") {
+                  fetchAllData(true);
+                } else {
+                  fetchTabData();
+                }
+              }}
               className="rounded-xl border-brand-navy/5 bg-white font-bold"
             >
-              <Filter className="w-4 h-4 mr-2" /> Filtros
+              <RefreshCcw className="w-4 h-4 mr-2" />
+              Actualizar
             </Button>
 
             {activeTab === "installations" && (
@@ -275,68 +1272,131 @@ export default function AdminDashboard() {
         </div>
 
         {/* Stats Grid */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-8">
-          {[
-            {
-              label: "Estudios Totales",
-              value: studies.length.toString(),
-              change: "En tiempo real",
-              icon: FileText,
-              color: "brand-sky",
-            },
-            {
-              label: "Clientes Registrados",
-              value: clients.length.toString(),
-              change: "Base de datos activa",
-              icon: Users,
-              color: "brand-mint",
-            },
-            {
-              label: "Instalaciones",
-              value: installations.length.toString(),
-              change: "Plantas solares",
-              icon: MapPin,
-              color: "brand-navy",
-            },
-          ].map((stat, i) => (
-            <motion.div
-              key={i}
-              initial={{ opacity: 0, y: 20 }}
+        <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-6">
+          <DashboardStatCard
+            label="Estudios totales"
+            value={dashboardData.totalStudies.toString()}
+            subtext={`${dashboardData.completedStudies} completados`}
+            icon={FileText}
+            tone="sky"
+            delay={0}
+          />
+
+          <DashboardStatCard
+            label="En proceso"
+            value={dashboardData.inProgressStudies.toString()}
+            subtext={`${dashboardData.pendingEmails} emails pendientes`}
+            icon={Zap}
+            tone="mint"
+            delay={0.08}
+          />
+
+          <DashboardStatCard
+            label="Clientes"
+            value={dashboardData.totalClients.toString()}
+            subtext={`${dashboardData.totalDocuments} documentos`}
+            icon={Users}
+            tone="navy"
+            delay={0.16}
+          />
+
+          <DashboardStatCard
+            label="Errores detectados"
+            value={dashboardData.errorStudies.toString()}
+            subtext={`${dashboardData.sentEmails} emails enviados`}
+            icon={AlertTriangle}
+            tone="amber"
+            delay={0.24}
+          />
+        </div>
+
+        {activeTab === "dashboard" && (
+          <>
+            <motion.section
+              initial={{ opacity: 0, y: 14 }}
               animate={{ opacity: 1, y: 0 }}
-              transition={{ delay: i * 0.1 }}
-              className="p-8 bg-white rounded-[2.5rem] border border-brand-navy/5 shadow-xl shadow-brand-navy/5 relative overflow-hidden group"
+              className="relative overflow-hidden rounded-[2.8rem] border border-brand-navy/5 bg-white shadow-2xl shadow-brand-navy/5 p-8 md:p-10"
             >
-              <div
-                className={cn(
-                  "absolute top-0 right-0 w-24 h-24 opacity-5 blur-2xl rounded-full -mr-12 -mt-12 transition-all duration-500 group-hover:scale-150",
-                  `bg-${stat.color}`
-                )}
-              />
-              <div className="flex justify-between items-start mb-6">
-                <div
-                  className={cn(
-                    "w-12 h-12 rounded-2xl flex items-center justify-center",
-                    `bg-${stat.color}/10 text-${stat.color}`
-                  )}
-                >
-                  <stat.icon className="w-6 h-6" />
+              <div className="absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(87,217,211,0.14),transparent_35%)] pointer-events-none" />
+              <div className="absolute -right-16 top-0 h-48 w-48 rounded-full bg-brand-sky/10 blur-3xl pointer-events-none" />
+
+              <div className="relative grid grid-cols-1 gap-8">
+                <div className="max-w-4xl">
+                  <div className="inline-flex items-center gap-2 rounded-full bg-brand-mint/10 px-3 py-1 text-[10px] font-bold uppercase tracking-widest text-brand-mint mb-4">
+                    <Activity className="w-3.5 h-3.5" />
+                    Vista ejecutiva
+                  </div>
+
+                  <h2 className="text-3xl md:text-5xl font-bold text-brand-navy leading-tight">
+                    Panel de Administración
+                  </h2>
+
+                  <p className="text-brand-navy/50 mt-4 max-w-3xl text-lg leading-relaxed">
+                    Controla estudios, clientes, instalaciones, emails y
+                    evolución diaria desde una vista más clara, más visual y más
+                    útil para el administrador.
+                  </p>
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-4 mt-8 max-w-3xl">
+                    <div className="rounded-[1.6rem] bg-brand-navy/[0.03] px-5 py-4">
+                      <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-navy/30">
+                        Tasa completados
+                      </p>
+                      <p className="text-2xl font-bold text-brand-navy mt-2">
+                        {dashboardData.completionRate}%
+                      </p>
+                    </div>
+
+                    <div className="rounded-[1.6rem] bg-brand-navy/[0.03] px-5 py-4">
+                      <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-navy/30">
+                        Emails enviados OK
+                      </p>
+                      <p className="text-2xl font-bold text-brand-navy mt-2">
+                        {dashboardData.emailSuccessRate}%
+                      </p>
+                    </div>
+
+                    <div className="rounded-[1.6rem] bg-brand-navy/[0.03] px-5 py-4">
+                      <p className="text-[10px] font-bold uppercase tracking-[0.2em] text-brand-navy/30">
+                        Instalaciones activas
+                      </p>
+                      <p className="text-2xl font-bold text-brand-navy mt-2">
+                        {dashboardData.activeInstallations}
+                      </p>
+                    </div>
+                  </div>
                 </div>
               </div>
-              <p className="text-[10px] font-bold text-brand-navy/30 uppercase tracking-[0.2em] mb-1">
-                {stat.label}
-              </p>
-              <p className="text-3xl font-bold text-brand-navy">{stat.value}</p>
-              <p
-                className={cn(
-                  "text-[10px] font-bold mt-3 uppercase tracking-wider",
-                  i === 2 ? "text-brand-navy/40" : "text-brand-mint"
-                )}
-              >
-                {stat.change}
-              </p>
-            </motion.div>
-          ))}
-        </div>
+            </motion.section>
+
+            <div className="grid grid-cols-1 xl:grid-cols-3 gap-6">
+              <div className="xl:col-span-2">
+                <TrendChart
+                  title="Evolución de estudios"
+                  data={dashboardData.studiesPerDay}
+                />
+              </div>
+
+              {/* <DonutChart
+                title="Estado de emails"
+                items={dashboardData.emailCounts}
+              /> */}
+            </div>
+
+            <div className="grid grid-cols-1 xl:grid-cols-[0.9fr_1.1fr] gap-6 items-start">
+              <div className="min-w-0 self-start">
+                <TopInstallationsExecutive
+                  title="Top instalaciones usadas"
+                  data={dashboardData.topInstallationsChartData}
+                />
+              </div>
+
+              <div className="min-w-0">
+                <RecentStudiesCard studies={dashboardData.recentStudies} />
+              </div>
+            </div>
+          </>
+        )}
 
         {/* Table */}
         <div className="bg-white rounded-[3rem] border border-brand-navy/5 shadow-2xl shadow-brand-navy/5 overflow-hidden min-h-[400px] flex flex-col">
@@ -432,7 +1492,7 @@ export default function AdminDashboard() {
                 <tbody className="divide-y divide-brand-navy/5">
                   <AnimatePresence mode="wait">
                     {activeTab === "studies" &&
-                      studies.map((study, i) => (
+                      displayedStudies.map((study, i) => (
                         <motion.tr
                           key={study._id ?? study.id ?? i}
                           initial={{ opacity: 0, x: -20 }}
@@ -444,7 +1504,7 @@ export default function AdminDashboard() {
                           <td className="px-8 py-6">
                             <div className="flex items-center gap-4">
                               <div className="w-10 h-10 rounded-xl bg-brand-navy/5 flex items-center justify-center font-bold text-brand-navy text-xs">
-                                {(study.clientData?.name || "C").charAt(0)}
+                                {getStudyCustomerName(study).charAt(0)}{" "}
                               </div>
                               <div>
                                 <p className="text-sm font-bold text-brand-navy group-hover:text-brand-mint transition-colors">
@@ -455,7 +1515,7 @@ export default function AdminDashboard() {
                                   <Calendar className="w-3 h-3" />
                                   {study.createdAt
                                     ? new Date(
-                                        study.createdAt
+                                        study.createdAt,
                                       ).toLocaleDateString()
                                     : "-"}
                                 </div>
@@ -478,7 +1538,7 @@ export default function AdminDashboard() {
                           <td className="px-8 py-6">
                             <p className="text-sm font-bold text-brand-navy">
                               {formatCurrency(
-                                study.results?.annualSavings || 0
+                                study.results?.annualSavings || 0,
                               )}
                               /año
                             </p>
@@ -497,7 +1557,7 @@ export default function AdminDashboard() {
                       ))}
 
                     {activeTab === "clients" &&
-                      clients.map((client, i) => (
+                      displayedClients.map((client, i) => (
                         <motion.tr
                           key={(client as any)._id ?? (client as any).id ?? i}
                           initial={{ opacity: 0, x: -20 }}
@@ -543,7 +1603,7 @@ export default function AdminDashboard() {
                       ))}
 
                     {activeTab === "installations" &&
-                      installations.map((inst, i) => (
+                      displayedInstallations.map((inst, i) => (
                         <motion.tr
                           key={inst.id}
                           initial={{ opacity: 0, x: -20 }}
@@ -563,7 +1623,8 @@ export default function AdminDashboard() {
                                 </p>
                                 <div className="flex items-center gap-2 text-[10px] text-brand-navy/40 font-bold uppercase tracking-wider mt-0.5">
                                   <MapPin className="w-3 h-3" />
-                                  {formatNumber(inst.lat)}, {formatNumber(inst.lng)}
+                                  {formatNumber(inst.lat)},{" "}
+                                  {formatNumber(inst.lng)}
                                 </div>
                               </div>
                             </div>
@@ -609,7 +1670,7 @@ export default function AdminDashboard() {
                                 "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest",
                                 inst.active
                                   ? "bg-green-100 text-green-600"
-                                  : "bg-red-100 text-red-600"
+                                  : "bg-red-100 text-red-600",
                               )}
                             >
                               {inst.active ? "Activa" : "Inactiva"}
@@ -642,7 +1703,7 @@ export default function AdminDashboard() {
                       ))}
 
                     {activeTab === "documents" &&
-                      documents.map((doc, i) => (
+                      displayedDocuments.map((doc, i) => (
                         <motion.tr
                           key={(doc as any)._id ?? (doc as any).id ?? i}
                           initial={{ opacity: 0, x: -20 }}
@@ -694,8 +1755,10 @@ export default function AdminDashboard() {
 
           <div className="p-8 bg-brand-navy/[0.01] border-t border-brand-navy/5 flex justify-between items-center mt-auto">
             <p className="text-[10px] font-bold text-brand-navy/40 uppercase tracking-widest">
-              {activeTab === "studies" && `Mostrando ${studies.length} estudios`}
-              {activeTab === "clients" && `Mostrando ${clients.length} clientes`}
+              {activeTab === "studies" &&
+                `Mostrando ${studies.length} estudios`}
+              {activeTab === "clients" &&
+                `Mostrando ${clients.length} clientes`}
               {activeTab === "installations" &&
                 `Mostrando ${installations.length} instalaciones`}
               {activeTab === "documents" &&
