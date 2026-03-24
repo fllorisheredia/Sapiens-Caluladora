@@ -103,6 +103,22 @@ const parseFormNumber = (value: unknown): number | undefined => {
   return Number.NaN;
 };
 
+function roundUpToDecimals(value: number, decimals: number): number {
+  const factor = Math.pow(10, decimals);
+  return Math.ceil(value * factor) / factor;
+}
+
+function normalizeAndRoundUp(
+  value: unknown,
+  decimals: number,
+): number | undefined {
+  const parsed = parseFormNumber(value);
+
+  if (parsed === undefined || Number.isNaN(parsed)) return undefined;
+
+  return roundUpToDecimals(parsed, decimals);
+}
+
 type ProposalMode = "investment" | "service" | "comparison";
 
 type StudyComparisonResult = {
@@ -197,33 +213,55 @@ function mapExtractedToBillData(
     iban: data.customer.iban ?? "",
     billType: safeBillType,
 
-    monthlyConsumption:
+    monthlyConsumption: normalizeAndRoundUp(
       data.invoice_data.averageMonthlyConsumptionKwh ??
+        data.invoice_data.currentInvoiceConsumptionKwh ??
+        data.invoice_data.consumptionKwh,
+      2,
+    ),
+
+    currentInvoiceConsumptionKwh: normalizeAndRoundUp(
       data.invoice_data.currentInvoiceConsumptionKwh ??
-      data.invoice_data.consumptionKwh ??
-      undefined,
+        data.invoice_data.consumptionKwh,
+      2,
+    ),
 
-    currentInvoiceConsumptionKwh:
-      data.invoice_data.currentInvoiceConsumptionKwh ??
-      data.invoice_data.consumptionKwh ??
-      undefined,
+    averageMonthlyConsumptionKwh: normalizeAndRoundUp(
+      data.invoice_data.averageMonthlyConsumptionKwh,
+      2,
+    ),
 
-    averageMonthlyConsumptionKwh:
-      data.invoice_data.averageMonthlyConsumptionKwh ?? undefined,
+    periodConsumptionP1: normalizeAndRoundUp(data.invoice_data.periods?.P1, 2),
+    periodConsumptionP2: normalizeAndRoundUp(data.invoice_data.periods?.P2, 2),
+    periodConsumptionP3: normalizeAndRoundUp(data.invoice_data.periods?.P3, 2),
+    periodConsumptionP4: normalizeAndRoundUp(data.invoice_data.periods?.P4, 2),
+    periodConsumptionP5: normalizeAndRoundUp(data.invoice_data.periods?.P5, 2),
+    periodConsumptionP6: normalizeAndRoundUp(data.invoice_data.periods?.P6, 2),
 
-    periodConsumptionP1: data.invoice_data.periods?.P1 ?? undefined,
-    periodConsumptionP2: data.invoice_data.periods?.P2 ?? undefined,
-    periodConsumptionP3: data.invoice_data.periods?.P3 ?? undefined,
-    periodConsumptionP4: data.invoice_data.periods?.P4 ?? undefined,
-    periodConsumptionP5: data.invoice_data.periods?.P5 ?? undefined,
-    periodConsumptionP6: data.invoice_data.periods?.P6 ?? undefined,
-
-    periodPriceP1: data.invoice_data.periodPricesEurPerKwh?.P1 ?? undefined,
-    periodPriceP2: data.invoice_data.periodPricesEurPerKwh?.P2 ?? undefined,
-    periodPriceP3: data.invoice_data.periodPricesEurPerKwh?.P3 ?? undefined,
-    periodPriceP4: data.invoice_data.periodPricesEurPerKwh?.P4 ?? undefined,
-    periodPriceP5: data.invoice_data.periodPricesEurPerKwh?.P5 ?? undefined,
-    periodPriceP6: data.invoice_data.periodPricesEurPerKwh?.P6 ?? undefined,
+    periodPriceP1: normalizeAndRoundUp(
+      data.invoice_data.periodPricesEurPerKwh?.P1,
+      5,
+    ),
+    periodPriceP2: normalizeAndRoundUp(
+      data.invoice_data.periodPricesEurPerKwh?.P2,
+      5,
+    ),
+    periodPriceP3: normalizeAndRoundUp(
+      data.invoice_data.periodPricesEurPerKwh?.P3,
+      5,
+    ),
+    periodPriceP4: normalizeAndRoundUp(
+      data.invoice_data.periodPricesEurPerKwh?.P4,
+      5,
+    ),
+    periodPriceP5: normalizeAndRoundUp(
+      data.invoice_data.periodPricesEurPerKwh?.P5,
+      5,
+    ),
+    periodPriceP6: normalizeAndRoundUp(
+      data.invoice_data.periodPricesEurPerKwh?.P6,
+      5,
+    ),
   };
 }
 
@@ -992,6 +1030,23 @@ export default function App() {
     },
   });
 
+  const handleRoundUpBlur = (
+    fieldName: keyof ValidationBillDataFormInput,
+    decimals: number,
+  ) => {
+    return (e: React.FocusEvent<HTMLInputElement>) => {
+      const rounded = normalizeAndRoundUp(e.target.value, decimals);
+
+      if (rounded === undefined) return;
+
+      setValue(fieldName, rounded as any, {
+        shouldValidate: true,
+        shouldDirty: true,
+        shouldTouch: true,
+      });
+    };
+  };
+
   const watchedBillType = watch("billType");
   const watchedAverageMonthlyConsumption = watch(
     "averageMonthlyConsumptionKwh",
@@ -1181,7 +1236,7 @@ export default function App() {
       selectedInstallationId: installation.id,
       selectedInstallationSnapshot: installation,
       language: "ES",
-      consentAccepted: true,
+      consentAccepted: privacyAccepted,
     });
 
     console.log("[front] RESPUESTA confirmStudy:", response);
@@ -1374,7 +1429,17 @@ export default function App() {
   //   });
   // }
   const handleFileSelect = async (file: File) => {
+    if (!privacyAccepted) {
+      sileo.warning({
+        title: "Debes aceptar la política de privacidad",
+        description:
+          "Para subir la factura y continuar, debes aceptar el tratamiento de datos.",
+      });
+      return;
+    }
+
     setUploadedInvoiceFile(file);
+
     sileo.promise(
       (async () => {
         const extraction = await extractBillFromApi(file);
@@ -1741,8 +1806,36 @@ export default function App() {
                     perfecta para tu hogar.
                   </p>
 
-                  <FileUploader onFileSelect={handleFileSelect} />
+                  <div className="max-w-2xl mx-auto mb-8 text-left">
+                    <label className="flex items-start gap-3 rounded-2xl border border-brand-navy/10 bg-white p-4 shadow-sm">
+                      <input
+                        type="checkbox"
+                        checked={privacyAccepted}
+                        onChange={(e) => setPrivacyAccepted(e.target.checked)}
+                        className="mt-1 h-5 w-5 rounded border-brand-navy/20 text-brand-mint focus:ring-brand-mint"
+                      />
 
+                      <span className="text-sm text-brand-gray leading-relaxed">
+                        He leído y acepto la{" "}
+                        <a
+                          href="../public/politica-privacidad.html"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="font-semibold text-brand-navy underline underline-offset-4 hover:text-brand-mint"
+                        >
+                          Política de Privacidad
+                        </a>{" "}
+                        y el tratamiento de mis datos para gestionar la subida
+                        de mi factura y la elaboración de mi estudio energético.
+                      </span>
+                    </label>
+                  </div>
+
+                  <FileUploader
+                    onFileSelect={handleFileSelect}
+                    disabled={!privacyAccepted}
+                    disabledMessage="Debes aceptar la política de privacidad y el tratamiento de datos antes de subir la factura."
+                  />
                   <div className="mt-20 grid grid-cols-1 md:grid-cols-3 gap-8 text-left">
                     {[
                       {
@@ -1910,6 +2003,10 @@ export default function App() {
                             type="number"
                             step="0.01"
                             {...register("currentInvoiceConsumptionKwh")}
+                            onBlur={handleRoundUpBlur(
+                              "currentInvoiceConsumptionKwh",
+                              2,
+                            )}
                             error={errors.currentInvoiceConsumptionKwh?.message}
                             placeholder="Ej. 421"
                           />
@@ -1919,6 +2016,10 @@ export default function App() {
                             type="number"
                             step="0.01"
                             {...register("averageMonthlyConsumptionKwh")}
+                            onBlur={handleRoundUpBlur(
+                              "averageMonthlyConsumptionKwh",
+                              2,
+                            )}
                             error={errors.averageMonthlyConsumptionKwh?.message}
                             placeholder="Ej. 388.83"
                           />
@@ -1935,6 +2036,7 @@ export default function App() {
                             type="number"
                             step="0.01"
                             {...register("periodConsumptionP1")}
+                            onBlur={handleRoundUpBlur("periodConsumptionP1", 2)}
                             error={errors.periodConsumptionP1?.message}
                             placeholder="Ej. 122"
                           />
@@ -1943,6 +2045,7 @@ export default function App() {
                             type="number"
                             step="0.01"
                             {...register("periodConsumptionP2")}
+                            onBlur={handleRoundUpBlur("periodConsumptionP2", 2)}
                             error={errors.periodConsumptionP2?.message}
                             placeholder="Ej. 100"
                           />
@@ -1951,6 +2054,7 @@ export default function App() {
                             type="number"
                             step="0.01"
                             {...register("periodConsumptionP3")}
+                            onBlur={handleRoundUpBlur("periodConsumptionP3", 2)}
                             error={errors.periodConsumptionP3?.message}
                             placeholder="Ej. 199"
                           />
@@ -1961,6 +2065,7 @@ export default function App() {
                             step="0.01"
                             disabled={watchedBillType !== "3TD"}
                             {...register("periodConsumptionP4")}
+                            onBlur={handleRoundUpBlur("periodConsumptionP4", 2)}
                             error={errors.periodConsumptionP4?.message}
                             placeholder="Solo 3TD"
                           />
@@ -1970,6 +2075,7 @@ export default function App() {
                             step="0.01"
                             disabled={watchedBillType !== "3TD"}
                             {...register("periodConsumptionP5")}
+                            onBlur={handleRoundUpBlur("periodConsumptionP5", 2)}
                             error={errors.periodConsumptionP5?.message}
                             placeholder="Solo 3TD"
                           />
@@ -1979,6 +2085,7 @@ export default function App() {
                             step="0.01"
                             disabled={watchedBillType !== "3TD"}
                             {...register("periodConsumptionP6")}
+                            onBlur={handleRoundUpBlur("periodConsumptionP6", 2)}
                             error={errors.periodConsumptionP6?.message}
                             placeholder="Solo 3TD"
                           />
