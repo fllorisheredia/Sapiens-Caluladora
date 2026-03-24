@@ -10,6 +10,7 @@ import { createClient } from "@supabase/supabase-js";
 import { extractInvoiceWithFallback } from "./src/services/invoiceExtractionOrchestrator";
 import { google } from "googleapis";
 import { Readable } from "node:stream";
+import { sendProposalEmail } from "./src/services/mailer.service";
 // dotenv.config();
 
 const PORT = Number(process.env.PORT || 3000);
@@ -275,8 +276,6 @@ function toNullableNumber(value: unknown): number | null {
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-
-
 function toBoolean(value: unknown): boolean {
   if (typeof value === "boolean") return value;
   if (typeof value === "string") {
@@ -388,6 +387,45 @@ async function validateInstallationAssignment(params: {
       state.totalKwp > 0
         ? Number(((nextUsedKwp / state.totalKwp) * 100).toFixed(2))
         : 0,
+  };
+}
+
+async function downloadDriveFileAsBuffer(fileId: string) {
+  const metadata = await drive.files.get({
+    fileId,
+    fields: "id,name,mimeType",
+    supportsAllDrives: true,
+  });
+
+  const response = await drive.files.get(
+    {
+      fileId,
+      alt: "media",
+      supportsAllDrives: true,
+    },
+    {
+      responseType: "arraybuffer",
+    },
+  );
+
+  const fileData = response.data;
+
+  let buffer: Buffer;
+
+  if (Buffer.isBuffer(fileData)) {
+    buffer = fileData;
+  } else if (fileData instanceof ArrayBuffer) {
+    buffer = Buffer.from(fileData);
+  } else if (typeof fileData === "string") {
+    buffer = Buffer.from(fileData);
+  } else {
+    buffer = Buffer.from(fileData as any);
+  }
+
+  return {
+    buffer,
+    fileName: metadata.data.name ?? "propuesta.pdf",
+    mimeType: metadata.data.mimeType ?? "application/pdf",
   };
 }
 
@@ -736,15 +774,6 @@ async function startServer() {
           ? await geocodeAddressWithGoogle(rawAddress)
           : null;
 
-        const locationPayload = {
-          ...(location ?? {}),
-          address: rawAddress || location?.address || null,
-          lat: geocoded?.lat ?? location?.lat ?? null,
-          lng: geocoded?.lng ?? location?.lng ?? null,
-          formatted_address: geocoded?.formattedAddress ?? null,
-          place_id: geocoded?.placeId ?? null,
-        };
-
         const nombre =
           pickFirstString(
             req.body.nombre,
@@ -790,6 +819,87 @@ async function startServer() {
           customer?.iban,
           invoiceData?.iban,
         );
+        const email =
+          pickFirstString(
+            req.body.email,
+            customer?.email,
+            customer?.correo,
+            customer?.mail,
+            invoiceData?.email,
+            invoiceData?.correo,
+          ) ?? null;
+
+        const telefono =
+          pickFirstString(
+            req.body.telefono,
+            req.body.phone,
+            customer?.telefono,
+            customer?.phone,
+            customer?.mobile,
+            customer?.movil,
+            invoiceData?.telefono,
+            invoiceData?.phone,
+          ) ?? null;
+
+        const codigo_postal =
+          pickFirstString(
+            req.body.codigo_postal,
+            req.body.codigoPostal,
+            req.body.postal_code,
+            customer?.codigo_postal,
+            customer?.codigoPostal,
+            customer?.postalCode,
+            invoiceData?.codigo_postal,
+            invoiceData?.codigoPostal,
+            invoiceData?.postalCode,
+            location?.codigo_postal,
+            location?.codigoPostal,
+            location?.postalCode,
+          ) ?? null;
+
+        const poblacion =
+          pickFirstString(
+            req.body.poblacion,
+            req.body.ciudad,
+            req.body.localidad,
+            req.body.city,
+            customer?.poblacion,
+            customer?.ciudad,
+            customer?.localidad,
+            customer?.city,
+            invoiceData?.poblacion,
+            invoiceData?.ciudad,
+            invoiceData?.localidad,
+            invoiceData?.city,
+            location?.poblacion,
+            location?.ciudad,
+            location?.localidad,
+            location?.city,
+          ) ?? null;
+
+        const provincia =
+          pickFirstString(
+            req.body.provincia,
+            req.body.state,
+            customer?.provincia,
+            customer?.state,
+            invoiceData?.provincia,
+            invoiceData?.state,
+            location?.provincia,
+            location?.state,
+          ) ?? null;
+
+        const pais =
+          pickFirstString(
+            req.body.pais,
+            req.body.country,
+            customer?.pais,
+            customer?.country,
+            invoiceData?.pais,
+            invoiceData?.country,
+            location?.pais,
+            location?.country,
+          ) ?? "España";
 
         const tipoFacturaRaw = (
           pickFirstString(
@@ -800,6 +910,21 @@ async function startServer() {
             invoiceData?.tariffType,
           ) || "2TD"
         ).toUpperCase();
+
+        const locationPayload = {
+          ...(location ?? {}),
+          address: rawAddress || location?.address || null,
+          direccion_completa:
+            (direccionCompleta ?? rawAddress) || location?.address || null,
+          codigo_postal,
+          poblacion,
+          provincia,
+          pais,
+          lat: geocoded?.lat ?? location?.lat ?? null,
+          lng: geocoded?.lng ?? location?.lng ?? null,
+          formatted_address: geocoded?.formattedAddress ?? null,
+          place_id: geocoded?.placeId ?? null,
+        };
 
         const tipo_factura = tipoFacturaRaw === "3TD" ? "3TD" : "2TD";
 
@@ -870,13 +995,33 @@ async function startServer() {
             buffer: proposalFile.buffer,
           });
         }
-
+        const normalizedCustomer = {
+          ...(customer ?? {}),
+          nombre,
+          apellidos,
+          dni,
+          email,
+          telefono,
+          cups: cups ?? null,
+          direccion_completa: direccionCompleta ?? null,
+          codigo_postal,
+          poblacion,
+          provincia,
+          pais,
+          iban: iban ?? null,
+        };
         const clientPayload = {
           nombre,
           apellidos,
           dni,
+          email,
+          telefono,
           cups: cups ?? null,
           direccion_completa: direccionCompleta ?? null,
+          codigo_postal,
+          poblacion,
+          provincia,
+          pais,
           iban: iban ?? null,
           consumo_mensual_real_kwh,
           consumo_medio_mensual_kwh,
@@ -893,6 +1038,7 @@ async function startServer() {
           factura_drive_url: uploadedInvoice?.webViewLink ?? null,
           propuesta_drive_file_id: uploadedProposal?.id ?? null,
           propuesta_drive_url: uploadedProposal?.webViewLink ?? null,
+          datos_adicionales: normalizedCustomer,
         };
 
         const { data: clientData, error: clientError } = await supabase
@@ -927,25 +1073,16 @@ async function startServer() {
             proposal_drive_file_id: uploadedProposal?.id ?? null,
             proposal_drive_url: uploadedProposal?.webViewLink ?? null,
           },
-          customer:
-            Object.keys(customer).length > 0
-              ? customer
-              : {
-                  nombre,
-                  apellidos,
-                  dni,
-                  cups,
-                  direccion_completa: direccionCompleta,
-                  iban,
-                },
-          location: location ?? null,
+          customer: normalizedCustomer,
+          location: locationPayload,
           invoice_data: invoiceData ?? null,
           selected_installation_id: req.body.selected_installation_id ?? null,
           assigned_kwp: assignedKwp ?? null,
           selected_installation_snapshot: selectedInstallationSnapshot ?? null,
           calculation: calculation ?? null,
           status: req.body.status ?? "uploaded",
-          email_status: req.body.email_status ?? "pending",
+          // email_status: req.body.email_status ?? "pending",
+          email_status: "pending",
         };
 
         const { data: studyData, error: studyError } = await supabase
@@ -962,15 +1099,80 @@ async function startServer() {
           });
         }
 
+        let emailStatus: "pending" | "sent" | "failed" = "pending";
+        let emailError: string | null = null;
+
+        console.log("[confirm-study] email:", email);
+        console.log("[confirm-study] proposalFile existe:", !!proposalFile);
+        console.log(
+          "[confirm-study] proposalFile originalname:",
+          proposalFile?.originalname,
+        );
+        console.log("[confirm-study] uploadedProposal:", uploadedProposal);
+
+        if (!email) {
+          emailStatus = "failed";
+          emailError = "No se encontró email del cliente";
+        } else if (!proposalFile) {
+          emailStatus = "failed";
+          emailError = "No se recibió el PDF de la propuesta";
+        } else {
+          try {
+            await sendProposalEmail({
+              to: email,
+              clientName: `${nombre} ${apellidos}`.trim(),
+              pdfBuffer: proposalFile.buffer,
+              pdfFilename:
+                proposalFile.originalname ||
+                `PROPUESTA_${normalizeDriveToken(dni)}.pdf`,
+              proposalUrl: uploadedProposal?.webViewLink ?? null,
+            });
+
+            emailStatus = "sent";
+          } catch (error: any) {
+            console.error(
+              "Error enviando email automático de propuesta:",
+              error,
+            );
+            emailStatus = "failed";
+            emailError =
+              error?.message || "Error desconocido al enviar el correo";
+          }
+
+          console.log("[confirm-study] emailStatus final:", emailStatus);
+          console.log("[confirm-study] emailError final:", emailError);
+        }
+
+        const { data: updatedStudy, error: updateStudyError } = await supabase
+          .from("studies")
+          .update({
+            email_status: emailStatus,
+          })
+          .eq("id", studyData.id)
+          .select()
+          .single();
+
+        if (updateStudyError) {
+          console.error(
+            "Error actualizando email_status del estudio:",
+            updateStudyError,
+          );
+        }
+
         return res.status(201).json({
           success: true,
           client: clientData,
-          study: studyData,
+          study: updatedStudy ?? studyData,
           drive: {
             folderId: folder.id,
             folderUrl: folder.webViewLink,
             invoiceUrl: uploadedInvoice?.webViewLink ?? null,
             proposalUrl: uploadedProposal?.webViewLink ?? null,
+          },
+          email: {
+            to: email,
+            status: emailStatus,
+            error: emailError,
           },
         });
       } catch (error: any) {
@@ -982,6 +1184,108 @@ async function startServer() {
       }
     },
   );
+
+  app.post("/api/studies/:id/send-proposal-email", async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      const { data: study, error: studyError } = await supabase
+        .from("studies")
+        .select("*")
+        .eq("id", id)
+        .single();
+
+      if (studyError || !study) {
+        return res.status(404).json({
+          error: "Study not found",
+          details: studyError?.message ?? "El estudio no existe",
+        });
+      }
+
+      const customer = study.customer ?? {};
+      const sourceFile = study.source_file ?? {};
+
+      const email =
+        pickFirstString(
+          req.body?.email,
+          customer?.email,
+          customer?.correo,
+          customer?.mail,
+        ) ?? null;
+
+      const nombre =
+        pickFirstString(customer?.nombre, customer?.name, "Cliente") ??
+        "Cliente";
+
+      const apellidos =
+        pickFirstString(
+          customer?.apellidos,
+          customer?.lastName,
+          customer?.surnames,
+        ) ?? "";
+
+      const proposalDriveFileId =
+        pickFirstString(
+          sourceFile?.proposal_drive_file_id,
+          sourceFile?.propuesta_drive_file_id,
+        ) ?? null;
+
+      const proposalUrl =
+        pickFirstString(
+          sourceFile?.proposal_drive_url,
+          sourceFile?.propuesta_drive_url,
+        ) ?? null;
+
+      if (!email) {
+        return res.status(400).json({
+          error: "No se encontró el email del cliente",
+        });
+      }
+
+      if (!proposalDriveFileId) {
+        return res.status(400).json({
+          error: "No se encontró el PDF de propuesta en Drive",
+        });
+      }
+
+      const driveProposal =
+        await downloadDriveFileAsBuffer(proposalDriveFileId);
+
+      await sendProposalEmail({
+        to: email,
+        clientName: `${nombre} ${apellidos}`.trim(),
+        pdfBuffer: driveProposal.buffer,
+        pdfFilename: driveProposal.fileName,
+        proposalUrl,
+      });
+
+      const { data: updatedStudy } = await supabase
+        .from("studies")
+        .update({
+          email_status: "sent",
+        })
+        .eq("id", id)
+        .select()
+        .single();
+
+      return res.json({
+        success: true,
+        message: "Correo reenviado correctamente",
+        study: updatedStudy ?? study,
+        email: {
+          to: email,
+          status: "sent",
+        },
+      });
+    } catch (error: any) {
+      console.error("Error en /api/studies/:id/send-proposal-email:", error);
+
+      return res.status(500).json({
+        error: "No se pudo reenviar el correo",
+        details: error?.message || "Error desconocido",
+      });
+    }
+  });
 
   app.post("/api/geocode-address", async (req, res) => {
     try {
@@ -1410,6 +1714,35 @@ async function startServer() {
     }
   });
 
+  //SENDMAIL
+  // server.ts
+  // app.post("/api/send-proposal-email", async (req, res) => {
+  //   try {
+  //     const { to, clientName, studyData } = req.body;
+
+  //     // 1. Generar PDF
+  //     const pdfBuffer = await generateStudyPDFBuffer(studyData);
+
+  //     // 2. Enviar email
+  //     await sendProposalEmail({
+  //       to,
+  //       clientName,
+  //       pdfBuffer,
+  //     });
+
+  //     res.status(200).json({
+  //       ok: true,
+  //       message: "Correo enviado correctamente",
+  //     });
+  //   } catch (error) {
+  //     console.error("Error enviando correo:", error);
+  //     res.status(500).json({
+  //       ok: false,
+  //       message: "No se pudo enviar el correo",
+  //     });
+  //   }
+  // });
+
   // =========================
   // INSTALLATIONS API
   // =========================
@@ -1568,40 +1901,40 @@ async function startServer() {
   });
 
   app.post("/api/geocode-address", async (req, res) => {
-  try {
-    const address = String(req.body?.address || "").trim();
+    try {
+      const address = String(req.body?.address || "").trim();
 
-    if (!address) {
-      return res.status(400).json({
-        error: "La dirección es obligatoria",
+      if (!address) {
+        return res.status(400).json({
+          error: "La dirección es obligatoria",
+        });
+      }
+
+      const geocoded = await geocodeAddressWithGoogle(address);
+
+      if (!geocoded) {
+        return res.status(404).json({
+          error: "No se pudo geocodificar la dirección",
+        });
+      }
+
+      return res.json({
+        success: true,
+        coords: {
+          lat: geocoded.lat,
+          lng: geocoded.lng,
+        },
+        formattedAddress: geocoded.formattedAddress,
+        placeId: geocoded.placeId,
       });
-    }
-
-    const geocoded = await geocodeAddressWithGoogle(address);
-
-    if (!geocoded) {
-      return res.status(404).json({
+    } catch (error: any) {
+      console.error("Error en /api/geocode-address:", error);
+      return res.status(500).json({
         error: "No se pudo geocodificar la dirección",
+        details: error?.message || "Error desconocido",
       });
     }
-
-    return res.json({
-      success: true,
-      coords: {
-        lat: geocoded.lat,
-        lng: geocoded.lng,
-      },
-      formattedAddress: geocoded.formattedAddress,
-      placeId: geocoded.placeId,
-    });
-  } catch (error: any) {
-    console.error("Error en /api/geocode-address:", error);
-    return res.status(500).json({
-      error: "No se pudo geocodificar la dirección",
-      details: error?.message || "Error desconocido",
-    });
-  }
-});
+  });
 
   // =========================
   // VITE

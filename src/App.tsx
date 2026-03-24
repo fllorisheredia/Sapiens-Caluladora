@@ -38,7 +38,7 @@ import {
 } from "./modules/calculation/energyService";
 import { formatCurrency, formatNumber, cn } from "./lib/utils";
 import { generateStudyPDF } from "./modules/pdf/pdfService";
-import { sendStudyByEmail } from "./modules/email/emailService";
+// import { sendStudyByEmail } from "./modules/email/emailService";
 import { MapContainer, TileLayer, Marker, Popup, Circle } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -985,21 +985,41 @@ export default function App() {
     result: CalculationResult,
     installation: ApiInstallation,
   ) => {
+    console.log("[front] persistStudyAutomatically START");
+
     if (!uploadedInvoiceFile) {
       throw new Error(
         "No se encuentra la factura original subida por el cliente",
       );
     }
 
+    console.log("[front] uploadedInvoiceFile:", uploadedInvoiceFile);
+    console.log("[front] validatedData.email:", validatedData.email);
+    console.log("[front] installation.id:", installation.id);
+
     const billData = toBaseBillData(validatedData);
+    console.log("[front] billData:", billData);
+
     const pdfArtifact = await buildPdfArtifact(billData, result);
+    console.log("[front] pdfArtifact generado:", pdfArtifact);
+
     const proposalBlob = pdfArtifactToBlob(pdfArtifact);
+    console.log("[front] proposalBlob:", proposalBlob);
 
     const proposalFile = new File(
       [proposalBlob],
       `Estudio_Solar_${validatedData.name || "cliente"}.pdf`,
       { type: "application/pdf" },
     );
+
+    console.log("[front] proposalFile:", proposalFile);
+    console.log("[front] proposalFile.size:", proposalFile.size);
+    console.log("[front] proposalFile.type:", proposalFile.type);
+
+    const extractedLocation = (rawExtraction?.location ?? {}) as Record<
+      string,
+      any
+    >;
 
     const customerPayload = {
       nombre: validatedData.name,
@@ -1008,8 +1028,22 @@ export default function App() {
       cups: validatedData.cups,
       direccion_completa: validatedData.address,
       email: validatedData.email,
+      telefono: validatedData.phone,
       phone: validatedData.phone,
       iban: validatedData.iban,
+      codigo_postal:
+        extractedLocation.codigo_postal ??
+        extractedLocation.codigoPostal ??
+        extractedLocation.postalCode ??
+        null,
+      poblacion:
+        extractedLocation.poblacion ??
+        extractedLocation.ciudad ??
+        extractedLocation.localidad ??
+        extractedLocation.city ??
+        null,
+      provincia: extractedLocation.provincia ?? extractedLocation.state ?? null,
+      pais: extractedLocation.pais ?? extractedLocation.country ?? "España",
       tipo_factura: validatedData.billType,
       consumo_mensual_real_kwh: validatedData.currentInvoiceConsumptionKwh,
       consumo_medio_mensual_kwh: validatedData.averageMonthlyConsumptionKwh,
@@ -1046,11 +1080,31 @@ export default function App() {
     };
 
     const locationPayload = {
-      ...(rawExtraction?.location ?? {}),
+      ...extractedLocation,
       address: validatedData.address,
+      direccion_completa: validatedData.address,
+      codigo_postal:
+        extractedLocation.codigo_postal ??
+        extractedLocation.codigoPostal ??
+        extractedLocation.postalCode ??
+        null,
+      poblacion:
+        extractedLocation.poblacion ??
+        extractedLocation.ciudad ??
+        extractedLocation.localidad ??
+        extractedLocation.city ??
+        null,
+      provincia: extractedLocation.provincia ?? extractedLocation.state ?? null,
+      pais: extractedLocation.pais ?? extractedLocation.country ?? "España",
       lat: clientCoordinates?.lat ?? null,
       lng: clientCoordinates?.lng ?? null,
     };
+
+    console.log("[front] customerPayload:", customerPayload);
+    console.log("[front] locationPayload:", locationPayload);
+    console.log("[front] invoiceDataPayload:", invoiceDataPayload);
+
+    console.log("[front] ANTES de confirmStudy");
 
     const response = await confirmStudy({
       invoiceFile: uploadedInvoiceFile,
@@ -1065,44 +1119,61 @@ export default function App() {
       consentAccepted: true,
     });
 
+    console.log("[front] RESPUESTA confirmStudy:", response);
+
     setSavedStudy(response);
+
+    if (response?.email?.status === "sent") {
+      sileo.success({
+        title: "Propuesta enviada por email",
+        description: `Se ha enviado correctamente a ${response.email.to ?? "el cliente"}.`,
+      });
+    } else if (response?.email?.status === "failed") {
+      sileo.error({
+        title: "La propuesta se guardó, pero el email falló",
+        description:
+          response?.email?.error ?? "No se pudo enviar el correo al cliente.",
+      });
+    }
 
     return response;
   };
   const handleSendEmail = async () => {
-    if (!activeCalculationResult || !extractedData?.email) {
-      sileo.error({
-        title: "Falta el email del cliente",
-        description: "Añade un correo válido antes de enviarlo.",
+    if (!savedStudy) {
+      sileo.info({
+        title: "Primero genera la propuesta",
+        description:
+          "El envío por email se realiza automáticamente al guardar el estudio.",
       });
       return;
     }
 
-    sileo.promise(
-      (async () => {
-        const billData = toBaseBillData(extractedData);
-        const pdfArtifact = await buildPdfArtifact(
-          billData,
-          activeCalculationResult,
-        );
+    const emailInfo = savedStudy?.email;
 
-        await sendStudyEmailWithFallback({
-          to: extractedData.email,
-          customerName: extractedData.name || "Cliente",
-          billData,
-          calculationResult: activeCalculationResult,
-          pdfArtifact,
-        });
-      })(),
-      {
-        loading: { title: "Enviando estudio por email..." },
-        success: { title: "Estudio enviado por email con éxito" },
-        error: { title: "No se pudo enviar el email" },
-      },
-    );
+    if (emailInfo?.status === "sent") {
+      sileo.success({
+        title: "Correo ya enviado",
+        description: `La propuesta se envió correctamente a ${emailInfo.to ?? "el cliente"}.`,
+      });
+      return;
+    }
+
+    if (emailInfo?.status === "failed") {
+      sileo.error({
+        title: "El envío automático falló",
+        description:
+          emailInfo?.error ??
+          "La propuesta se guardó, pero no se pudo enviar el correo.",
+      });
+      return;
+    }
+
+    sileo.info({
+      title: "Procesando envío",
+      description:
+        "El correo se envía automáticamente al confirmar y guardar el estudio.",
+    });
   };
-  // const handleSendEmail = async () => {
-  //   console.log("Enviando email...");
 
   //   if (!calculationResult || !extractedData?.email) {
   //     sileo.error({
@@ -1456,12 +1527,13 @@ export default function App() {
       setSelectedProposalView("investment");
       setCurrentStep("result");
       sileo.success({ title: "Estudio generado con éxito" });
-
+console.log("[front] entrando en persistencia automática");
       void (async () => {
         if (studyPersistLock.current) return;
         studyPersistLock.current = true;
 
         try {
+          console.log("[front] llamando a persistStudyAutomatically...");
           await persistStudyAutomatically(
             validatedData,
             result,
@@ -1474,11 +1546,16 @@ export default function App() {
           });
         } catch (error: any) {
           console.error("Error guardando estudio confirmado:", error);
+          console.error("error.message:", error?.message);
+          console.error("error.response?.data:", error?.response?.data);
+          console.error("error.response?.status:", error?.response?.status);
 
           sileo.error({
             title: "El estudio se generó, pero no se pudo guardar",
             description:
-              error?.message || "Revisa la configuración del servidor.",
+              error?.response?.data?.details ||
+              error?.message ||
+              "Revisa la configuración del servidor.",
           });
         } finally {
           studyPersistLock.current = false;

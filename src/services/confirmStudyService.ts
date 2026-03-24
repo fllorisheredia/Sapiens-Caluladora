@@ -1,59 +1,56 @@
-export interface ConfirmStudyPayload {
+import axios from "axios";
+
+type ConfirmStudyParams = {
   invoiceFile: File;
-  proposalFile: Blob | File;
-  customer: Record<string, any>;
-  location?: Record<string, any> | null;
-  invoiceData?: Record<string, any> | null;
-  calculation?: Record<string, any> | null;
+  proposalFile: File;
+  customer: Record<string, unknown>;
+  location?: Record<string, unknown> | null;
+  invoiceData?: Record<string, unknown> | null;
+  calculation?: unknown;
   selectedInstallationId?: string | null;
-  selectedInstallationSnapshot?: Record<string, any> | null;
+  selectedInstallationSnapshot?: unknown;
   language?: string;
   consentAccepted?: boolean;
+  status?: string;
+};
+
+export async function confirmStudy({
+  invoiceFile,
+  proposalFile,
+  customer,
+  location,
+  invoiceData,
+  calculation,
+  selectedInstallationId,
+  selectedInstallationSnapshot,
+  language = "ES",
+  consentAccepted = true,
+  status = "uploaded",
+}: ConfirmStudyParams) {
+const formData = new FormData();
+formData.append("invoice", invoiceFile);
+formData.append("proposal", proposalFile);
+formData.append("customer", JSON.stringify(customer ?? {}));
+formData.append("location", JSON.stringify(location ?? {}));
+formData.append("invoice_data", JSON.stringify(invoiceData ?? {}));
+formData.append("calculation", JSON.stringify(calculation ?? {}));
+formData.append(
+  "selected_installation_snapshot",
+  JSON.stringify(selectedInstallationSnapshot ?? {}),
+);
+
+if (selectedInstallationId) {
+  formData.append("selected_installation_id", selectedInstallationId);
 }
 
-export async function confirmStudy(payload: ConfirmStudyPayload) {
-  const formData = new FormData();
+formData.append("language", language);
+formData.append("consent_accepted", String(consentAccepted));
 
-  formData.append("invoice", payload.invoiceFile);
+const { data } = await axios.post("/api/confirm-study", formData, {
+  headers: {
+    "Content-Type": "multipart/form-data",
+  },
+});
 
-  const proposalAsFile =
-    payload.proposalFile instanceof File
-      ? payload.proposalFile
-      : new File([payload.proposalFile], "propuesta.pdf", {
-          type: "application/pdf",
-        });
-
-  formData.append("proposal", proposalAsFile);
-
-  formData.append("customer", JSON.stringify(payload.customer ?? {}));
-  formData.append("location", JSON.stringify(payload.location ?? null));
-  formData.append("invoice_data", JSON.stringify(payload.invoiceData ?? null));
-  formData.append("calculation", JSON.stringify(payload.calculation ?? null));
-  formData.append(
-    "selected_installation_snapshot",
-    JSON.stringify(payload.selectedInstallationSnapshot ?? null)
-  );
-
-  if (payload.selectedInstallationId) {
-    formData.append("selected_installation_id", payload.selectedInstallationId);
-  }
-
-  formData.append("language", payload.language ?? "ES");
-  formData.append(
-    "consent_accepted",
-    String(payload.consentAccepted ?? false)
-  );
-
-  const response = await fetch("/api/confirm-study", {
-    method: "POST",
-    body: formData,
-  });
-
-  const result = await response.json();
-
-  if (!response.ok) {
-    throw new Error(result?.details || result?.error || "Error confirmando estudio");
-  }
-
-  return result;
+return data;
 }
