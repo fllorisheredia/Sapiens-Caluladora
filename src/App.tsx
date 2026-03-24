@@ -39,6 +39,20 @@ import {
 import { formatCurrency, formatNumber, cn } from "./lib/utils";
 import { generateStudyPDF } from "./modules/pdf/pdfService";
 import { sendStudyByEmail } from "./modules/email/emailService";
+import { MapContainer, TileLayer, Marker, Popup, Circle } from "react-leaflet";
+import L from "leaflet";
+import "leaflet/dist/leaflet.css";
+import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
+import markerIcon from "leaflet/dist/images/marker-icon.png";
+import markerShadow from "leaflet/dist/images/marker-shadow.png";
+
+delete (L.Icon.Default.prototype as any)._getIconUrl;
+
+L.Icon.Default.mergeOptions({
+  iconRetinaUrl: markerIcon2x,
+  iconUrl: markerIcon,
+  shadowUrl: markerShadow,
+});
 
 type Step = "upload" | "validation" | "map" | "calculation" | "result";
 
@@ -692,6 +706,60 @@ function buildProposalCardData(
   };
 }
 
+// function getClientCoords(rawExtraction: ExtractedBillData | null): {
+//   lat: number;
+//   lng: number;
+// } | null {
+//   const lat = Number(
+//     rawExtraction?.location?.lat ?? rawExtraction?.location?.latitude,
+//   );
+
+//   const lng = Number(
+//     rawExtraction?.location?.lng ??
+//       rawExtraction?.location?.lon ??
+//       rawExtraction?.location?.longitude,
+//   );
+
+//   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+
+//   return { lat, lng };
+// }
+
+function normalizeAddressForGeocoding(address: string): string {
+  return address
+    .replace(/\s+/g, " ")
+    .replace(/,+/g, ",")
+    .replace(/\s*,\s*/g, ", ")
+    .trim();
+}
+
+async function geocodeAddress(address: string): Promise<{
+  lat: number;
+  lng: number;
+} | null> {
+  const normalizedAddress = normalizeAddressForGeocoding(address);
+
+  if (!normalizedAddress) return null;
+
+  const response = await axios.post("/api/geocode-address", {
+    address: normalizedAddress,
+  });
+
+  const coords = response.data?.coords;
+
+  if (
+    !coords ||
+    !Number.isFinite(Number(coords.lat)) ||
+    !Number.isFinite(Number(coords.lng))
+  ) {
+    return null;
+  }
+
+  return {
+    lat: Number(coords.lat),
+    lng: Number(coords.lng),
+  };
+}
 export default function App() {
   const [view, setView] = useState<"public" | "admin">("public");
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
@@ -726,6 +794,12 @@ export default function App() {
     "investment",
     selectedInstallation,
   );
+  const [clientCoordinates, setClientCoordinates] = useState<{
+    lat: number;
+    lng: number;
+  } | null>(null);
+
+  const clientCoords = clientCoordinates;
   const getMonthlyFeeLabel = (
     proposal: ProposalCardData,
     isInvestment = false,
@@ -866,6 +940,11 @@ export default function App() {
   const watchedAverageMonthlyConsumption = watch(
     "averageMonthlyConsumptionKwh",
   );
+  // useEffect(() => {
+  //   if (currentStep === "map") {
+  //     void fetchInstallations();
+  //   }
+  // }, [currentStep, rawExtraction]);
 
   useEffect(() => {
     const parsed = parseFormNumber(watchedAverageMonthlyConsumption);
@@ -969,6 +1048,8 @@ export default function App() {
     const locationPayload = {
       ...(rawExtraction?.location ?? {}),
       address: validatedData.address,
+      lat: clientCoordinates?.lat ?? null,
+      lng: clientCoordinates?.lng ?? null,
     };
 
     const response = await confirmStudy({
@@ -1249,28 +1330,76 @@ export default function App() {
   };
 
   const onValidationSubmit = (data: ValidationBillData) => {
-    const normalizedData: ValidationBillData = {
-      ...data,
-      monthlyConsumption:
-        data.averageMonthlyConsumptionKwh ?? data.monthlyConsumption,
-    };
+    sileo.promise(
+      (async () => {
+        const normalizedData: ValidationBillData = {
+          ...data,
+          monthlyConsumption:
+            data.averageMonthlyConsumptionKwh ?? data.monthlyConsumption,
+        };
 
-    setExtractedData(normalizedData);
-    setProposalResults(null);
-    setSelectedProposalView("investment");
-    setSelectedInstallation(null);
-    setCurrentStep("map");
-    void fetchInstallations();
-    sileo.success({ title: "Datos validados correctamente" });
+        setExtractedData(normalizedData);
+        setProposalResults(null);
+        setSelectedProposalView("investment");
+        setSelectedInstallation(null);
+
+        const coords = await geocodeAddress(normalizedData.address);
+
+        if (!coords) {
+          setClientCoordinates(null);
+          setInstallations([]);
+          setCurrentStep("map");
+
+          sileo.error({
+            title: "No se pudo localizar la dirección",
+            description:
+              "No hemos podido obtener las coordenadas de la dirección indicada.",
+          });
+
+          return;
+        }
+
+        setClientCoordinates(coords);
+        setCurrentStep("map");
+        await fetchInstallations(coords);
+
+        sileo.success({ title: "Datos validados correctamente" });
+      })(),
+      {
+        loading: { title: "Validando dirección y buscando instalaciones..." },
+        success: { title: "Datos validados correctamente" },
+        error: { title: "No se pudo validar la ubicación del cliente" },
+      },
+    );
   };
 
-  const fetchInstallations = async () => {
+  const fetchInstallations = async (
+    coordsParam?: { lat: number; lng: number } | null,
+  ) => {
+    const coords = coordsParam ?? clientCoordinates;
+
+    if (!coords) {
+      setInstallations([]);
+      sileo.error({
+        title: "Ubicación no disponible",
+        description:
+          "No se ha podido obtener la latitud y longitud del cliente.",
+      });
+      return;
+    }
+
     setIsLoadingInstallations(true);
 
     try {
       const response = await axios.get<
         ApiInstallation[] | { data: ApiInstallation[] }
-      >("/api/installations");
+      >("/api/installations", {
+        params: {
+          lat: coords.lat,
+          lng: coords.lng,
+          radius: 2000,
+        },
+      });
 
       const responseData = response.data;
       const parsedInstallations = Array.isArray(responseData)
@@ -1293,7 +1422,6 @@ export default function App() {
       setIsLoadingInstallations(false);
     }
   };
-
   const handleInstallationSelect = (inst: ApiInstallation) => {
     setSelectedInstallation(inst);
     setCurrentStep("calculation");
@@ -1802,25 +1930,68 @@ export default function App() {
                       Selecciona tu comunidad
                     </h2>
                     <p className="text-brand-gray">
-                      Elige una de las instalaciones cercanas para calcular tu
-                      ahorro compartido.
+                      Estas son las instalaciones activas disponibles dentro del
+                      radio legal de 2 km de tu ubicación.
                     </p>
                   </div>
 
                   <div className="flex flex-col lg:flex-row gap-10 h-[700px]">
                     <div className="flex-1 bg-white rounded-[3rem] overflow-hidden relative border border-brand-navy/5 shadow-2xl shadow-brand-navy/5">
-                      <div className="absolute inset-0 bg-brand-navy/[0.02]">
-                        <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2">
-                          <div className="relative">
-                            <div className="absolute -inset-20 brand-gradient opacity-10 blur-3xl rounded-full animate-pulse" />
-                            <div className="relative w-16 h-16 brand-gradient rounded-full flex items-center justify-center shadow-2xl shadow-brand-mint/40">
-                              <MapPin className="w-8 h-8 text-brand-navy" />
-                            </div>
-                          </div>
-                        </div>
-                      </div>
+                      {clientCoords ? (
+                        <MapContainer
+                          center={[clientCoords.lat, clientCoords.lng]}
+                          zoom={13}
+                          scrollWheelZoom={true}
+                          className="h-full w-full z-0"
+                        >
+                          <TileLayer
+                            attribution="&copy; OpenStreetMap contributors"
+                            url="https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png"
+                          />
 
-                      <div className="absolute bottom-8 left-8 right-8 glass-card p-6 rounded-3xl flex items-center justify-between">
+                          <Marker
+                            position={[clientCoords.lat, clientCoords.lng]}
+                          >
+                            <Popup>Ubicación del cliente</Popup>
+                          </Marker>
+
+                          <Circle
+                            center={[clientCoords.lat, clientCoords.lng]}
+                            radius={2000}
+                            pathOptions={{
+                              color: "#57d9d3",
+                              fillColor: "#57d9d3",
+                              fillOpacity: 0.12,
+                            }}
+                          />
+
+                          {installations.map((inst) => (
+                            <Marker
+                              key={inst.id}
+                              position={[Number(inst.lat), Number(inst.lng)]}
+                            >
+                              <Popup>
+                                <div className="text-sm">
+                                  <p className="font-bold">
+                                    {inst.nombre_instalacion}
+                                  </p>
+                                  <p>{inst.direccion}</p>
+                                  <p className="mt-1">
+                                    Distancia: {inst.distance_meters ?? "-"} m
+                                  </p>
+                                </div>
+                              </Popup>
+                            </Marker>
+                          ))}
+                        </MapContainer>
+                      ) : (
+                        <div className="absolute inset-0 flex items-center justify-center bg-brand-navy/[0.02] text-brand-navy/40 font-bold">
+                          No se ha podido cargar el mapa porque faltan
+                          coordenadas.
+                        </div>
+                      )}
+
+                      <div className="absolute bottom-8 left-8 right-8 glass-card p-6 rounded-3xl flex items-center justify-between z-[400]">
                         <div className="flex items-center gap-4">
                           <div className="w-12 h-12 bg-brand-navy rounded-2xl flex items-center justify-center text-white">
                             <MapPin className="w-6 h-6" />
@@ -1856,10 +2027,21 @@ export default function App() {
                           </p>
                         </div>
                       ) : installations.length === 0 ? (
-                        <div className="text-center py-12 text-brand-navy/40">
-                          <p className="text-sm font-bold uppercase tracking-widest">
-                            No hay plantas cercanas
+                        <div className="rounded-[2rem] border border-amber-200 bg-amber-50 px-6 py-6 text-left">
+                          <p className="text-sm font-bold uppercase tracking-widest text-amber-700">
+                            No hay instalaciones disponibles
                           </p>
+
+                          <p className="text-sm text-amber-700/80 mt-3 leading-relaxed">
+                            No hemos encontrado instalaciones activas dentro de
+                            un radio de 2 km para esta dirección. Contacta con
+                            Sapiens para revisar tu caso.
+                          </p>
+
+                          <div className="mt-4 space-y-1 text-sm font-semibold text-brand-navy">
+                            <p>Teléfono: 960 000 000</p>
+                            <p>Email: info@sapiensenergia.com</p>
+                          </div>
                         </div>
                       ) : (
                         installations.map((inst, i) => (

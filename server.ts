@@ -13,6 +13,16 @@ import { Readable } from "node:stream";
 // dotenv.config();
 
 const PORT = Number(process.env.PORT || 3000);
+const SAPIENS_CONTACT_PHONE = process.env.SAPIENS_CONTACT_PHONE || "960000000";
+const SAPIENS_CONTACT_EMAIL =
+  process.env.SAPIENS_CONTACT_EMAIL || "info@sapiensenergia.com";
+
+const GOOGLE_MAPS_GEOCODING_API_KEY =
+  process.env.GOOGLE_MAPS_GEOCODING_API_KEY || "";
+
+if (!GOOGLE_MAPS_GEOCODING_API_KEY) {
+  throw new Error("Falta GOOGLE_MAPS_GEOCODING_API_KEY en .env");
+}
 
 const SUPABASE_URL =
   process.env.SUPABASE_URL || process.env.VITE_SUPABASE_URL || "";
@@ -21,7 +31,7 @@ const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY || "";
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
   throw new Error(
-    "Faltan SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY en el archivo .env"
+    "Faltan SUPABASE_URL o SUPABASE_SERVICE_ROLE_KEY en el archivo .env",
   );
 }
 
@@ -32,7 +42,7 @@ const GOOGLE_SERVICE_ACCOUNT_EMAIL =
 
 const GOOGLE_PRIVATE_KEY = (process.env.GOOGLE_PRIVATE_KEY || "").replace(
   /\\n/g,
-  "\n"
+  "\n",
 );
 
 const GOOGLE_DRIVE_ROOT_FOLDER_ID =
@@ -44,7 +54,7 @@ if (
   !GOOGLE_DRIVE_ROOT_FOLDER_ID
 ) {
   throw new Error(
-    "Faltan GOOGLE_SERVICE_ACCOUNT_EMAIL, GOOGLE_PRIVATE_KEY o GOOGLE_DRIVE_ROOT_FOLDER_ID en .env"
+    "Faltan GOOGLE_SERVICE_ACCOUNT_EMAIL, GOOGLE_PRIVATE_KEY o GOOGLE_DRIVE_ROOT_FOLDER_ID en .env",
   );
 }
 
@@ -65,10 +75,10 @@ function escapeDriveQueryValue(value: string): string {
 function buildClientFolderName(
   dni: string,
   nombre: string,
-  apellidos: string
+  apellidos: string,
 ): string {
   return `${normalizeDriveToken(dni)}-${normalizeDriveToken(
-    nombre
+    nombre,
   )}_${normalizeDriveToken(apellidos)}`;
 }
 
@@ -81,11 +91,191 @@ function pickFirstString(...values: unknown[]): string | null {
   return null;
 }
 
+function getStudyCoordinates(study: any): { lat: number; lng: number } | null {
+  const lat =
+    toNullableNumber(study?.location?.lat) ??
+    toNullableNumber(study?.location?.latitude) ??
+    toNullableNumber(study?.customer?.lat) ??
+    toNullableNumber(study?.customer?.latitude) ??
+    toNullableNumber(study?.invoice_data?.lat) ??
+    toNullableNumber(study?.invoice_data?.latitude);
+
+  const lng =
+    toNullableNumber(study?.location?.lng) ??
+    toNullableNumber(study?.location?.lon) ??
+    toNullableNumber(study?.location?.longitude) ??
+    toNullableNumber(study?.customer?.lng) ??
+    toNullableNumber(study?.customer?.lon) ??
+    toNullableNumber(study?.customer?.longitude) ??
+    toNullableNumber(study?.invoice_data?.lng) ??
+    toNullableNumber(study?.invoice_data?.lon) ??
+    toNullableNumber(study?.invoice_data?.longitude);
+
+  if (lat === null || lng === null) return null;
+
+  return { lat, lng };
+}
+
+type InstallationWithAvailability = {
+  id: string;
+  nombre_instalacion: string;
+  direccion: string;
+  lat: number;
+  lng: number;
+  active: boolean;
+  potencia_instalada_kwp: number;
+  distance_meters: number;
+  totalKwp: number;
+  usedKwp: number;
+  availableKwp: number;
+  occupancyPercent: number;
+};
+
+type FindEligibleInstallationsResult = {
+  study: any;
+  coords: { lat: number; lng: number };
+  withinRange: InstallationWithAvailability[];
+  eligible: InstallationWithAvailability[];
+  recommended: InstallationWithAvailability | null;
+  reason: "no_installations_in_range" | "no_capacity_in_range" | null;
+};
+async function findEligibleInstallationsForStudy(params: {
+  studyId: string;
+  assignedKwp: number;
+  radiusMeters?: number;
+}): Promise<FindEligibleInstallationsResult> {
+  const radiusMeters = params.radiusMeters ?? 2000;
+
+  const { data: study, error: studyError } = await supabase
+    .from("studies")
+    .select("*")
+    .eq("id", params.studyId)
+    .single();
+
+  if (studyError || !study) {
+    throw new Error("El estudio no existe");
+  }
+
+  const coords = getStudyCoordinates(study);
+
+  if (!coords) {
+    throw new Error(
+      "El estudio no tiene coordenadas válidas para buscar instalaciones cercanas",
+    );
+  }
+
+  const { data: installations, error: installationsError } = await supabase
+    .from("installations")
+    .select("*")
+    .eq("active", true)
+    .order("nombre_instalacion", { ascending: true });
+
+  if (installationsError) {
+    throw new Error(
+      `No se pudieron obtener las instalaciones: ${installationsError.message}`,
+    );
+  }
+
+  const withinRange = (installations ?? [])
+    .map((installation) => {
+      const distance_meters = haversineDistanceMeters(
+        coords.lat,
+        coords.lng,
+        Number(installation.lat),
+        Number(installation.lng),
+      );
+
+      return {
+        ...installation,
+        distance_meters,
+      };
+    })
+    .filter((installation) => installation.distance_meters <= radiusMeters)
+    .sort((a, b) => a.distance_meters - b.distance_meters);
+
+  if (withinRange.length === 0) {
+    return {
+      study,
+      coords,
+      withinRange: [],
+      eligible: [],
+      recommended: null,
+      reason: "no_installations_in_range" as const,
+    };
+  }
+
+  const installationIds = withinRange.map((item) => item.id);
+
+  const { data: relatedStudies, error: relatedStudiesError } = await supabase
+    .from("studies")
+    .select("id, selected_installation_id, assigned_kwp")
+    .in("selected_installation_id", installationIds)
+    .neq("id", params.studyId);
+
+  if (relatedStudiesError) {
+    throw new Error(
+      `No se pudo calcular la ocupación actual: ${relatedStudiesError.message}`,
+    );
+  }
+
+  const usedByInstallation = new Map<string, number>();
+
+  for (const row of relatedStudies ?? []) {
+    const installationId = String((row as any).selected_installation_id ?? "");
+    const assigned = Number((row as any).assigned_kwp ?? 0);
+
+    if (!installationId) continue;
+
+    usedByInstallation.set(
+      installationId,
+      (usedByInstallation.get(installationId) ?? 0) + assigned,
+    );
+  }
+
+  const eligible: InstallationWithAvailability[] = withinRange
+    .map((installation) => {
+      const totalKwp = Number(installation.potencia_instalada_kwp ?? 0);
+      const usedKwp = usedByInstallation.get(String(installation.id)) ?? 0;
+      const availableKwp = Math.max(totalKwp - usedKwp, 0);
+      const occupancyPercent =
+        totalKwp > 0 ? Number(((usedKwp / totalKwp) * 100).toFixed(2)) : 0;
+
+      return {
+        ...installation,
+        totalKwp,
+        usedKwp,
+        availableKwp,
+        occupancyPercent,
+      };
+    })
+    .filter((installation) => installation.availableKwp >= params.assignedKwp)
+    .sort((a, b) => {
+      if (a.distance_meters !== b.distance_meters) {
+        return a.distance_meters - b.distance_meters;
+      }
+
+      return a.occupancyPercent - b.occupancyPercent;
+    });
+
+  return {
+    study,
+    coords,
+    withinRange,
+    eligible,
+    recommended: eligible[0] ?? null,
+    reason:
+      eligible.length === 0
+        ? ("no_capacity_in_range" as const)
+        : (null as null),
+  };
+}
 function toNullableNumber(value: unknown): number | null {
   if (value === undefined || value === null || value === "") return null;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : null;
 }
+
+
 
 function toBoolean(value: unknown): boolean {
   if (typeof value === "boolean") return value;
@@ -106,11 +296,138 @@ function parseMaybeJson<T = any>(value: unknown): T | null {
     return null;
   }
 }
+function toPositiveNumber(value: unknown): number | null {
+  const parsed = toNullableNumber(value);
+  if (parsed === null) return null;
+  return parsed > 0 ? parsed : null;
+}
+
+async function getInstallationCapacityState(params: {
+  installationId: string;
+  excludeStudyId?: string;
+}) {
+  const { installationId, excludeStudyId } = params;
+
+  const { data: installation, error: installationError } = await supabase
+    .from("installations")
+    .select("id, nombre_instalacion, potencia_instalada_kwp, active")
+    .eq("id", installationId)
+    .single();
+
+  if (installationError || !installation) {
+    throw new Error("La instalación no existe");
+  }
+
+  if (!installation.active) {
+    throw new Error("La instalación está inactiva");
+  }
+
+  let query = supabase
+    .from("studies")
+    .select("id, assigned_kwp")
+    .eq("selected_installation_id", installationId);
+
+  if (excludeStudyId) {
+    query = query.neq("id", excludeStudyId);
+  }
+
+  const { data: relatedStudies, error: relatedStudiesError } = await query;
+
+  if (relatedStudiesError) {
+    throw new Error(
+      `No se pudo calcular la ocupación de la instalación: ${relatedStudiesError.message}`,
+    );
+  }
+
+  const usedKwp = (relatedStudies ?? []).reduce((acc, study) => {
+    return acc + Number((study as any).assigned_kwp ?? 0);
+  }, 0);
+
+  const totalKwp = Number(installation.potencia_instalada_kwp ?? 0);
+  const availableKwp = Math.max(totalKwp - usedKwp, 0);
+  const occupancyPercent =
+    totalKwp > 0 ? Number(((usedKwp / totalKwp) * 100).toFixed(2)) : 0;
+
+  return {
+    installation,
+    totalKwp,
+    usedKwp,
+    availableKwp,
+    occupancyPercent,
+  };
+}
+
+async function validateInstallationAssignment(params: {
+  installationId: string;
+  assignedKwp: number;
+  excludeStudyId?: string;
+}) {
+  const state = await getInstallationCapacityState({
+    installationId: params.installationId,
+    excludeStudyId: params.excludeStudyId,
+  });
+
+  const nextUsedKwp = state.usedKwp + params.assignedKwp;
+
+  if (nextUsedKwp > state.totalKwp) {
+    const availableKwp = Math.max(state.totalKwp - state.usedKwp, 0);
+
+    throw new Error(
+      `No hay capacidad suficiente en la instalación. Disponibles: ${availableKwp.toFixed(
+        2,
+      )} kWp`,
+    );
+  }
+
+  return {
+    ...state,
+    assignedKwp: params.assignedKwp,
+    nextUsedKwp,
+    nextAvailableKwp: Math.max(state.totalKwp - nextUsedKwp, 0),
+    nextOccupancyPercent:
+      state.totalKwp > 0
+        ? Number(((nextUsedKwp / state.totalKwp) * 100).toFixed(2))
+        : 0,
+  };
+}
+
+function buildInstallationSnapshot(params: {
+  installation: {
+    id: string;
+    nombre_instalacion: string;
+    potencia_instalada_kwp: number;
+    active?: boolean;
+  };
+  assignedKwp: number;
+  totalKwp: number;
+  usedKwp: number;
+  availableKwp: number;
+  occupancyPercent: number;
+}) {
+  return {
+    installationId: params.installation.id,
+    installationName: params.installation.nombre_instalacion,
+    installationData: {
+      id: params.installation.id,
+      nombre_instalacion: params.installation.nombre_instalacion,
+      potencia_instalada_kwp: params.totalKwp,
+      active: params.installation.active ?? true,
+    },
+    assigned_kwp: params.assignedKwp,
+    occupancy: {
+      total_kwp: params.totalKwp,
+      used_kwp: params.usedKwp,
+      available_kwp: params.availableKwp,
+      occupancy_percent: params.occupancyPercent,
+    },
+    updated_at: new Date().toISOString(),
+  };
+}
 
 function getPeriodPrice(
   reqBody: any,
   invoiceData: any,
-  period: "p1" | "p2" | "p3" | "p4" | "p5" | "p6"
+  period: "p1" | "p2" | "p3" | "p4" | "p5" | "p6",
 ): number | null {
   return (
     toNullableNumber(reqBody?.[`precio_${period}_eur_kwh`]) ??
@@ -131,7 +448,7 @@ async function ensureClientDriveFolder(params: {
   const folderName = buildClientFolderName(
     params.dni,
     params.nombre,
-    params.apellidos
+    params.apellidos,
   );
 
   const q = [
@@ -156,7 +473,8 @@ async function ensureClientDriveFolder(params: {
       id: found.id,
       name: found.name ?? folderName,
       webViewLink:
-        found.webViewLink ?? `https://drive.google.com/drive/folders/${found.id}`,
+        found.webViewLink ??
+        `https://drive.google.com/drive/folders/${found.id}`,
     };
   }
 
@@ -227,12 +545,11 @@ const drive = google.drive({
   auth: driveAuth,
 });
 
-
 function haversineDistanceMeters(
   lat1: number,
   lng1: number,
   lat2: number,
-  lng2: number
+  lng2: number,
 ): number {
   const toRad = (value: number) => (value * Math.PI) / 180;
   const R = 6371000;
@@ -251,6 +568,66 @@ function haversineDistanceMeters(
   return Math.round(R * c);
 }
 
+function normalizeAddressForGeocoding(address: string): string {
+  return address
+    .replace(/\s+/g, " ")
+    .replace(/,+/g, ",")
+    .replace(/\s*,\s*/g, ", ")
+    .trim();
+}
+
+async function geocodeAddressWithGoogle(address: string): Promise<{
+  lat: number;
+  lng: number;
+  formattedAddress: string | null;
+  placeId: string | null;
+} | null> {
+  const normalizedAddress = normalizeAddressForGeocoding(address);
+
+  if (!normalizedAddress) return null;
+
+  const url = new URL("https://maps.googleapis.com/maps/api/geocode/json");
+  url.searchParams.set("address", normalizedAddress);
+  url.searchParams.set("region", "es");
+  url.searchParams.set("key", GOOGLE_MAPS_GEOCODING_API_KEY);
+
+  const response = await fetch(url.toString(), {
+    method: "GET",
+    headers: {
+      Accept: "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error("No se pudo geocodificar la dirección con Google");
+  }
+
+  const json = await response.json();
+
+  if (
+    json.status !== "OK" ||
+    !Array.isArray(json.results) ||
+    json.results.length === 0
+  ) {
+    return null;
+  }
+
+  const first = json.results[0];
+  const lat = Number(first?.geometry?.location?.lat);
+  const lng = Number(first?.geometry?.location?.lng);
+
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+    return null;
+  }
+
+  return {
+    lat,
+    lng,
+    formattedAddress: first?.formatted_address ?? null,
+    placeId: first?.place_id ?? null,
+  };
+}
+
 async function startServer() {
   const app = express();
 
@@ -258,7 +635,6 @@ async function startServer() {
   app.use(express.json({ limit: "10mb" }));
   // app.use('/assets', express.static(path.join(__dirname, 'assets')));
   app.use("/assets", express.static(path.join(process.cwd(), "src", "assets")));
-
 
   const upload = multer({
     storage: multer.memoryStorage(),
@@ -321,7 +697,7 @@ async function startServer() {
     }
   });
 
-    app.post(
+  app.post(
     "/api/confirm-study",
     upload.fields([
       { name: "invoice", maxCount: 1 },
@@ -330,9 +706,10 @@ async function startServer() {
     ]),
     async (req, res) => {
       try {
-        const files = (req.files as {
-          [fieldname: string]: Express.Multer.File[];
-        }) || {};
+        const files =
+          (req.files as {
+            [fieldname: string]: Express.Multer.File[];
+          }) || {};
 
         const invoiceFile = files.invoice?.[0] || files.file?.[0] || null;
         const proposalFile = files.proposal?.[0] || null;
@@ -342,16 +719,38 @@ async function startServer() {
         const invoiceData = parseMaybeJson<any>(req.body.invoice_data) ?? {};
         const calculation = parseMaybeJson<any>(req.body.calculation);
         const selectedInstallationSnapshot = parseMaybeJson<any>(
-          req.body.selected_installation_snapshot
+          req.body.selected_installation_snapshot,
         );
         const sourceFile = parseMaybeJson<any>(req.body.source_file);
+        const rawAddress =
+          pickFirstString(
+            req.body.direccion_completa,
+            customer?.direccion_completa,
+            customer?.address,
+            invoiceData?.direccion_completa,
+            invoiceData?.address,
+            location?.address,
+          ) ?? "";
+
+        const geocoded = rawAddress
+          ? await geocodeAddressWithGoogle(rawAddress)
+          : null;
+
+        const locationPayload = {
+          ...(location ?? {}),
+          address: rawAddress || location?.address || null,
+          lat: geocoded?.lat ?? location?.lat ?? null,
+          lng: geocoded?.lng ?? location?.lng ?? null,
+          formatted_address: geocoded?.formattedAddress ?? null,
+          place_id: geocoded?.placeId ?? null,
+        };
 
         const nombre =
           pickFirstString(
             req.body.nombre,
             customer?.nombre,
             customer?.name,
-            customer?.firstName
+            customer?.firstName,
           ) ?? "";
 
         const apellidos =
@@ -359,7 +758,7 @@ async function startServer() {
             req.body.apellidos,
             customer?.apellidos,
             customer?.lastName,
-            customer?.surnames
+            customer?.surnames,
           ) ?? "";
 
         const dni =
@@ -368,13 +767,13 @@ async function startServer() {
             customer?.dni,
             customer?.documentNumber,
             invoiceData?.dni,
-            invoiceData?.nif
+            invoiceData?.nif,
           ) ?? "";
 
         const cups = pickFirstString(
           req.body.cups,
           customer?.cups,
-          invoiceData?.cups
+          invoiceData?.cups,
         );
 
         const direccionCompleta = pickFirstString(
@@ -383,13 +782,13 @@ async function startServer() {
           customer?.address,
           invoiceData?.direccion_completa,
           invoiceData?.address,
-          location?.address
+          location?.address,
         );
 
         const iban = pickFirstString(
           req.body.iban,
           customer?.iban,
-          invoiceData?.iban
+          invoiceData?.iban,
         );
 
         const tipoFacturaRaw = (
@@ -398,7 +797,7 @@ async function startServer() {
             customer?.tipo_factura,
             invoiceData?.tipo_factura,
             invoiceData?.billType,
-            invoiceData?.tariffType
+            invoiceData?.tariffType,
           ) || "2TD"
         ).toUpperCase();
 
@@ -510,6 +909,10 @@ async function startServer() {
           });
         }
 
+        const assignedKwp = toPositiveNumber(
+          req.body.assignedKwp ?? req.body.assigned_kwp,
+        );
+
         const studyInsert = {
           language: req.body.language ?? "ES",
           consent_accepted: toBoolean(req.body.consent_accepted),
@@ -537,10 +940,9 @@ async function startServer() {
                 },
           location: location ?? null,
           invoice_data: invoiceData ?? null,
-          selected_installation_id:
-            req.body.selected_installation_id ?? null,
-          selected_installation_snapshot:
-            selectedInstallationSnapshot ?? null,
+          selected_installation_id: req.body.selected_installation_id ?? null,
+          assigned_kwp: assignedKwp ?? null,
+          selected_installation_snapshot: selectedInstallationSnapshot ?? null,
           calculation: calculation ?? null,
           status: req.body.status ?? "uploaded",
           email_status: req.body.email_status ?? "pending",
@@ -578,16 +980,201 @@ async function startServer() {
           details: error?.message || "Error desconocido",
         });
       }
-    }
+    },
   );
+
+  app.post("/api/geocode-address", async (req, res) => {
+    try {
+      const address = String(req.body?.address || "").trim();
+
+      if (!address) {
+        return res.status(400).json({
+          error: "La dirección es obligatoria",
+        });
+      }
+
+      const geocoded = await geocodeAddressWithGoogle(address);
+
+      if (!geocoded) {
+        return res.status(404).json({
+          error: "No se pudo geocodificar la dirección",
+        });
+      }
+
+      return res.json({
+        success: true,
+        coords: {
+          lat: geocoded.lat,
+          lng: geocoded.lng,
+        },
+        formattedAddress: geocoded.formattedAddress,
+        placeId: geocoded.placeId,
+      });
+    } catch (error: any) {
+      console.error("Error en /api/geocode-address:", error);
+      return res.status(500).json({
+        error: "No se pudo geocodificar la dirección",
+        details: error?.message || "Error desconocido",
+      });
+    }
+  });
 
   // =========================
   // STUDIES API
   // =========================
 
+  app.post("/api/studies/:id/auto-assign-installation", async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      const assignedKwp = toPositiveNumber(
+        req.body.assignedKwp ??
+          req.body.assigned_kwp ??
+          req.body?.calculation?.assigned_kwp ??
+          req.body?.calculation?.required_kwp,
+      );
+
+      if (assignedKwp === null) {
+        return res.status(400).json({
+          error: "assignedKwp debe ser un número mayor que 0",
+        });
+      }
+
+      const result = await findEligibleInstallationsForStudy({
+        studyId: id,
+        assignedKwp,
+        radiusMeters: 2000,
+      });
+
+      if (result.reason === "no_installations_in_range") {
+        return res.status(200).json({
+          success: false,
+          assignable: false,
+          reason: "no_installations_in_range",
+          message:
+            "No hay instalaciones disponibles en un radio de 2 km. Contacte con Sapiens.",
+          contact: {
+            phone: SAPIENS_CONTACT_PHONE,
+            email: SAPIENS_CONTACT_EMAIL,
+          },
+        });
+      }
+
+      if (result.reason === "no_capacity_in_range") {
+        return res.status(200).json({
+          success: false,
+          assignable: false,
+          reason: "no_capacity_in_range",
+          message:
+            "Hay instalaciones cercanas, pero ahora mismo no tienen capacidad disponible. Contacte con Sapiens.",
+          contact: {
+            phone: SAPIENS_CONTACT_PHONE,
+            email: SAPIENS_CONTACT_EMAIL,
+          },
+          nearby_installations: result.withinRange.map((item) => ({
+            id: item.id,
+            nombre_instalacion: item.nombre_instalacion,
+            distance_meters: item.distance_meters,
+          })),
+        });
+      }
+
+      if (!result.recommended) {
+        return res.status(200).json({
+          success: false,
+          assignable: false,
+          reason: "no_capacity_in_range",
+          message:
+            "Hay instalaciones cercanas, pero ahora mismo no tienen capacidad disponible. Contacte con Sapiens.",
+          contact: {
+            phone: SAPIENS_CONTACT_PHONE,
+            email: SAPIENS_CONTACT_EMAIL,
+          },
+        });
+      }
+
+      const recommended = result.recommended;
+
+      const nextUsedKwp = recommended.usedKwp + assignedKwp;
+      const nextAvailableKwp = Math.max(recommended.totalKwp - nextUsedKwp, 0);
+      const nextOccupancyPercent =
+        recommended.totalKwp > 0
+          ? Number(((nextUsedKwp / recommended.totalKwp) * 100).toFixed(2))
+          : 0;
+
+      const snapshot = {
+        installationId: recommended.id,
+        installationName: recommended.nombre_instalacion,
+        installationData: {
+          id: recommended.id,
+          nombre_instalacion: recommended.nombre_instalacion,
+          direccion: recommended.direccion,
+          lat: recommended.lat,
+          lng: recommended.lng,
+          potencia_instalada_kwp: recommended.totalKwp,
+          active: recommended.active,
+        },
+        assigned_kwp: assignedKwp,
+        occupancy: {
+          total_kwp: recommended.totalKwp,
+          used_kwp: nextUsedKwp,
+          available_kwp: nextAvailableKwp,
+          occupancy_percent: nextOccupancyPercent,
+        },
+        distance_meters: recommended.distance_meters,
+        updated_at: new Date().toISOString(),
+      };
+
+      const { data: updatedStudy, error: updateError } = await supabase
+        .from("studies")
+        .update({
+          selected_installation_id: recommended.id,
+          assigned_kwp: assignedKwp,
+          selected_installation_snapshot: snapshot,
+        })
+        .eq("id", id)
+        .select()
+        .single();
+
+      if (updateError) {
+        return res.status(500).json({
+          error: "Error actualizando el estudio",
+          details: updateError.message,
+        });
+      }
+
+      return res.json({
+        success: true,
+        assignable: true,
+        study: updatedStudy,
+        installation: {
+          id: recommended.id,
+          nombre_instalacion: recommended.nombre_instalacion,
+          distance_meters: recommended.distance_meters,
+          totalKwp: recommended.totalKwp,
+          usedKwp: nextUsedKwp,
+          availableKwp: nextAvailableKwp,
+          occupancyPercent: nextOccupancyPercent,
+        },
+      });
+    } catch (error: any) {
+      console.error(
+        "Error en /api/studies/:id/auto-assign-installation:",
+        error,
+      );
+      return res.status(500).json({
+        error: "No se pudo autoasignar la instalación",
+        details: error?.message || "Error desconocido",
+      });
+    }
+  });
+
   app.post("/api/studies", async (req, res) => {
     try {
       const payload = req.body;
+      const assignedKwp = toPositiveNumber(
+        payload.assignedKwp ?? payload.assigned_kwp,
+      );
 
       const { data, error } = await supabase
         .from("studies")
@@ -600,6 +1187,7 @@ async function startServer() {
             location: payload.location ?? null,
             invoice_data: payload.invoice_data ?? null,
             selected_installation_id: payload.selected_installation_id ?? null,
+            assigned_kwp: assignedKwp ?? null,
             selected_installation_snapshot:
               payload.selected_installation_snapshot ?? null,
             calculation: payload.calculation ?? null,
@@ -686,6 +1274,18 @@ async function startServer() {
       const { id } = req.params;
       const payload = req.body;
 
+      if (
+        payload.selected_installation_id !== undefined ||
+        payload.selectedInstallationId !== undefined ||
+        payload.assigned_kwp !== undefined ||
+        payload.assignedKwp !== undefined
+      ) {
+        return res.status(400).json({
+          error:
+            "Para asignar instalación o potencia usa PATCH /api/studies/:id/assign-installation",
+        });
+      }
+
       const { data, error } = await supabase
         .from("studies")
         .update(payload)
@@ -707,6 +1307,105 @@ async function startServer() {
       res.status(500).json({
         error: "Error updating study",
         details: error.message,
+      });
+    }
+  });
+
+  app.patch("/api/studies/:id/assign-installation", async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      const installationId =
+        pickFirstString(
+          req.body.installationId,
+          req.body.selected_installation_id,
+          req.body.selectedInstallationId,
+        ) ?? null;
+
+      const assignedKwp = toPositiveNumber(
+        req.body.assignedKwp ?? req.body.assigned_kwp,
+      );
+
+      if (!installationId) {
+        return res.status(400).json({
+          error: "La instalación es obligatoria",
+        });
+      }
+
+      if (assignedKwp === null) {
+        return res.status(400).json({
+          error: "assignedKwp debe ser un número mayor que 0",
+        });
+      }
+
+      const { data: existingStudy, error: existingStudyError } = await supabase
+        .from("studies")
+        .select("id, selected_installation_id, assigned_kwp")
+        .eq("id", id)
+        .single();
+
+      if (existingStudyError || !existingStudy) {
+        return res.status(404).json({
+          error: "Study not found",
+          details: existingStudyError?.message ?? "El estudio no existe",
+        });
+      }
+
+      const capacity = await validateInstallationAssignment({
+        installationId,
+        assignedKwp,
+        excludeStudyId: id,
+      });
+
+      const snapshot = buildInstallationSnapshot({
+        installation: {
+          id: capacity.installation.id,
+          nombre_instalacion: capacity.installation.nombre_instalacion,
+          potencia_instalada_kwp: capacity.totalKwp,
+          active: capacity.installation.active,
+        },
+        assignedKwp,
+        totalKwp: capacity.totalKwp,
+        usedKwp: capacity.nextUsedKwp,
+        availableKwp: capacity.nextAvailableKwp,
+        occupancyPercent: capacity.nextOccupancyPercent,
+      });
+
+      const { data: updatedStudy, error: updateError } = await supabase
+        .from("studies")
+        .update({
+          selected_installation_id: installationId,
+          assigned_kwp: assignedKwp,
+          selected_installation_snapshot: snapshot,
+        })
+        .eq("id", id)
+        .select()
+        .single();
+
+      if (updateError) {
+        return res.status(500).json({
+          error: "Error updating study installation",
+          details: updateError.message,
+        });
+      }
+
+      return res.json({
+        success: true,
+        study: updatedStudy,
+        installation: {
+          id: capacity.installation.id,
+          nombre_instalacion: capacity.installation.nombre_instalacion,
+          totalKwp: capacity.totalKwp,
+          usedKwp: capacity.nextUsedKwp,
+          availableKwp: capacity.nextAvailableKwp,
+          occupancyPercent: capacity.nextOccupancyPercent,
+        },
+      });
+    } catch (error: any) {
+      console.error("Error en /api/studies/:id/assign-installation:", error);
+      return res.status(400).json({
+        error: "No se pudo asignar la instalación",
+        details: error?.message || "Error desconocido",
       });
     }
   });
@@ -744,7 +1443,7 @@ async function startServer() {
               lat,
               lng,
               installation.lat,
-              installation.lng
+              installation.lng,
             );
 
             return {
@@ -867,6 +1566,42 @@ async function startServer() {
       });
     }
   });
+
+  app.post("/api/geocode-address", async (req, res) => {
+  try {
+    const address = String(req.body?.address || "").trim();
+
+    if (!address) {
+      return res.status(400).json({
+        error: "La dirección es obligatoria",
+      });
+    }
+
+    const geocoded = await geocodeAddressWithGoogle(address);
+
+    if (!geocoded) {
+      return res.status(404).json({
+        error: "No se pudo geocodificar la dirección",
+      });
+    }
+
+    return res.json({
+      success: true,
+      coords: {
+        lat: geocoded.lat,
+        lng: geocoded.lng,
+      },
+      formattedAddress: geocoded.formattedAddress,
+      placeId: geocoded.placeId,
+    });
+  } catch (error: any) {
+    console.error("Error en /api/geocode-address:", error);
+    return res.status(500).json({
+      error: "No se pudo geocodificar la dirección",
+      details: error?.message || "Error desconocido",
+    });
+  }
+});
 
   // =========================
   // VITE
