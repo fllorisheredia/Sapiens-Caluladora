@@ -37,8 +37,10 @@ import {
   type CalculationResult,
 } from "./modules/calculation/energyService";
 import { formatCurrency, formatNumber, cn } from "./lib/utils";
-import { generateStudyPDF } from "./modules/pdf/pdfService";
-// import { sendStudyByEmail } from "./modules/email/emailService";
+import {
+  generateStudyPDF,
+  type ProposalPdfSummary,
+} from "./modules/pdf/pdfService"; // import { sendStudyByEmail } from "./modules/email/emailService";
 import { MapContainer, TileLayer, Marker, Popup, Circle } from "react-leaflet";
 import L from "leaflet";
 import "leaflet/dist/leaflet.css";
@@ -362,8 +364,9 @@ function uint8ArrayToArrayBuffer(value: Uint8Array): ArrayBuffer {
 const buildPdfArtifact = async (
   billData: BillData,
   calculationResult: CalculationResult,
+  proposal: ProposalPdfSummary,
 ): Promise<PdfArtifact> => {
-  const result = await generateStudyPDF(billData, calculationResult);
+  const result = await generateStudyPDF(billData, calculationResult, proposal);
   return result as PdfArtifact;
 };
 
@@ -448,34 +451,34 @@ function pdfArtifactToBlob(pdfArtifact: PdfArtifact): Blob {
   throw new Error("Formato de PDF no soportado");
 }
 
-async function sendStudyEmailWithFallback(params: {
-  to: string;
-  customerName: string;
-  billData: BillData;
-  calculationResult: CalculationResult;
-  pdfArtifact: PdfArtifact;
-}) {
-  const { to, customerName, billData, calculationResult, pdfArtifact } = params;
+// async function sendStudyEmailWithFallback(params: {
+//   to: string;
+//   customerName: string;
+//   billData: BillData;
+//   calculationResult: CalculationResult;
+//   pdfArtifact: PdfArtifact;
+// }) {
+//   const { to, customerName, billData, calculationResult, pdfArtifact } = params;
 
-  let attachment: Blob | undefined;
+//   let attachment: Blob | undefined;
 
-  if (isBlob(pdfArtifact)) {
-    attachment = pdfArtifact; // Si el pdfArtifact es un Blob, lo usamos directamente.
-  } else if (isUint8Array(pdfArtifact)) {
-    const buffer = uint8ArrayToArrayBuffer(pdfArtifact);
-    attachment = new Blob([buffer], { type: "application/pdf" });
-  } else if (isArrayBuffer(pdfArtifact)) {
-    attachment = new Blob([pdfArtifact], { type: "application/pdf" });
-  }
+//   if (isBlob(pdfArtifact)) {
+//     attachment = pdfArtifact; // Si el pdfArtifact es un Blob, lo usamos directamente.
+//   } else if (isUint8Array(pdfArtifact)) {
+//     const buffer = uint8ArrayToArrayBuffer(pdfArtifact);
+//     attachment = new Blob([buffer], { type: "application/pdf" });
+//   } else if (isArrayBuffer(pdfArtifact)) {
+//     attachment = new Blob([pdfArtifact], { type: "application/pdf" });
+//   }
 
-  await sendStudyByEmail({
-    to,
-    customerName,
-    attachment, // Aquí adjuntamos el PDF
-    billData,
-    calculationResult,
-  });
-}
+//   await sendStudyByEmail({
+//     to,
+//     customerName,
+//     attachment, // Aquí adjuntamos el PDF
+//     billData,
+//     calculationResult,
+//   });
+// }
 type ProposalCardData = {
   id: "investment" | "service";
   title: string;
@@ -546,6 +549,46 @@ function getServiceMonthlyFeeFromInstallation(
   return null;
 }
 
+function getInvestmentCostFromFormula(
+  installation: ApiInstallation | null,
+  recommendedPowerKwp: number,
+): number {
+  if (!installation) return 0;
+
+  const effectiveHours = Number(installation.horas_efectivas ?? 0);
+
+  if (
+    !Number.isFinite(recommendedPowerKwp) ||
+    recommendedPowerKwp <= 0 ||
+    !Number.isFinite(effectiveHours) ||
+    effectiveHours <= 0
+  ) {
+    return 0;
+  }
+
+  return 0.06 * recommendedPowerKwp * effectiveHours * 25;
+}
+
+function getServiceMonthlyFeeFromFormula(
+  installation: ApiInstallation | null,
+  recommendedPowerKwp: number,
+): number | null {
+  if (!installation) return null;
+
+  const effectiveHours = Number(installation.horas_efectivas ?? 0);
+
+  if (
+    !Number.isFinite(recommendedPowerKwp) ||
+    recommendedPowerKwp <= 0 ||
+    !Number.isFinite(effectiveHours) ||
+    effectiveHours <= 0
+  ) {
+    return null;
+  }
+
+  return (0.08 * recommendedPowerKwp * effectiveHours) / 12;
+}
+
 function getAnnualMaintenanceFromInstallation(
   installation: ApiInstallation | null,
   recommendedPowerKwp: number,
@@ -607,11 +650,10 @@ function buildProposalCardData(
       "annualSavings",
     ]);
 
-    const upfrontCost = getFirstNumericField(result, [
-      "investmentCost",
-      "initialInvestment",
-      "upfrontCost",
-    ]);
+    const upfrontCost = getInvestmentCostFromFormula(
+      installation,
+      recommendedPowerKwp,
+    );
 
     const totalSavings25Years = getFirstNumericField(
       result,
@@ -638,12 +680,11 @@ function buildProposalCardData(
       paybackYears,
       recommendedPowerKwp,
       annualConsumptionKwh,
-      description:
-        "Realizas la inversión inicial y maximizas el ahorro a largo plazo.",
+      description: "Realizas la inversión y maximizas el ahorro a largo plazo.",
       valuePoints: [
         "Mayor ahorro acumulado en 25 años",
-        "La instalación se amortiza y el retorno es más alto",
-        "Ideal si buscas rentabilidad y control total del ahorro",
+        "Más control sobre la rentabilidad del proyecto",
+        "Ideal si buscas retorno económico sostenido",
         "Sin cuota mensual recurrente",
       ],
     };
@@ -656,12 +697,6 @@ function buildProposalCardData(
     "annualSavingsInvestment",
   ]);
 
-  const upfrontCost = getFirstNumericField(result, [
-    "serviceInitialCost",
-    "initialCostService",
-    "serviceUpfrontCost",
-  ]);
-
   const totalSavings25Years = getFirstNumericField(
     result,
     [
@@ -672,9 +707,9 @@ function buildProposalCardData(
     annualSavings * 25,
   );
 
-  const monthlyFee = getServiceMonthlyFeeFromInstallation(
+  const monthlyFee = getServiceMonthlyFeeFromFormula(
     installation,
-    annualConsumptionKwh,
+    recommendedPowerKwp,
   );
 
   const paybackYears = getFirstNumericField(result, [
@@ -688,7 +723,7 @@ function buildProposalCardData(
     badge: "Menor entrada",
     annualSavings,
     totalSavings25Years,
-    upfrontCost,
+    upfrontCost: 0,
     monthlyFee,
     annualMaintenance,
     monthlyMaintenance,
@@ -698,11 +733,30 @@ function buildProposalCardData(
     description:
       "Modelo pensado para reducir la barrera de entrada y facilitar la contratación.",
     valuePoints: [
-      "Menor o nulo desembolso inicial",
-      "Cuota más predecible y entrada más cómoda",
+      "Menor desembolso inicial",
+      "Cuota mensual estimada más clara",
       "Ideal si priorizas liquidez inmediata",
-      "Proceso de contratación más accesible para el cliente",
+      "Entrada más cómoda para el cliente",
     ],
+  };
+}
+
+function buildProposalPdfSummary(
+  proposal: ProposalCardData,
+): ProposalPdfSummary {
+  return {
+    mode: proposal.id,
+    title: proposal.title,
+    badge: proposal.badge,
+    annualSavings: proposal.annualSavings,
+    totalSavings25Years: proposal.totalSavings25Years,
+    upfrontCost: proposal.upfrontCost,
+    monthlyFee: proposal.monthlyFee,
+    annualMaintenance: proposal.annualMaintenance,
+    paybackYears: proposal.paybackYears,
+    recommendedPowerKwp: proposal.recommendedPowerKwp,
+    annualConsumptionKwh: proposal.annualConsumptionKwh,
+    description: proposal.description,
   };
 }
 
@@ -771,6 +825,8 @@ export default function App() {
   );
   const [proposalResults, setProposalResults] =
     useState<StudyComparisonResult | null>(null);
+
+  const [privacyAccepted, setPrivacyAccepted] = useState(false);
 
   const [selectedProposalView, setSelectedProposalView] =
     useState<ProposalMode>("investment");
@@ -845,11 +901,11 @@ export default function App() {
             value: activeMetrics.annualSavings,
           },
           {
-            label: "Inversión inicial",
+            label: "Coste",
             value: activeMetrics.upfrontCost,
           },
           {
-            label: "Payback",
+            label: "rentabilidad",
             value: activeMetrics.payback,
           },
         ]
@@ -965,6 +1021,7 @@ export default function App() {
         const pdfArtifact = await buildPdfArtifact(
           billData,
           activeCalculationResult,
+          buildProposalPdfSummary(activeProposal),
         );
 
         savePdfArtifactLocally(
@@ -1000,7 +1057,15 @@ export default function App() {
     const billData = toBaseBillData(validatedData);
     console.log("[front] billData:", billData);
 
-    const pdfArtifact = await buildPdfArtifact(billData, result);
+    const proposalForPdf = buildProposalPdfSummary(
+      buildProposalCardData(result, "investment", installation),
+    );
+
+    const pdfArtifact = await buildPdfArtifact(
+      billData,
+      result,
+      proposalForPdf,
+    );
     console.log("[front] pdfArtifact generado:", pdfArtifact);
 
     const proposalBlob = pdfArtifactToBlob(pdfArtifact);
@@ -1292,22 +1357,22 @@ export default function App() {
   //     },
   //   );
   // };
-  function blobToBase64DataUrl(blob: Blob): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        const result = reader.result;
-        if (typeof result === "string") {
-          resolve(result); // Devuelve la cadena Base64
-        } else {
-          reject(new Error("No se pudo convertir el PDF a Base64"));
-        }
-      };
+  // function blobToBase64DataUrl(blob: Blob): Promise<string> {
+  //   return new Promise((resolve, reject) => {
+  //     const reader = new FileReader();
+  //     reader.onloadend = () => {
+  //       const result = reader.result;
+  //       if (typeof result === "string") {
+  //         resolve(result); // Devuelve la cadena Base64
+  //       } else {
+  //         reject(new Error("No se pudo convertir el PDF a Base64"));
+  //       }
+  //     };
 
-      reader.onerror = () => reject(new Error("Error leyendo el PDF"));
-      reader.readAsDataURL(blob); // Convierte el Blob en Base64
-    });
-  }
+  //     reader.onerror = () => reject(new Error("Error leyendo el PDF"));
+  //     reader.readAsDataURL(blob); // Convierte el Blob en Base64
+  //   });
+  // }
   const handleFileSelect = async (file: File) => {
     setUploadedInvoiceFile(file);
     sileo.promise(
@@ -1527,7 +1592,7 @@ export default function App() {
       setSelectedProposalView("investment");
       setCurrentStep("result");
       sileo.success({ title: "Estudio generado con éxito" });
-console.log("[front] entrando en persistencia automática");
+      console.log("[front] entrando en persistencia automática");
       void (async () => {
         if (studyPersistLock.current) return;
         studyPersistLock.current = true;
@@ -2338,7 +2403,7 @@ console.log("[front] entrando en persistencia automática");
                             {
                               label:
                                 activeProposalMode === "investment"
-                                  ? "Inversión inicial"
+                                  ? "Coste 25 años"
                                   : "Coste inicial",
                               value: formatCurrency(activeProposal.upfrontCost),
                             },
@@ -2631,7 +2696,6 @@ console.log("[front] entrando en persistencia automática");
                           ))}
                         </div>
                       </div>
-
                       <div className="bg-white rounded-[2rem] md:rounded-[3rem] p-5 md:p-10 border border-brand-navy/5 shadow-xl shadow-brand-navy/5">
                         <h3 className="font-bold text-xl md:text-2xl text-brand-navy mb-6 md:mb-8 flex items-center gap-3">
                           <TrendingUp className="w-5 h-5 md:w-6 md:h-6 text-brand-mint" />
@@ -2783,8 +2847,9 @@ console.log("[front] entrando en persistencia automática");
                           </p>
                           <p className="text-sm text-white/60 mt-2">
                             {activeProposal.id === "investment"
-                              ? `Inversión inicial ${formatCurrency(activeProposal.upfrontCost)}`
-                              : activeProposal.monthlyFee > 0
+                              ? `Coste estimado 25 años ${formatCurrency(activeProposal.upfrontCost)}`
+                              : activeProposal.monthlyFee &&
+                                  activeProposal.monthlyFee > 0
                                 ? `Cuota estimada ${formatCurrency(activeProposal.monthlyFee)} / mes`
                                 : "Sin cuota mensual"}
                           </p>
