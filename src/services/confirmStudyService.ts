@@ -12,6 +12,8 @@ type ConfirmStudyParams = {
   language?: string;
   consentAccepted?: boolean;
   status?: string;
+  assignedKwp?: number;
+  
 };
 
 export async function confirmStudy({

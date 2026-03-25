@@ -117,6 +117,160 @@ function getStudyCoordinates(study: any): { lat: number; lng: number } | null {
   return { lat, lng };
 }
 
+// type InstallationWithAvailability = {
+//   id: string;
+//   nombre_instalacion: string;
+//   direccion: string;
+//   lat: number;
+//   lng: number;
+//   active: boolean;
+//   potencia_instalada_kwp: number;
+//   distance_meters: number;
+//   totalKwp: number;
+//   usedKwp: number;
+//   availableKwp: number;
+//   occupancyPercent: number;
+// };
+
+// type FindEligibleInstallationsResult = {
+//   study: any;
+//   coords: { lat: number; lng: number };
+//   withinRange: InstallationWithAvailability[];
+//   eligible: InstallationWithAvailability[];
+//   recommended: InstallationWithAvailability | null;
+//   reason: "no_installations_in_range" | "no_capacity_in_range" | null;
+// };
+// async function findEligibleInstallationsForStudy(params: {
+//   studyId: string;
+//   assignedKwp: number;
+//   radiusMeters?: number;
+// }): Promise<FindEligibleInstallationsResult> {
+//   const radiusMeters = params.radiusMeters ?? 2000;
+
+//   const { data: study, error: studyError } = await supabase
+//     .from("studies")
+//     .select("*")
+//     .eq("id", params.studyId)
+//     .single();
+
+//   if (studyError || !study) {
+//     throw new Error("El estudio no existe");
+//   }
+
+//   const coords = getStudyCoordinates(study);
+
+//   if (!coords) {
+//     throw new Error(
+//       "El estudio no tiene coordenadas válidas para buscar instalaciones cercanas",
+//     );
+//   }
+
+//   const { data: installations, error: installationsError } = await supabase
+//     .from("installations")
+//     .select("*")
+//     .eq("active", true)
+//     .order("nombre_instalacion", { ascending: true });
+
+//   if (installationsError) {
+//     throw new Error(
+//       `No se pudieron obtener las instalaciones: ${installationsError.message}`,
+//     );
+//   }
+
+//   const withinRange = (installations ?? [])
+//     .map((installation) => {
+//       const distance_meters = haversineDistanceMeters(
+//         coords.lat,
+//         coords.lng,
+//         Number(installation.lat),
+//         Number(installation.lng),
+//       );
+
+//       return {
+//         ...installation,
+//         distance_meters,
+//       };
+//     })
+//     .filter((installation) => installation.distance_meters <= radiusMeters)
+//     .sort((a, b) => a.distance_meters - b.distance_meters);
+
+//   if (withinRange.length === 0) {
+//     return {
+//       study,
+//       coords,
+//       withinRange: [],
+//       eligible: [],
+//       recommended: null,
+//       reason: "no_installations_in_range" as const,
+//     };
+//   }
+
+//   const installationIds = withinRange.map((item) => item.id);
+
+//   const { data: relatedStudies, error: relatedStudiesError } = await supabase
+//     .from("studies")
+//     .select("id, selected_installation_id, assigned_kwp")
+//     .in("selected_installation_id", installationIds)
+//     .neq("id", params.studyId);
+
+//   if (relatedStudiesError) {
+//     throw new Error(
+//       `No se pudo calcular la ocupación actual: ${relatedStudiesError.message}`,
+//     );
+//   }
+
+//   const usedByInstallation = new Map<string, number>();
+
+//   for (const row of relatedStudies ?? []) {
+//     const installationId = String((row as any).selected_installation_id ?? "");
+//     const assigned = Number((row as any).assigned_kwp ?? 0);
+
+//     if (!installationId) continue;
+
+//     usedByInstallation.set(
+//       installationId,
+//       (usedByInstallation.get(installationId) ?? 0) + assigned,
+//     );
+//   }
+
+//   const eligible: InstallationWithAvailability[] = withinRange
+//     .map((installation) => {
+//       const totalKwp = Number(installation.potencia_instalada_kwp ?? 0);
+//       const usedKwp = usedByInstallation.get(String(installation.id)) ?? 0;
+//       const availableKwp = Math.max(totalKwp - usedKwp, 0);
+//       const occupancyPercent =
+//         totalKwp > 0 ? Number(((usedKwp / totalKwp) * 100).toFixed(2)) : 0;
+
+//       return {
+//         ...installation,
+//         totalKwp,
+//         usedKwp,
+//         availableKwp,
+//         occupancyPercent,
+//       };
+//     })
+//     .filter((installation) => installation.availableKwp >= params.assignedKwp)
+//     .sort((a, b) => {
+//       if (a.distance_meters !== b.distance_meters) {
+//         return a.distance_meters - b.distance_meters;
+//       }
+
+//       return a.occupancyPercent - b.occupancyPercent;
+//     });
+
+//   return {
+//     study,
+//     coords,
+//     withinRange,
+//     eligible,
+//     recommended: eligible[0] ?? null,
+//     reason:
+//       eligible.length === 0
+//         ? ("no_capacity_in_range" as const)
+//         : (null as null),
+//   };
+// }
+
 type InstallationWithAvailability = {
   id: string;
   nombre_instalacion: string;
@@ -127,6 +281,8 @@ type InstallationWithAvailability = {
   potencia_instalada_kwp: number;
   distance_meters: number;
   totalKwp: number;
+  reservedKwp: number;
+  confirmedKwp: number;
   usedKwp: number;
   availableKwp: number;
   occupancyPercent: number;
@@ -140,6 +296,7 @@ type FindEligibleInstallationsResult = {
   recommended: InstallationWithAvailability | null;
   reason: "no_installations_in_range" | "no_capacity_in_range" | null;
 };
+
 async function findEligibleInstallationsForStudy(params: {
   studyId: string;
   assignedKwp: number;
@@ -178,7 +335,7 @@ async function findEligibleInstallationsForStudy(params: {
   }
 
   const withinRange = (installations ?? [])
-    .map((installation) => {
+    .map((installation: any) => {
       const distance_meters = haversineDistanceMeters(
         coords.lat,
         coords.lng,
@@ -186,9 +343,28 @@ async function findEligibleInstallationsForStudy(params: {
         Number(installation.lng),
       );
 
+      const totalKwp = Number(
+        installation.contractable_kwp_total ??
+          installation.potencia_instalada_kwp ??
+          0,
+      );
+
+      const reservedKwp = Number(installation.contractable_kwp_reserved ?? 0);
+      const confirmedKwp = Number(installation.contractable_kwp_confirmed ?? 0);
+      const usedKwp = reservedKwp + confirmedKwp;
+      const availableKwp = Math.max(totalKwp - usedKwp, 0);
+      const occupancyPercent =
+        totalKwp > 0 ? Number(((usedKwp / totalKwp) * 100).toFixed(2)) : 0;
+
       return {
         ...installation,
         distance_meters,
+        totalKwp,
+        reservedKwp,
+        confirmedKwp,
+        usedKwp,
+        availableKwp,
+        occupancyPercent,
       };
     })
     .filter((installation) => installation.distance_meters <= radiusMeters)
@@ -201,54 +377,11 @@ async function findEligibleInstallationsForStudy(params: {
       withinRange: [],
       eligible: [],
       recommended: null,
-      reason: "no_installations_in_range" as const,
+      reason: "no_installations_in_range",
     };
   }
 
-  const installationIds = withinRange.map((item) => item.id);
-
-  const { data: relatedStudies, error: relatedStudiesError } = await supabase
-    .from("studies")
-    .select("id, selected_installation_id, assigned_kwp")
-    .in("selected_installation_id", installationIds)
-    .neq("id", params.studyId);
-
-  if (relatedStudiesError) {
-    throw new Error(
-      `No se pudo calcular la ocupación actual: ${relatedStudiesError.message}`,
-    );
-  }
-
-  const usedByInstallation = new Map<string, number>();
-
-  for (const row of relatedStudies ?? []) {
-    const installationId = String((row as any).selected_installation_id ?? "");
-    const assigned = Number((row as any).assigned_kwp ?? 0);
-
-    if (!installationId) continue;
-
-    usedByInstallation.set(
-      installationId,
-      (usedByInstallation.get(installationId) ?? 0) + assigned,
-    );
-  }
-
-  const eligible: InstallationWithAvailability[] = withinRange
-    .map((installation) => {
-      const totalKwp = Number(installation.potencia_instalada_kwp ?? 0);
-      const usedKwp = usedByInstallation.get(String(installation.id)) ?? 0;
-      const availableKwp = Math.max(totalKwp - usedKwp, 0);
-      const occupancyPercent =
-        totalKwp > 0 ? Number(((usedKwp / totalKwp) * 100).toFixed(2)) : 0;
-
-      return {
-        ...installation,
-        totalKwp,
-        usedKwp,
-        availableKwp,
-        occupancyPercent,
-      };
-    })
+  const eligible = withinRange
     .filter((installation) => installation.availableKwp >= params.assignedKwp)
     .sort((a, b) => {
       if (a.distance_meters !== b.distance_meters) {
@@ -264,10 +397,125 @@ async function findEligibleInstallationsForStudy(params: {
     withinRange,
     eligible,
     recommended: eligible[0] ?? null,
-    reason:
-      eligible.length === 0
-        ? ("no_capacity_in_range" as const)
-        : (null as null),
+    reason: eligible.length === 0 ? "no_capacity_in_range" : null,
+  };
+}
+
+async function getInstallationCapacityState(params: {
+  installationId: string;
+}) {
+  const { installationId } = params;
+
+  const { data: installation, error: installationError } = await supabase
+    .from("installations")
+    .select(
+      "id, nombre_instalacion, potencia_instalada_kwp, contractable_kwp_total, contractable_kwp_reserved, contractable_kwp_confirmed, active",
+    )
+    .eq("id", installationId)
+    .single();
+
+  if (installationError || !installation) {
+    throw new Error("La instalación no existe");
+  }
+
+  if (!installation.active) {
+    throw new Error("La instalación está inactiva");
+  }
+
+  const totalKwp = Number(
+    (installation as any).contractable_kwp_total ??
+      installation.potencia_instalada_kwp ??
+      0,
+  );
+
+  const reservedKwp = Number(
+    (installation as any).contractable_kwp_reserved ?? 0,
+  );
+
+  const confirmedKwp = Number(
+    (installation as any).contractable_kwp_confirmed ?? 0,
+  );
+
+  const usedKwp = reservedKwp + confirmedKwp;
+  const availableKwp = Math.max(totalKwp - usedKwp, 0);
+  const occupancyPercent =
+    totalKwp > 0 ? Number(((usedKwp / totalKwp) * 100).toFixed(2)) : 0;
+
+  return {
+    installation,
+    totalKwp,
+    reservedKwp,
+    confirmedKwp,
+    usedKwp,
+    availableKwp,
+    occupancyPercent,
+  };
+}
+
+async function validateInstallationAssignment(params: {
+  installationId: string;
+  assignedKwp: number;
+}) {
+  const state = await getInstallationCapacityState({
+    installationId: params.installationId,
+  });
+
+  if (params.assignedKwp > state.availableKwp) {
+    throw new Error(
+      `No hay capacidad suficiente en la instalación. Disponibles: ${state.availableKwp.toFixed(
+        2,
+      )} kWp`,
+    );
+  }
+
+  const nextUsedKwp = state.usedKwp + params.assignedKwp;
+
+  return {
+    ...state,
+    assignedKwp: params.assignedKwp,
+    nextUsedKwp,
+    nextAvailableKwp: Math.max(state.totalKwp - nextUsedKwp, 0),
+    nextOccupancyPercent:
+      state.totalKwp > 0
+        ? Number(((nextUsedKwp / state.totalKwp) * 100).toFixed(2))
+        : 0,
+  };
+}
+
+function buildInstallationSnapshot(params: {
+  installation: {
+    id: string;
+    nombre_instalacion: string;
+    potencia_instalada_kwp: number;
+    active?: boolean;
+  };
+  assignedKwp: number;
+  totalKwp: number;
+  reservedKwp?: number;
+  confirmedKwp?: number;
+  usedKwp: number;
+  availableKwp: number;
+  occupancyPercent: number;
+}) {
+  return {
+    installationId: params.installation.id,
+    installationName: params.installation.nombre_instalacion,
+    installationData: {
+      id: params.installation.id,
+      nombre_instalacion: params.installation.nombre_instalacion,
+      potencia_instalada_kwp: params.totalKwp,
+      active: params.installation.active ?? true,
+    },
+    assigned_kwp: params.assignedKwp,
+    occupancy: {
+      total_kwp: params.totalKwp,
+      reserved_kwp: params.reservedKwp ?? null,
+      confirmed_kwp: params.confirmedKwp ?? null,
+      used_kwp: params.usedKwp,
+      available_kwp: params.availableKwp,
+      occupancy_percent: params.occupancyPercent,
+    },
+    updated_at: new Date().toISOString(),
   };
 }
 function toNullableNumber(value: unknown): number | null {
@@ -301,94 +549,94 @@ function toPositiveNumber(value: unknown): number | null {
   return parsed > 0 ? parsed : null;
 }
 
-async function getInstallationCapacityState(params: {
-  installationId: string;
-  excludeStudyId?: string;
-}) {
-  const { installationId, excludeStudyId } = params;
+// async function getInstallationCapacityState(params: {
+//   installationId: string;
+//   excludeStudyId?: string;
+// }) {
+//   const { installationId, excludeStudyId } = params;
 
-  const { data: installation, error: installationError } = await supabase
-    .from("installations")
-    .select("id, nombre_instalacion, potencia_instalada_kwp, active")
-    .eq("id", installationId)
-    .single();
+//   const { data: installation, error: installationError } = await supabase
+//     .from("installations")
+//     .select("id, nombre_instalacion, potencia_instalada_kwp, active")
+//     .eq("id", installationId)
+//     .single();
 
-  if (installationError || !installation) {
-    throw new Error("La instalación no existe");
-  }
+//   if (installationError || !installation) {
+//     throw new Error("La instalación no existe");
+//   }
 
-  if (!installation.active) {
-    throw new Error("La instalación está inactiva");
-  }
+//   if (!installation.active) {
+//     throw new Error("La instalación está inactiva");
+//   }
 
-  let query = supabase
-    .from("studies")
-    .select("id, assigned_kwp")
-    .eq("selected_installation_id", installationId);
+//   let query = supabase
+//     .from("studies")
+//     .select("id, assigned_kwp")
+//     .eq("selected_installation_id", installationId);
 
-  if (excludeStudyId) {
-    query = query.neq("id", excludeStudyId);
-  }
+//   if (excludeStudyId) {
+//     query = query.neq("id", excludeStudyId);
+//   }
 
-  const { data: relatedStudies, error: relatedStudiesError } = await query;
+//   const { data: relatedStudies, error: relatedStudiesError } = await query;
 
-  if (relatedStudiesError) {
-    throw new Error(
-      `No se pudo calcular la ocupación de la instalación: ${relatedStudiesError.message}`,
-    );
-  }
+//   if (relatedStudiesError) {
+//     throw new Error(
+//       `No se pudo calcular la ocupación de la instalación: ${relatedStudiesError.message}`,
+//     );
+//   }
 
-  const usedKwp = (relatedStudies ?? []).reduce((acc, study) => {
-    return acc + Number((study as any).assigned_kwp ?? 0);
-  }, 0);
+//   const usedKwp = (relatedStudies ?? []).reduce((acc, study) => {
+//     return acc + Number((study as any).assigned_kwp ?? 0);
+//   }, 0);
 
-  const totalKwp = Number(installation.potencia_instalada_kwp ?? 0);
-  const availableKwp = Math.max(totalKwp - usedKwp, 0);
-  const occupancyPercent =
-    totalKwp > 0 ? Number(((usedKwp / totalKwp) * 100).toFixed(2)) : 0;
+//   const totalKwp = Number(installation.potencia_instalada_kwp ?? 0);
+//   const availableKwp = Math.max(totalKwp - usedKwp, 0);
+//   const occupancyPercent =
+//     totalKwp > 0 ? Number(((usedKwp / totalKwp) * 100).toFixed(2)) : 0;
 
-  return {
-    installation,
-    totalKwp,
-    usedKwp,
-    availableKwp,
-    occupancyPercent,
-  };
-}
+//   return {
+//     installation,
+//     totalKwp,
+//     usedKwp,
+//     availableKwp,
+//     occupancyPercent,
+//   };
+// }
 
-async function validateInstallationAssignment(params: {
-  installationId: string;
-  assignedKwp: number;
-  excludeStudyId?: string;
-}) {
-  const state = await getInstallationCapacityState({
-    installationId: params.installationId,
-    excludeStudyId: params.excludeStudyId,
-  });
+// async function validateInstallationAssignment(params: {
+//   installationId: string;
+//   assignedKwp: number;
+//   excludeStudyId?: string;
+// }) {
+//   const state = await getInstallationCapacityState({
+//     installationId: params.installationId,
+//     excludeStudyId: params.excludeStudyId,
+//   });
 
-  const nextUsedKwp = state.usedKwp + params.assignedKwp;
+//   const nextUsedKwp = state.usedKwp + params.assignedKwp;
 
-  if (nextUsedKwp > state.totalKwp) {
-    const availableKwp = Math.max(state.totalKwp - state.usedKwp, 0);
+//   if (nextUsedKwp > state.totalKwp) {
+//     const availableKwp = Math.max(state.totalKwp - state.usedKwp, 0);
 
-    throw new Error(
-      `No hay capacidad suficiente en la instalación. Disponibles: ${availableKwp.toFixed(
-        2,
-      )} kWp`,
-    );
-  }
+//     throw new Error(
+//       `No hay capacidad suficiente en la instalación. Disponibles: ${availableKwp.toFixed(
+//         2,
+//       )} kWp`,
+//     );
+//   }
 
-  return {
-    ...state,
-    assignedKwp: params.assignedKwp,
-    nextUsedKwp,
-    nextAvailableKwp: Math.max(state.totalKwp - nextUsedKwp, 0),
-    nextOccupancyPercent:
-      state.totalKwp > 0
-        ? Number(((nextUsedKwp / state.totalKwp) * 100).toFixed(2))
-        : 0,
-  };
-}
+//   return {
+//     ...state,
+//     assignedKwp: params.assignedKwp,
+//     nextUsedKwp,
+//     nextAvailableKwp: Math.max(state.totalKwp - nextUsedKwp, 0),
+//     nextOccupancyPercent:
+//       state.totalKwp > 0
+//         ? Number(((nextUsedKwp / state.totalKwp) * 100).toFixed(2))
+//         : 0,
+//   };
+// }
 
 async function downloadDriveFileAsBuffer(fileId: string) {
   const metadata = await drive.files.get({
@@ -429,38 +677,38 @@ async function downloadDriveFileAsBuffer(fileId: string) {
   };
 }
 
-function buildInstallationSnapshot(params: {
-  installation: {
-    id: string;
-    nombre_instalacion: string;
-    potencia_instalada_kwp: number;
-    active?: boolean;
-  };
-  assignedKwp: number;
-  totalKwp: number;
-  usedKwp: number;
-  availableKwp: number;
-  occupancyPercent: number;
-}) {
-  return {
-    installationId: params.installation.id,
-    installationName: params.installation.nombre_instalacion,
-    installationData: {
-      id: params.installation.id,
-      nombre_instalacion: params.installation.nombre_instalacion,
-      potencia_instalada_kwp: params.totalKwp,
-      active: params.installation.active ?? true,
-    },
-    assigned_kwp: params.assignedKwp,
-    occupancy: {
-      total_kwp: params.totalKwp,
-      used_kwp: params.usedKwp,
-      available_kwp: params.availableKwp,
-      occupancy_percent: params.occupancyPercent,
-    },
-    updated_at: new Date().toISOString(),
-  };
-}
+// function buildInstallationSnapshot(params: {
+//   installation: {
+//     id: string;
+//     nombre_instalacion: string;
+//     potencia_instalada_kwp: number;
+//     active?: boolean;
+//   };
+//   assignedKwp: number;
+//   totalKwp: number;
+//   usedKwp: number;
+//   availableKwp: number;
+//   occupancyPercent: number;
+// }) {
+//   return {
+//     installationId: params.installation.id,
+//     installationName: params.installation.nombre_instalacion,
+//     installationData: {
+//       id: params.installation.id,
+//       nombre_instalacion: params.installation.nombre_instalacion,
+//       potencia_instalada_kwp: params.totalKwp,
+//       active: params.installation.active ?? true,
+//     },
+//     assigned_kwp: params.assignedKwp,
+//     occupancy: {
+//       total_kwp: params.totalKwp,
+//       used_kwp: params.usedKwp,
+//       available_kwp: params.availableKwp,
+//       occupancy_percent: params.occupancyPercent,
+//     },
+//     updated_at: new Date().toISOString(),
+//   };
+// }
 
 function getPeriodPrice(
   reqBody: any,
@@ -570,6 +818,260 @@ async function uploadBufferToDrive(params: {
       `https://drive.google.com/file/d/${uploaded.data.id}/view`,
     webContentLink: uploaded.data.webContentLink ?? null,
   };
+}
+
+type ContractFolderStatus = "PendientesPago" | "Confirmados" | "Expirados";
+
+function buildContractNumber(studyId: string) {
+  const date = new Date().toISOString().slice(0, 10).replace(/-/g, "");
+  return `CT-${date}-${studyId.slice(0, 8).toUpperCase()}`;
+}
+
+function buildContractFileName(params: {
+  dni: string;
+  nombre: string;
+  apellidos: string;
+  contractId: string;
+}) {
+  const date = new Date().toISOString().slice(0, 10);
+
+  return `${normalizeDriveToken(params.dni)}-${normalizeDriveToken(
+    params.nombre,
+  )}_${normalizeDriveToken(params.apellidos)}-${date}-${params.contractId.slice(
+    0,
+    8,
+  )}.pdf`;
+}
+
+async function ensureDriveChildFolder(parentId: string, folderName: string) {
+  const q = [
+    `mimeType='application/vnd.google-apps.folder'`,
+    `trashed=false`,
+    `name='${escapeDriveQueryValue(folderName)}'`,
+    `'${parentId}' in parents`,
+  ].join(" and ");
+
+  const existing = await drive.files.list({
+    q,
+    pageSize: 1,
+    fields: "files(id,name,webViewLink)",
+    supportsAllDrives: true,
+    includeItemsFromAllDrives: true,
+  });
+
+  const found = existing.data.files?.[0];
+
+  if (found?.id) {
+    return {
+      id: found.id,
+      name: found.name ?? folderName,
+      webViewLink:
+        found.webViewLink ??
+        `https://drive.google.com/drive/folders/${found.id}`,
+    };
+  }
+
+  const created = await drive.files.create({
+    requestBody: {
+      name: folderName,
+      mimeType: "application/vnd.google-apps.folder",
+      parents: [parentId],
+    },
+    fields: "id,name,webViewLink",
+    supportsAllDrives: true,
+  });
+
+  if (!created.data.id) {
+    throw new Error(`No se pudo crear la carpeta ${folderName} en Drive`);
+  }
+
+  return {
+    id: created.data.id,
+    name: created.data.name ?? folderName,
+    webViewLink:
+      created.data.webViewLink ??
+      `https://drive.google.com/drive/folders/${created.data.id}`,
+  };
+}
+
+async function ensureContractsStatusFolder(status: ContractFolderStatus) {
+  const contractsRoot = await ensureDriveChildFolder(
+    GOOGLE_DRIVE_ROOT_FOLDER_ID,
+    "CONTRATOS",
+  );
+
+  const statusFolder = await ensureDriveChildFolder(contractsRoot.id, status);
+
+  return {
+    root: contractsRoot,
+    folder: statusFolder,
+  };
+}
+
+async function getContractContextFromStudy(studyId: string) {
+  const { data: study, error: studyError } = await supabase
+    .from("studies")
+    .select("*")
+    .eq("id", studyId)
+    .single();
+
+  if (studyError || !study) {
+    throw new Error("El estudio no existe");
+  }
+
+  const customer = study.customer ?? {};
+  const clientDni =
+    pickFirstString(customer?.dni, customer?.documentNumber) ?? null;
+
+  if (!clientDni) {
+    throw new Error("El estudio no tiene DNI de cliente");
+  }
+
+  const { data: client, error: clientError } = await supabase
+    .from("clients")
+    .select("*")
+    .eq("dni", clientDni)
+    .single();
+
+  if (clientError || !client) {
+    throw new Error("No se encontró el cliente asociado al estudio");
+  }
+
+  const installationId = study.selected_installation_id ?? null;
+
+  if (!installationId) {
+    throw new Error("El estudio no tiene instalación asignada");
+  }
+
+  const { data: installation, error: installationError } = await supabase
+    .from("installations")
+    .select("*")
+    .eq("id", installationId)
+    .single();
+
+  if (installationError || !installation) {
+    throw new Error("La instalación asociada al estudio no existe");
+  }
+
+const assignedKwp =
+  toPositiveNumber(study.assigned_kwp) ??
+  toPositiveNumber(study?.calculation?.recommendedPowerKwp) ??
+  toPositiveNumber(study?.selected_installation_snapshot?.assigned_kwp);
+
+if (assignedKwp === null) {
+  throw new Error("El estudio no tiene assigned_kwp válido");
+}
+
+  return {
+    study,
+    client,
+    installation,
+    assignedKwp,
+  };
+}
+
+function buildBasicContractHtml(params: {
+  contractId: string;
+  contractNumber: string;
+  proposalMode: "investment" | "service";
+  client: any;
+  study: any;
+  installation: any;
+  assignedKwp: number;
+}) {
+  const fullName = `${params.client.nombre} ${params.client.apellidos}`.trim();
+  const signedDate = new Date().toLocaleDateString("es-ES");
+
+  return `
+    <!doctype html>
+    <html lang="es">
+      <head>
+        <meta charset="UTF-8" />
+        <title>Contrato ${params.contractNumber}</title>
+        <style>
+          body {
+            font-family: Arial, sans-serif;
+            color: #111827;
+            padding: 40px;
+            line-height: 1.6;
+          }
+          .title {
+            font-size: 28px;
+            font-weight: 700;
+            margin-bottom: 8px;
+            color: #07005f;
+          }
+          .subtitle {
+            font-size: 14px;
+            color: #6b7280;
+            margin-bottom: 32px;
+          }
+          .box {
+            border: 1px solid #e5e7eb;
+            border-radius: 16px;
+            padding: 20px;
+            margin-bottom: 20px;
+          }
+          .box h3 {
+            margin: 0 0 12px 0;
+            color: #07005f;
+          }
+          .signature {
+            margin-top: 50px;
+            padding-top: 20px;
+            border-top: 1px dashed #9ca3af;
+          }
+        </style>
+      </head>
+      <body>
+        <div class="title">Contrato de adhesión</div>
+        <div class="subtitle">Contrato nº ${
+          params.contractNumber
+        } · Fecha ${signedDate}</div>
+
+        <div class="box">
+          <h3>Datos del cliente</h3>
+          <p><strong>Nombre:</strong> ${fullName}</p>
+          <p><strong>DNI:</strong> ${params.client.dni}</p>
+          <p><strong>Email:</strong> ${params.client.email ?? "-"}</p>
+          <p><strong>Teléfono:</strong> ${params.client.telefono ?? "-"}</p>
+          <p><strong>Dirección:</strong> ${
+            params.client.direccion_completa ?? "-"
+          }</p>
+        </div>
+
+        <div class="box">
+          <h3>Datos de la instalación</h3>
+          <p><strong>Instalación:</strong> ${
+            params.installation.nombre_instalacion
+          }</p>
+          <p><strong>Dirección:</strong> ${params.installation.direccion}</p>
+          <p><strong>Modalidad:</strong> ${params.proposalMode}</p>
+          <p><strong>kWp asignados:</strong> ${params.assignedKwp}</p>
+        </div>
+
+        <div class="box">
+          <h3>Condiciones básicas</h3>
+          <p>
+            El cliente solicita la reserva de la potencia indicada en la instalación
+            seleccionada, quedando dicha reserva pendiente de confirmación económica.
+          </p>
+          <p>
+            Se informa al cliente de un plazo orientativo de 15 días para realizar
+            la transferencia correspondiente.
+          </p>
+          <p>
+            Hasta la validación del pago, la reserva tendrá carácter provisional.
+          </p>
+        </div>
+
+        <div class="signature">
+          <p><strong>Firma del cliente:</strong></p>
+          <div style="height: 80px;"></div>
+        </div>
+      </body>
+    </html>
+  `;
 }
 
 const driveAuth = new google.auth.JWT({
@@ -1658,7 +2160,6 @@ async function startServer() {
       const capacity = await validateInstallationAssignment({
         installationId,
         assignedKwp,
-        excludeStudyId: id,
       });
 
       const snapshot = buildInstallationSnapshot({
@@ -1670,6 +2171,8 @@ async function startServer() {
         },
         assignedKwp,
         totalKwp: capacity.totalKwp,
+        reservedKwp: capacity.reservedKwp,
+        confirmedKwp: capacity.confirmedKwp,
         usedKwp: capacity.nextUsedKwp,
         availableKwp: capacity.nextAvailableKwp,
         occupancyPercent: capacity.nextOccupancyPercent,
@@ -1715,74 +2218,345 @@ async function startServer() {
   });
 
 
-  //CLIENTS GET
-  app.get("/api/clients", async (_req, res) => {
+  app.post("/api/contracts/generate-from-study/:studyId", async (req, res) => {
   try {
-    const { data, error } = await supabase
-      .from("studies")
-      .select("id, created_at, customer, email_status, status")
-      .order("created_at", { ascending: false });
+    const { studyId } = req.params;
 
-    if (error) {
-      console.error("Error fetching clients from studies:", error);
-      return res.status(500).json({
-        error: "No se pudieron obtener los clientes",
-        details: error.message,
-      });
-    }
+    const proposalMode =
+      req.body?.proposalMode === "service" ? "service" : "investment";
 
-    const studies = Array.isArray(data) ? data : [];
+    const ctx = await getContractContextFromStudy(studyId);
 
-    const clientsMap = new Map<string, any>();
+    const { data: existingContract } = await supabase
+      .from("contracts")
+      .select("*")
+      .eq("study_id", studyId)
+      .maybeSingle();
 
-    for (const study of studies) {
-      const customer = study?.customer ?? {};
+    let contract = existingContract;
 
-      const name = String(customer?.name ?? customer?.nombre ?? "").trim();
-      const lastname1 = String(
-        customer?.lastname1 ??
-          customer?.lastName ??
-          customer?.apellidos ??
-          "",
-      ).trim();
-      const email = String(customer?.email ?? "").trim().toLowerCase();
-      const phone = String(
-        customer?.phone ?? customer?.telefono ?? "",
-      ).trim();
-      const dni = String(customer?.dni ?? "").trim();
+    if (!contract) {
+      const insertPayload = {
+        study_id: ctx.study.id,
+        client_id: ctx.client.id,
+        installation_id: ctx.installation.id,
+        proposal_mode: proposalMode,
+        status: "generated",
+        contract_number: buildContractNumber(ctx.study.id),
+        signature_type: "simple",
+        metadata: {
+          assigned_kwp: ctx.assignedKwp,
+          study_created_at: ctx.study.created_at,
+        },
+      };
 
-      const uniqueKey =
-        email ||
-        dni ||
-        phone ||
-        `${name}-${lastname1}-${study?.id ?? Math.random()}`;
+      const { data: createdContract, error: contractError } = await supabase
+        .from("contracts")
+        .insert([insertPayload])
+        .select()
+        .single();
 
-      if (!uniqueKey) continue;
-
-      if (!clientsMap.has(uniqueKey)) {
-        clientsMap.set(uniqueKey, {
-          id: uniqueKey,
-          name,
-          lastname1,
-          email,
-          phone,
-          dni,
-          status: study?.status ?? "uploaded",
-          email_status: study?.email_status ?? "pending",
-          created_at: study?.created_at ?? null,
+      if (contractError || !createdContract) {
+        return res.status(500).json({
+          error: "No se pudo generar el contrato",
+          details: contractError?.message ?? "Error desconocido",
         });
       }
+
+      contract = createdContract;
     }
 
-    return res.json(Array.from(clientsMap.values()));
+    const previewHtml = buildBasicContractHtml({
+      contractId: contract.id,
+      contractNumber: contract.contract_number,
+      proposalMode: contract.proposal_mode,
+      client: ctx.client,
+      study: ctx.study,
+      installation: ctx.installation,
+      assignedKwp: ctx.assignedKwp,
+    });
+
+    return res.json({
+      success: true,
+      contract,
+      previewHtml,
+      preview: {
+        contractId: contract.id,
+        contractNumber: contract.contract_number,
+        proposalMode: contract.proposal_mode,
+        assignedKwp: ctx.assignedKwp,
+        client: {
+          id: ctx.client.id,
+          nombre: ctx.client.nombre,
+          apellidos: ctx.client.apellidos,
+          dni: ctx.client.dni,
+          email: ctx.client.email,
+          telefono: ctx.client.telefono,
+        },
+        installation: {
+          id: ctx.installation.id,
+          nombre_instalacion: ctx.installation.nombre_instalacion,
+          direccion: ctx.installation.direccion,
+        },
+      },
+    });
   } catch (error: any) {
-    console.error("Unexpected error in /api/clients:", error);
+    console.error("Error en /api/contracts/generate-from-study/:studyId:", error);
+
     return res.status(500).json({
-      error: "Error interno al obtener clientes",
-      details: error?.message ?? "Unknown error",
+      error: "No se pudo generar el contrato",
+      details: error?.message || "Error desconocido",
     });
   }
 });
+
+app.get("/api/contracts/:id", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const { data: contract, error } = await supabase
+      .from("contracts")
+      .select("*")
+      .eq("id", id)
+      .single();
+
+    if (error || !contract) {
+      return res.status(404).json({
+        error: "Contrato no encontrado",
+        details: error?.message ?? "El contrato no existe",
+      });
+    }
+
+    return res.json(contract);
+  } catch (error: any) {
+    console.error("Error en /api/contracts/:id:", error);
+
+    return res.status(500).json({
+      error: "No se pudo obtener el contrato",
+      details: error?.message || "Error desconocido",
+    });
+  }
+});
+
+app.post(
+  "/api/contracts/:id/sign",
+  upload.fields([
+    { name: "signed_contract", maxCount: 1 },
+    { name: "file", maxCount: 1 },
+  ]),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      const files =
+        (req.files as {
+          [fieldname: string]: Express.Multer.File[];
+        }) || {};
+
+      const signedContractFile =
+        files.signed_contract?.[0] || files.file?.[0] || null;
+
+      if (!signedContractFile) {
+        return res.status(400).json({
+          error: "Debes enviar el PDF firmado del contrato",
+        });
+      }
+
+      const { data: contract, error: contractError } = await supabase
+        .from("contracts")
+        .select("*")
+        .eq("id", id)
+        .single();
+
+      if (contractError || !contract) {
+        return res.status(404).json({
+          error: "Contrato no encontrado",
+          details: contractError?.message ?? "El contrato no existe",
+        });
+      }
+
+      if (contract.status === "confirmed") {
+        return res.status(400).json({
+          error: "El contrato ya está confirmado",
+        });
+      }
+
+      const ctx = await getContractContextFromStudy(contract.study_id);
+
+      const contractsFolders = await ensureContractsStatusFolder(
+        "PendientesPago",
+      );
+
+      const contractFileName = buildContractFileName({
+        dni: ctx.client.dni,
+        nombre: ctx.client.nombre,
+        apellidos: ctx.client.apellidos,
+        contractId: contract.id,
+      });
+
+      const uploadedContract = await uploadBufferToDrive({
+        folderId: contractsFolders.folder.id,
+        fileName: contractFileName,
+        mimeType: signedContractFile.mimetype || "application/pdf",
+        buffer: signedContractFile.buffer,
+      });
+
+      const paymentDeadlineAt = new Date(
+        Date.now() + 15 * 24 * 60 * 60 * 1000,
+      ).toISOString();
+
+      const { data: reservation, error: reservationError } = await supabase.rpc(
+        "reserve_installation_kwp",
+        {
+          p_installation_id: ctx.installation.id,
+          p_study_id: ctx.study.id,
+          p_client_id: ctx.client.id,
+          p_contract_id: contract.id,
+          p_reserved_kwp: ctx.assignedKwp,
+          p_payment_deadline_at: paymentDeadlineAt,
+          p_deadline_enforced: false,
+          p_notes: "Reserva creada tras firma de contrato",
+        },
+      );
+
+      if (reservationError) {
+        return res.status(400).json({
+          error: "No se pudo crear la reserva de kWp",
+          details: reservationError.message,
+        });
+      }
+
+      const nowIso = new Date().toISOString();
+
+      const { data: updatedContract, error: updateContractError } =
+        await supabase
+          .from("contracts")
+          .update({
+            status: "uploaded",
+            signed_at: nowIso,
+            uploaded_at: nowIso,
+            drive_folder_id: contractsFolders.folder.id,
+            drive_folder_url: contractsFolders.folder.webViewLink,
+            contract_drive_file_id: uploadedContract.id,
+            contract_drive_url: uploadedContract.webViewLink,
+            metadata: {
+              ...(contract.metadata ?? {}),
+              assigned_kwp: ctx.assignedKwp,
+              reservation_created: true,
+              reservation_status: "pending_payment",
+              payment_deadline_at: paymentDeadlineAt,
+            },
+          })
+          .eq("id", contract.id)
+          .select()
+          .single();
+
+      if (updateContractError) {
+        return res.status(500).json({
+          error: "No se pudo actualizar el contrato tras la firma",
+          details: updateContractError.message,
+        });
+      }
+
+      return res.status(201).json({
+        success: true,
+        message:
+          "Contrato firmado y reserva creada correctamente. El cliente dispone de 15 días orientativos para realizar la transferencia.",
+        contract: updatedContract,
+        reservation,
+        drive: {
+          contractsRootFolderUrl: contractsFolders.root.webViewLink,
+          contractFolderUrl: contractsFolders.folder.webViewLink,
+          contractFileUrl: uploadedContract.webViewLink,
+        },
+        reservationSummary: {
+          installationName: ctx.installation.nombre_instalacion,
+          reservedKwp: ctx.assignedKwp,
+          paymentDeadlineAt,
+          deadlineEnforced: false,
+        },
+      });
+    } catch (error: any) {
+      console.error("Error en /api/contracts/:id/sign:", error);
+
+      return res.status(500).json({
+        error: "No se pudo firmar/subir el contrato",
+        details: error?.message || "Error desconocido",
+      });
+    }
+  },
+);
+
+  //CLIENTS GET
+  app.get("/api/clients", async (_req, res) => {
+    try {
+      const { data, error } = await supabase
+        .from("studies")
+        .select("id, created_at, customer, email_status, status")
+        .order("created_at", { ascending: false });
+
+      if (error) {
+        console.error("Error fetching clients from studies:", error);
+        return res.status(500).json({
+          error: "No se pudieron obtener los clientes",
+          details: error.message,
+        });
+      }
+
+      const studies = Array.isArray(data) ? data : [];
+
+      const clientsMap = new Map<string, any>();
+
+      for (const study of studies) {
+        const customer = study?.customer ?? {};
+
+        const name = String(customer?.name ?? customer?.nombre ?? "").trim();
+        const lastname1 = String(
+          customer?.lastname1 ??
+            customer?.lastName ??
+            customer?.apellidos ??
+            "",
+        ).trim();
+        const email = String(customer?.email ?? "")
+          .trim()
+          .toLowerCase();
+        const phone = String(
+          customer?.phone ?? customer?.telefono ?? "",
+        ).trim();
+        const dni = String(customer?.dni ?? "").trim();
+
+        const uniqueKey =
+          email ||
+          dni ||
+          phone ||
+          `${name}-${lastname1}-${study?.id ?? Math.random()}`;
+
+        if (!uniqueKey) continue;
+
+        if (!clientsMap.has(uniqueKey)) {
+          clientsMap.set(uniqueKey, {
+            id: uniqueKey,
+            name,
+            lastname1,
+            email,
+            phone,
+            dni,
+            status: study?.status ?? "uploaded",
+            email_status: study?.email_status ?? "pending",
+            created_at: study?.created_at ?? null,
+          });
+        }
+      }
+
+      return res.json(Array.from(clientsMap.values()));
+    } catch (error: any) {
+      console.error("Unexpected error in /api/clients:", error);
+      return res.status(500).json({
+        error: "Error interno al obtener clientes",
+        details: error?.message ?? "Unknown error",
+      });
+    }
+  });
 
   //SENDMAIL
   // server.ts

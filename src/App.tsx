@@ -65,7 +65,8 @@ L.Icon.Default.mergeOptions({
   iconUrl: markerIcon,
   shadowUrl: markerShadow,
 });
-
+import { jsPDF } from "jspdf";
+import { log } from "console";
 type Step = "upload" | "validation" | "map" | "calculation" | "result";
 
 interface ApiInstallation {
@@ -543,6 +544,55 @@ type ProposalCardData = {
   description: string;
   valuePoints: string[];
 };
+type ContractPreviewData = {
+  contractId: string;
+  contractNumber: string;
+  proposalMode: "investment" | "service";
+  assignedKwp: number;
+  client: {
+    id: string;
+    nombre: string;
+    apellidos: string;
+    dni: string;
+    email?: string | null;
+    telefono?: string | null;
+  };
+  installation: {
+    id: string;
+    nombre_instalacion: string;
+    direccion: string;
+  };
+};
+
+type GeneratedContractResponse = {
+  success: boolean;
+  contract: {
+    id: string;
+    status: string;
+    proposal_mode: "investment" | "service";
+    contract_number: string;
+  };
+  previewHtml: string;
+  preview: ContractPreviewData;
+};
+
+type SignedContractResponse = {
+  success: boolean;
+  message: string;
+  contract: any;
+  reservation: any;
+  reservationSummary: {
+    installationName: string;
+    reservedKwp: number;
+    paymentDeadlineAt: string;
+    deadlineEnforced: boolean;
+  };
+  drive: {
+    contractsRootFolderUrl: string;
+    contractFolderUrl: string;
+    contractFileUrl: string;
+  };
+};
 
 function getFirstNumericField(
   source: unknown,
@@ -928,6 +978,20 @@ export default function App() {
   const [selectedProposalView, setSelectedProposalView] =
     useState<ProposalMode>("investment");
 
+  const [generatedContract, setGeneratedContract] =
+    useState<GeneratedContractResponse | null>(null);
+
+  const [signedContractResult, setSignedContractResult] =
+    useState<SignedContractResponse | null>(null);
+
+  const [isContractModalOpen, setIsContractModalOpen] = useState(false);
+  const [isGeneratingContract, setIsGeneratingContract] = useState(false);
+  const [isSigningContract, setIsSigningContract] = useState(false);
+  const [signatureHasContent, setSignatureHasContent] = useState(false);
+
+  const signatureCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const signatureDrawingRef = useRef(false);
+
   const investmentResult = proposalResults?.investment ?? null;
   const serviceResult =
     proposalResults?.service ?? proposalResults?.investment ?? null;
@@ -1292,6 +1356,11 @@ export default function App() {
 
     console.log("[front] ANTES de confirmStudy");
 
+    const assignedKwpForStudy = getFirstNumericField(result, [
+      "recommendedPowerKwp",
+    ]);
+    console.log("[FRONT] -  assignedKwpForStudy: ", assignedKwpForStudy);
+
     const response = await confirmStudy({
       invoiceFile: uploadedInvoiceFile,
       proposalFile,
@@ -1301,6 +1370,7 @@ export default function App() {
       calculation: result,
       selectedInstallationId: installation.id,
       selectedInstallationSnapshot: installation,
+      assignedKwp: assignedKwpForStudy,
       language: "ES",
       consentAccepted: privacyAccepted,
     });
@@ -1359,6 +1429,291 @@ export default function App() {
       description:
         "El correo se envía automáticamente al confirmar y guardar el estudio.",
     });
+  };
+
+  const clearSignature = () => {
+    const canvas = signatureCanvasRef.current;
+    if (!canvas) return;
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+    setSignatureHasContent(false);
+  };
+
+  const getCanvasPoint = (
+    event:
+      | React.MouseEvent<HTMLCanvasElement>
+      | React.TouchEvent<HTMLCanvasElement>,
+    canvas: HTMLCanvasElement,
+  ) => {
+    const rect = canvas.getBoundingClientRect();
+
+    if ("touches" in event) {
+      const touch = event.touches[0] ?? event.changedTouches[0];
+      return {
+        x: touch.clientX - rect.left,
+        y: touch.clientY - rect.top,
+      };
+    }
+
+    return {
+      x: event.clientX - rect.left,
+      y: event.clientY - rect.top,
+    };
+  };
+
+  const startSignatureDraw = (
+    event:
+      | React.MouseEvent<HTMLCanvasElement>
+      | React.TouchEvent<HTMLCanvasElement>,
+  ) => {
+    const canvas = signatureCanvasRef.current;
+    if (!canvas) return;
+
+    if ("touches" in event) {
+      event.preventDefault();
+    }
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const { x, y } = getCanvasPoint(event, canvas);
+
+    ctx.lineWidth = 2.2;
+    ctx.lineCap = "round";
+    ctx.lineJoin = "round";
+    ctx.strokeStyle = "#07005f";
+    ctx.beginPath();
+    ctx.moveTo(x, y);
+
+    signatureDrawingRef.current = true;
+    setSignatureHasContent(true);
+  };
+
+  const moveSignatureDraw = (
+    event:
+      | React.MouseEvent<HTMLCanvasElement>
+      | React.TouchEvent<HTMLCanvasElement>,
+  ) => {
+    if (!signatureDrawingRef.current) return;
+
+    const canvas = signatureCanvasRef.current;
+    if (!canvas) return;
+
+    if ("touches" in event) {
+      event.preventDefault();
+    }
+
+    const ctx = canvas.getContext("2d");
+    if (!ctx) return;
+
+    const { x, y } = getCanvasPoint(event, canvas);
+    ctx.lineTo(x, y);
+    ctx.stroke();
+  };
+
+  const endSignatureDraw = () => {
+    signatureDrawingRef.current = false;
+  };
+
+  const buildSignedContractPdfFile = async (
+    preview: ContractPreviewData,
+    signatureDataUrl: string,
+  ) => {
+    const pdf = new jsPDF({
+      unit: "pt",
+      format: "a4",
+    });
+
+    const margin = 48;
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const usableWidth = pageWidth - margin * 2;
+    let y = 56;
+
+    const writeSectionTitle = (title: string) => {
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(14);
+      pdf.setTextColor(7, 0, 95);
+      pdf.text(title, margin, y);
+      y += 20;
+    };
+
+    const writeParagraph = (text: string) => {
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(11);
+      pdf.setTextColor(40, 40, 40);
+
+      const lines = pdf.splitTextToSize(text, usableWidth);
+      pdf.text(lines, margin, y);
+      y += lines.length * 14 + 8;
+    };
+
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(22);
+    pdf.setTextColor(7, 0, 95);
+    pdf.text("Contrato de adhesión", margin, y);
+    y += 24;
+
+    pdf.setFont("helvetica", "normal");
+    pdf.setFontSize(11);
+    pdf.setTextColor(90, 90, 90);
+    pdf.text(`Contrato nº ${preview.contractNumber}`, margin, y);
+    y += 26;
+
+    writeSectionTitle("Datos del cliente");
+    writeParagraph(
+      `Nombre: ${preview.client.nombre} ${preview.client.apellidos}`,
+    );
+    writeParagraph(`DNI: ${preview.client.dni}`);
+    writeParagraph(`Email: ${preview.client.email || "-"}`);
+    writeParagraph(`Teléfono: ${preview.client.telefono || "-"}`);
+
+    writeSectionTitle("Datos de la instalación");
+    writeParagraph(`Instalación: ${preview.installation.nombre_instalacion}`);
+    writeParagraph(`Dirección: ${preview.installation.direccion}`);
+    writeParagraph(
+      `Modalidad: ${preview.proposalMode === "investment" ? "Inversión" : "Servicio"}`,
+    );
+    writeParagraph(`kWp asignados: ${preview.assignedKwp}`);
+
+    writeSectionTitle("Condiciones básicas");
+    writeParagraph(
+      "El cliente solicita la reserva de la potencia indicada en la instalación seleccionada, quedando dicha reserva pendiente de confirmación económica.",
+    );
+    writeParagraph(
+      "Se informa al cliente de un plazo orientativo de 15 días para realizar la transferencia correspondiente.",
+    );
+    writeParagraph(
+      "Hasta la validación del pago, la reserva tendrá carácter provisional.",
+    );
+
+    y += 12;
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(12);
+    pdf.setTextColor(7, 0, 95);
+    pdf.text("Firma del cliente", margin, y);
+    y += 12;
+
+    pdf.addImage(signatureDataUrl, "PNG", margin, y, 180, 70);
+
+    const safeDni = preview.client.dni.replace(/[^a-zA-Z0-9_-]/g, "");
+    const safeName = `${preview.client.nombre}_${preview.client.apellidos}`
+      .replace(/\s+/g, "_")
+      .replace(/[^a-zA-Z0-9_-]/g, "");
+
+    const blob = pdf.output("blob");
+
+    return new File([blob], `CONTRATO_${safeDni}_${safeName}.pdf`, {
+      type: "application/pdf",
+    });
+  };
+
+  const handleGenerateContract = async () => {
+    const studyId = savedStudy?.study?.id;
+
+    if (!studyId) {
+      sileo.error({
+        title: "No hay estudio disponible",
+        description:
+          "Primero debe haberse guardado correctamente el estudio antes de contratar.",
+      });
+      return;
+    }
+
+    setIsGeneratingContract(true);
+
+    try {
+      const response = await axios.post<GeneratedContractResponse>(
+        `/api/contracts/generate-from-study/${studyId}`,
+        {
+          proposalMode: activeProposal.id,
+        },
+      );
+
+      setGeneratedContract(response.data);
+      setIsContractModalOpen(true);
+
+      window.setTimeout(() => {
+        clearSignature();
+      }, 80);
+    } catch (error: any) {
+      console.error("Error generando contrato:", error);
+
+      sileo.error({
+        title: "No se pudo generar el contrato",
+        description:
+          error?.response?.data?.details ||
+          error?.message ||
+          "Ha ocurrido un error inesperado.",
+      });
+    } finally {
+      setIsGeneratingContract(false);
+    }
+  };
+
+  const handleSubmitSignedContract = async () => {
+    if (!generatedContract?.contract?.id || !generatedContract?.preview) {
+      sileo.error({
+        title: "Contrato no disponible",
+        description: "No se ha podido preparar el contrato para firmar.",
+      });
+      return;
+    }
+
+    if (!signatureHasContent || !signatureCanvasRef.current) {
+      sileo.warning({
+        title: "Falta la firma",
+        description: "Debes firmar en el recuadro antes de continuar.",
+      });
+      return;
+    }
+
+    setIsSigningContract(true);
+
+    try {
+      const signatureDataUrl =
+        signatureCanvasRef.current.toDataURL("image/png");
+
+      const signedPdfFile = await buildSignedContractPdfFile(
+        generatedContract.preview,
+        signatureDataUrl,
+      );
+
+      const formData = new FormData();
+      formData.append("signed_contract", signedPdfFile);
+
+      const response = await axios.post<SignedContractResponse>(
+        `/api/contracts/${generatedContract.contract.id}/sign`,
+        formData,
+        {
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+        },
+      );
+
+      setSignedContractResult(response.data);
+      setIsContractModalOpen(false);
+
+      sileo.success({
+        title: "Contrato firmado correctamente",
+        description: `Se han reservado ${response.data.reservationSummary.reservedKwp} kWp en ${response.data.reservationSummary.installationName}.`,
+      });
+    } catch (error: any) {
+      console.error("Error firmando contrato:", error);
+
+      sileo.error({
+        title: "No se pudo firmar el contrato",
+        description:
+          error?.response?.data?.details ||
+          error?.message ||
+          "Ha ocurrido un error inesperado.",
+      });
+    } finally {
+      setIsSigningContract(false);
+    }
   };
 
   //   if (!calculationResult || !extractedData?.email) {
@@ -2970,6 +3325,29 @@ export default function App() {
                               />
                               Enviar por Email
                             </Button>
+                            <Button
+                              className="w-full py-5 md:py-7 text-base rounded-[1.2rem] md:rounded-2xl bg-brand-mint text-brand-navy hover:bg-brand-mint/90 border-none"
+                              onClick={handleGenerateContract}
+                              disabled={
+                                !savedStudy?.study?.id ||
+                                isGeneratingContract ||
+                                isSigningContract
+                              }
+                            >
+                              <span className="inline-flex items-center justify-center">
+                                <span className="mr-3 inline-flex h-6 w-6 items-center justify-center">
+                                  {isGeneratingContract ? (
+                                    <Loader2 className="h-6 w-6 animate-spin" />
+                                  ) : (
+                                    <Icon
+                                      icon="solar:pen-new-square-bold-duotone"
+                                      className="h-6 w-6"
+                                    />
+                                  )}
+                                </span>
+                                <span>Contratar</span>
+                              </span>
+                            </Button>
                           </div>
 
                           <div className="mt-5 rounded-[1.4rem] bg-white/10 p-4 border border-white/10 space-y-2.5">
@@ -2983,6 +3361,45 @@ export default function App() {
                                 Resumen
                               </p>
                             </div>
+                            {signedContractResult?.reservationSummary ? (
+                              <div className="mt-5 rounded-[1.4rem] bg-brand-mint/15 p-4 border border-brand-mint/20 space-y-3 text-brand-navy">
+                                <div className="flex items-center gap-2">
+                                  <Icon
+                                    icon="solar:shield-check-bold-duotone"
+                                    className="h-5 w-5 text-brand-navy"
+                                  />
+                                  <p className="text-[10px] font-bold uppercase tracking-widest text-brand-navy/60">
+                                    Reserva creada
+                                  </p>
+                                </div>
+
+                                <p className="text-sm leading-relaxed">
+                                  Se han reservado{" "}
+                                  <span className="font-bold">
+                                    {
+                                      signedContractResult.reservationSummary
+                                        .reservedKwp
+                                    }{" "}
+                                    kWp
+                                  </span>{" "}
+                                  en la planta{" "}
+                                  <span className="font-bold">
+                                    {
+                                      signedContractResult.reservationSummary
+                                        .installationName
+                                    }
+                                  </span>
+                                  .
+                                </p>
+
+                                <p className="text-sm leading-relaxed">
+                                  Dispones de un plazo orientativo de{" "}
+                                  <span className="font-bold">15 días</span>{" "}
+                                  para realizar la transferencia y confirmar la
+                                  reserva.
+                                </p>
+                              </div>
+                            ) : null}
                             <p className="text-2xl font-bold">
                               {formatCurrency(activeProposal.annualSavings)} /
                               año
@@ -3022,6 +3439,157 @@ export default function App() {
           </div>
         )}
       </div>
+
+      <AnimatePresence>
+        {isContractModalOpen && generatedContract ? (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[200] bg-brand-navy/50 backdrop-blur-sm p-4 md:p-8"
+          >
+            <div className="max-w-5xl mx-auto h-full flex items-center justify-center">
+              <motion.div
+                initial={{ opacity: 0, y: 24, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 12, scale: 0.98 }}
+                className="w-full max-h-[92vh] overflow-hidden rounded-[2rem] md:rounded-[2.5rem] bg-white border border-brand-navy/5 shadow-2xl"
+              >
+                <div className="px-5 md:px-8 py-5 border-b border-brand-navy/5 flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-brand-navy/40 mb-1">
+                      Contratación
+                    </p>
+                    <h3 className="text-xl md:text-2xl font-bold text-brand-navy">
+                      Revisa y firma tu contrato
+                    </h3>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={() => setIsContractModalOpen(false)}
+                    className="w-11 h-11 rounded-2xl bg-brand-navy/5 hover:bg-brand-navy/10 text-brand-navy transition"
+                  >
+                    ✕
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_340px] gap-0">
+                  <div className="p-5 md:p-8 border-b lg:border-b-0 lg:border-r border-brand-navy/5">
+                    <div className="rounded-[1.5rem] overflow-hidden border border-brand-navy/5 bg-brand-sky/5">
+                      <iframe
+                        title="Vista previa del contrato"
+                        srcDoc={generatedContract.previewHtml}
+                        className="w-full h-[420px] md:h-[560px] bg-white"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="p-5 md:p-6 space-y-5 bg-brand-navy/[0.02]">
+                    <div className="rounded-[1.4rem] bg-white border border-brand-navy/5 p-4">
+                      <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-brand-navy/40 mb-2">
+                        Contrato
+                      </p>
+                      <p className="font-bold text-brand-navy">
+                        {generatedContract.preview.contractNumber}
+                      </p>
+                      <p className="text-sm text-brand-gray mt-2">
+                        {generatedContract.preview.client.nombre}{" "}
+                        {generatedContract.preview.client.apellidos}
+                      </p>
+                      <p className="text-sm text-brand-gray">
+                        DNI: {generatedContract.preview.client.dni}
+                      </p>
+                    </div>
+
+                    <div className="rounded-[1.4rem] bg-white border border-brand-navy/5 p-4">
+                      <div className="flex items-center justify-between mb-3">
+                        <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-brand-navy/40">
+                          Firma
+                        </p>
+
+                        <button
+                          type="button"
+                          onClick={clearSignature}
+                          className="text-sm font-semibold text-brand-navy hover:text-brand-mint transition"
+                        >
+                          Limpiar
+                        </button>
+                      </div>
+
+                      <canvas
+                        ref={signatureCanvasRef}
+                        width={600}
+                        height={180}
+                        className="w-full h-40 rounded-[1.2rem] border border-dashed border-brand-navy/20 bg-white touch-none"
+                        onMouseDown={startSignatureDraw}
+                        onMouseMove={moveSignatureDraw}
+                        onMouseUp={endSignatureDraw}
+                        onMouseLeave={endSignatureDraw}
+                        onTouchStart={startSignatureDraw}
+                        onTouchMove={moveSignatureDraw}
+                        onTouchEnd={endSignatureDraw}
+                      />
+
+                      <p className="text-xs text-brand-gray mt-3 leading-relaxed">
+                        Firma dentro del recuadro. Al confirmar, se generará el
+                        PDF firmado y se enviará al backend para crear la
+                        reserva.
+                      </p>
+                    </div>
+
+                    <div className="rounded-[1.4rem] bg-brand-mint/10 border border-brand-mint/20 p-4 text-brand-navy">
+                      <div className="flex items-center gap-2 mb-2">
+                        <Icon
+                          icon="solar:bolt-bold-duotone"
+                          className="h-5 w-5"
+                        />
+                        <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-brand-navy/60">
+                          Reserva provisional
+                        </p>
+                      </div>
+
+                      <p className="text-sm leading-relaxed">
+                        Al firmar, se reservarán{" "}
+                        <span className="font-bold">
+                          {generatedContract.preview.assignedKwp} kWp
+                        </span>{" "}
+                        en la instalación seleccionada.
+                      </p>
+                    </div>
+
+                    <div className="space-y-3">
+                      <Button
+                        className="w-full py-5 rounded-[1.2rem] brand-gradient text-brand-navy border-none"
+                        onClick={handleSubmitSignedContract}
+                        disabled={isSigningContract}
+                      >
+                        {isSigningContract ? (
+                          <Loader2 className="mr-3 h-5 w-5 animate-spin" />
+                        ) : (
+                          <Icon
+                            icon="solar:shield-check-bold-duotone"
+                            className="mr-3 h-5 w-5"
+                          />
+                        )}
+                        Firmar y reservar
+                      </Button>
+
+                      <Button
+                        variant="outline"
+                        className="w-full py-5 rounded-[1.2rem] border-brand-navy/10 text-brand-navy"
+                        onClick={() => setIsContractModalOpen(false)}
+                      >
+                        Cancelar
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              </motion.div>
+            </div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
     </Layout>
   );
 }
