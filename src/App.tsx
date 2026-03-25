@@ -87,6 +87,17 @@ interface ApiInstallation {
   created_at?: string;
   updated_at?: string;
   distance_meters?: number;
+
+  contractable_kwp_total?: number;
+  contractable_kwp_reserved?: number;
+  contractable_kwp_confirmed?: number;
+
+  total_contractable_kwp?: number;
+  reserved_kwp?: number;
+  confirmed_kwp?: number;
+  unavailable_kwp?: number;
+  available_kwp?: number;
+  occupancy_percent?: number;
 }
 
 const BILL_TYPES = ["2TD", "3TD"] as const;
@@ -2775,11 +2786,10 @@ export default function App() {
                             <div className="grid grid-cols-2 gap-3 mt-6">
                               <div className="rounded-2xl bg-brand-navy/[0.03] p-4">
                                 <p className="text-[10px] uppercase tracking-widest text-brand-navy/40 font-bold mb-1">
-                                  Potencia
+                                  Disponible
                                 </p>
                                 <p className="font-bold text-brand-navy">
-                                  {formatNumber(inst.potencia_instalada_kwp)}{" "}
-                                  kWp
+                                  {formatNumber(inst.available_kwp ?? 0)} kWp
                                 </p>
                               </div>
 
@@ -2800,6 +2810,16 @@ export default function App() {
                               <Building2 className="w-4 h-4" />
                               <span>
                                 {formatNumber(inst.horas_efectivas)} h efectivas
+                              </span>
+                            </div>
+                            <div className="mt-2 flex items-center gap-3 text-xs text-brand-gray">
+                              <Icon
+                                icon="solar:chart-bold-duotone"
+                                className="w-4 h-4 text-brand-mint"
+                              />
+                              <span>
+                                Reservados:{" "}
+                                {formatNumber(inst.reserved_kwp ?? 0)} kWp
                               </span>
                             </div>
 

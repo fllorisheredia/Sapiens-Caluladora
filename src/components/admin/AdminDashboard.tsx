@@ -17,6 +17,8 @@ import {
   AlertTriangle,
   RefreshCcw,
   Mail,
+  Eye,
+  LucideIcon,
   Activity,
 } from "lucide-react";
 import Button from "../ui/Button";
@@ -25,7 +27,9 @@ import { motion, AnimatePresence } from "motion/react";
 import axios from "axios";
 import { type Client, type Document } from "../../lib/validators";
 import InstallationForm from "./InstallationForm";
-
+import InstallationDetailDrawer from "./InstallationDetailDrawer";
+import {sileo} from "sileo";
+import { Icon } from "@iconify/react";
 interface InstallationRow {
   id: string;
   nombre_instalacion: string;
@@ -43,24 +47,81 @@ interface InstallationRow {
   active: boolean;
   created_at?: string;
   updated_at?: string;
+
+  clients_count?: number;
+  kwp_consumed?: number;
+  kwp_available?: number;
+  kwp_reserved?: number;
+  kwp_confirmed?: number;
+}
+function getStudyCustomer(study: any) {
+  return study?.customer ?? study?.clientData ?? study?.client ?? {};
 }
 
 function getStudyCustomerName(study: any) {
-  const customer = study?.customer ?? {};
+  if (study?.customerName) return study.customerName;
+
+  const customer = getStudyCustomer(study);
   const name = customer?.name ?? customer?.nombre ?? "";
-  const lastName = customer?.lastName ?? customer?.apellidos ?? "";
+  const lastName =
+    customer?.lastName ??
+    customer?.lastname1 ??
+    customer?.lastname ??
+    customer?.apellidos ??
+    "";
+
   return `${name} ${lastName}`.trim() || "Sin nombre";
+}
+
+function getStudyCustomerEmail(study: any) {
+  if (study?.customerEmail) return study.customerEmail;
+
+  const customer = getStudyCustomer(study);
+  const invoiceData = study?.invoice_data ?? study?.invoiceData ?? {};
+
+  return customer?.email ?? invoiceData?.email ?? study?.email ?? "";
+}
+
+function getStudyCreatedAt(study: any) {
+  return (
+    study?.displayCreatedAt ??
+    study?.created_at ??
+    study?.createdAt ??
+    study?.updated_at ??
+    study?.updatedAt ??
+    null
+  );
+}
+
+function getStudyType(study: any) {
+  if (study?.displayType) return study.displayType;
+
+  const customer = getStudyCustomer(study);
+  const invoiceData = study?.invoice_data ?? study?.invoiceData ?? {};
+
+  return (
+    study?.clientType ??
+    customer?.type ??
+    invoiceData?.tariffType ??
+    invoiceData?.tarifa_acceso ??
+    invoiceData?.tarifa ??
+    study?.proposal_mode ??
+    "Sin tipo"
+  );
 }
 
 function getStudyInstallationName(
   study: any,
   installationsList: InstallationRow[] = [],
 ) {
+  if (study?.installationDisplayName) return study.installationDisplayName;
+
   const snapshot = study?.selected_installation_snapshot ?? {};
 
   const snapshotName =
     snapshot?.installationName ||
-    snapshot?.installationData?.nombre_instalacion;
+    snapshot?.installationData?.nombre_instalacion ||
+    snapshot?.nombre_instalacion;
 
   if (snapshotName) return snapshotName;
 
@@ -77,9 +138,77 @@ function getStudyInstallationName(
 
 function getStudyAnnualSavings(study: any) {
   return Number(
-    study?.calculation?.annualSavings ?? study?.calculation?.ahorro_anual ?? 0,
+    study?.annualSavings ??
+      study?.results?.annualSavings ??
+      study?.calculation?.annualSavings ??
+      study?.calculation?.ahorro_anual ??
+      study?.calculation_result?.annualSavings ??
+      0,
   );
 }
+
+function normalizeStudy(study: any, installationsList: InstallationRow[] = []) {
+  const customerName = getStudyCustomerName(study);
+  const customerEmail = getStudyCustomerEmail(study);
+  const displayCreatedAt = getStudyCreatedAt(study);
+  const displayType = getStudyType(study);
+  const annualSavings = getStudyAnnualSavings(study);
+  const installationDisplayName = getStudyInstallationName(
+    study,
+    installationsList,
+  );
+
+  return {
+    ...study,
+    id: String(study?.id ?? study?._id ?? ""),
+    customerName,
+    customerEmail,
+    customerInitial: customerName.charAt(0).toUpperCase() || "S",
+    displayCreatedAt,
+    displayType,
+    annualSavings,
+    installationDisplayName,
+    status: study?.status ?? "uploaded",
+    email_status: study?.email_status ?? study?.emailStatus ?? "pending",
+  };
+}
+
+function normalizeStudies(
+  rows: any[],
+  installationsList: InstallationRow[] = [],
+) {
+  if (!Array.isArray(rows)) return [];
+  return rows.map((row) => normalizeStudy(row, installationsList));
+}
+
+// function getStudyInstallationName(
+//   study: any,
+//   installationsList: InstallationRow[] = [],
+// ) {
+//   const snapshot = study?.selected_installation_snapshot ?? {};
+
+//   const snapshotName =
+//     snapshot?.installationName ||
+//     snapshot?.installationData?.nombre_instalacion;
+
+//   if (snapshotName) return snapshotName;
+
+//   const selectedId = study?.selected_installation_id;
+//   if (selectedId) {
+//     const matched = installationsList.find(
+//       (inst) => String(inst.id) === String(selectedId),
+//     );
+//     if (matched?.nombre_instalacion) return matched.nombre_instalacion;
+//   }
+
+//   return "Sin instalación";
+// }
+
+// function getStudyAnnualSavings(study: any) {
+//   return Number(
+//     study?.calculation?.annualSavings ?? study?.calculation?.ahorro_anual ?? 0,
+//   );
+// }
 
 function buildDailySeries(items: any[], days = 7) {
   const now = new Date();
@@ -629,6 +758,39 @@ function normalizeInstallation(row: any): InstallationRow {
   else if (modalidadRaw === "servicio") modalidad = "Servicio";
   else modalidad = "Ambas";
 
+  const potenciaTotal = Number(
+    row?.potencia_instalada_kwp ??
+      row?.contractable_kwp_total ??
+      row?.total_kwp ??
+      0,
+  );
+
+  const kwpReserved = Number(
+    row?.kwp_reserved ??
+      row?.contractable_kwp_reserved ??
+      row?.reserved_kwp ??
+      0,
+  );
+
+  const kwpConfirmed = Number(
+    row?.kwp_confirmed ??
+      row?.contractable_kwp_confirmed ??
+      row?.confirmed_kwp ??
+      0,
+  );
+
+  const kwpConsumed = Number(
+    row?.kwp_consumed ??
+      row?.contractable_kwp_consumed ??
+      kwpReserved + kwpConfirmed,
+  );
+
+  const kwpAvailable = Number(
+    row?.kwp_available ??
+      row?.contractable_kwp_available ??
+      Math.max(potenciaTotal - kwpConsumed, 0),
+  );
+
   return {
     id: String(row?.id ?? ""),
     nombre_instalacion: row?.nombre_instalacion ?? "",
@@ -636,7 +798,7 @@ function normalizeInstallation(row: any): InstallationRow {
     lat: Number(row?.lat ?? 0),
     lng: Number(row?.lng ?? 0),
     horas_efectivas: Number(row?.horas_efectivas ?? 0),
-    potencia_instalada_kwp: Number(row?.potencia_instalada_kwp ?? 0),
+    potencia_instalada_kwp: potenciaTotal,
     almacenamiento_kwh: Number(row?.almacenamiento_kwh ?? 0),
     coste_anual_mantenimiento_por_kwp: Number(
       row?.coste_anual_mantenimiento_por_kwp ?? 0,
@@ -648,7 +810,130 @@ function normalizeInstallation(row: any): InstallationRow {
     active: Boolean(row?.active),
     created_at: row?.created_at,
     updated_at: row?.updated_at,
+
+    clients_count: Number(
+      row?.clients_count ?? row?.attached_clients_count ?? 0,
+    ),
+    kwp_consumed: kwpConsumed,
+    kwp_available: kwpAvailable,
+    kwp_reserved: kwpReserved,
+    kwp_confirmed: kwpConfirmed,
   };
+}
+
+function getInstallationRelatedStudies(
+  installation: InstallationRow,
+  studies: any[],
+) {
+  return studies.filter((study) => {
+    const selectedId = study?.selected_installation_id;
+    const displayName = getStudyInstallationName(study, [installation]);
+
+    return (
+      String(selectedId) === String(installation.id) ||
+      displayName === installation.nombre_instalacion
+    );
+  });
+}
+
+function getInstallationClientsCount(
+  installation: InstallationRow,
+  studies: any[],
+) {
+  if (
+    typeof installation.clients_count === "number" &&
+    installation.clients_count > 0
+  ) {
+    return installation.clients_count;
+  }
+
+  const relatedStudies = getInstallationRelatedStudies(installation, studies);
+
+  const uniqueClients = new Set(
+    relatedStudies
+      .map(
+        (study) => getStudyCustomerEmail(study) || getStudyCustomerName(study),
+      )
+      .filter(Boolean),
+  );
+
+  return uniqueClients.size;
+}
+
+function getInstallationOccupancyPercent(
+  installation: InstallationRow,
+  studies: any[],
+) {
+  const total = Number(installation.potencia_instalada_kwp || 0);
+  const consumed = getInstallationConsumedKwp(installation, studies);
+
+  if (total <= 0) return 0;
+  return Math.min(100, Math.round((consumed / total) * 100));
+}
+
+function getInstallationAssociatedClients(
+  installation: InstallationRow,
+  studies: any[],
+) {
+  const relatedStudies = getInstallationRelatedStudies(installation, studies);
+
+  const uniqueClientsMap = new Map<
+    string,
+    {
+      name: string;
+      email: string;
+      status?: string;
+    }
+  >();
+
+  relatedStudies.forEach((study) => {
+    const name = getStudyCustomerName(study);
+    const email = getStudyCustomerEmail(study);
+    const key = email || name;
+
+    if (!key) return;
+
+    if (!uniqueClientsMap.has(key)) {
+      uniqueClientsMap.set(key, {
+        name,
+        email,
+        status: study?.status,
+      });
+    }
+  });
+
+  return Array.from(uniqueClientsMap.values());
+}
+
+function getInstallationConsumedKwp(
+  installation: InstallationRow,
+  studies: any[],
+) {
+  if (
+    typeof installation.kwp_consumed === "number" &&
+    installation.kwp_consumed > 0
+  ) {
+    return installation.kwp_consumed;
+  }
+
+  return Number(
+    (installation.kwp_reserved ?? 0) + (installation.kwp_confirmed ?? 0),
+  );
+}
+
+function getInstallationAvailableKwp(
+  installation: InstallationRow,
+  studies: any[],
+) {
+  if (typeof installation.kwp_available === "number") {
+    return installation.kwp_available;
+  }
+
+  const consumed = getInstallationConsumedKwp(installation, studies);
+  return Math.max(
+    Number(installation.potencia_instalada_kwp || 0) - consumed,
+    0,
+  );
 }
 
 function normalizeInstallations(rows: any[]): InstallationRow[] {
@@ -984,6 +1269,39 @@ function getTopStatCards(
       ];
   }
 }
+
+function getPaginationRange(currentPage: number, totalPages: number) {
+  const delta = 1;
+  const range: (number | string)[] = [];
+  const rangeWithDots: (number | string)[] = [];
+
+  for (let i = 1; i <= totalPages; i++) {
+    if (
+      i === 1 ||
+      i === totalPages ||
+      (i >= currentPage - delta && i <= currentPage + delta)
+    ) {
+      range.push(i);
+    }
+  }
+
+  let last: number | undefined;
+  for (const item of range) {
+    if (typeof item === "number") {
+      if (last !== undefined) {
+        if (item - last === 2) {
+          rangeWithDots.push(last + 1);
+        } else if (item - last > 2) {
+          rangeWithDots.push("...");
+        }
+      }
+      rangeWithDots.push(item);
+      last = item;
+    }
+  }
+
+  return rangeWithDots;
+}
 export default function AdminDashboard() {
   // const [activeTab, setActiveTab] = useState("studies");
   const [activeTab, setActiveTab] = useState<ActiveTab>("dashboard");
@@ -998,6 +1316,11 @@ export default function AdminDashboard() {
     InstallationRow | undefined
   >(undefined);
 
+  const [currentPage, setCurrentPage] = useState(1);
+  const itemsPerPage = 8;
+  const [selectedInstallation, setSelectedInstallation] =
+    useState<InstallationRow | null>(null);
+
   // useEffect(() => {
   //   fetchAllData();
   // }, []);
@@ -1008,6 +1331,13 @@ export default function AdminDashboard() {
       fetchTabData();
     }
   }, [activeTab]);
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [activeTab]);
+
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm]);
 
   useEffect(() => {
     setSearchTerm("");
@@ -1016,6 +1346,29 @@ export default function AdminDashboard() {
   // useEffect(() => {
   //   fetchTabData();
   // }, [activeTab]);
+
+  // const fetchAllData = async (showLoader = false) => {
+  //   if (showLoader) setIsLoading(true);
+
+  //   try {
+  //     const [studiesRes, clientsRes, installationsRes, docsRes] =
+  //       await Promise.all([
+  //         axios.get("/api/studies"),
+  //         axios.get("/api/clients"),
+  //         axios.get("/api/installations"),
+  //         axios.get("/api/documents"),
+  //       ]);
+
+  //     setStudies(Array.isArray(studiesRes.data) ? studiesRes.data : []);
+  //     setClients(Array.isArray(clientsRes.data) ? clientsRes.data : []);
+  //     setInstallations(normalizeInstallations(installationsRes.data));
+  //     setDocuments(Array.isArray(docsRes.data) ? docsRes.data : []);
+  //   } catch (error) {
+  //     console.error("Error fetching initial data:", error);
+  //   } finally {
+  //     if (showLoader) setIsLoading(false);
+  //   }
+  // };
 
   const fetchAllData = async (showLoader = false) => {
     if (showLoader) setIsLoading(true);
@@ -1029,9 +1382,17 @@ export default function AdminDashboard() {
           axios.get("/api/documents"),
         ]);
 
-      setStudies(Array.isArray(studiesRes.data) ? studiesRes.data : []);
+      const normalizedInstallations = normalizeInstallations(
+        installationsRes.data,
+      );
+      const normalizedStudies = normalizeStudies(
+        Array.isArray(studiesRes.data) ? studiesRes.data : [],
+        normalizedInstallations,
+      );
+
+      setStudies(normalizedStudies);
       setClients(Array.isArray(clientsRes.data) ? clientsRes.data : []);
-      setInstallations(normalizeInstallations(installationsRes.data));
+      setInstallations(normalizedInstallations);
       setDocuments(Array.isArray(docsRes.data) ? docsRes.data : []);
     } catch (error) {
       console.error("Error fetching initial data:", error);
@@ -1039,6 +1400,73 @@ export default function AdminDashboard() {
       if (showLoader) setIsLoading(false);
     }
   };
+
+const handleUpdateInstallation = async (
+  installationId: string,
+  payload: Partial<InstallationRow>,
+) => {
+  try {
+    const res = await sileo.promise(
+  axios.put(`/api/installations/${installationId}`, payload),
+  {
+    loading: {
+      title: "Guardando cambios",
+      description: "Actualizando la instalación...",
+      icon: <Icon icon="solar:refresh-circle-bold-duotone" className="w-5 h-5" />,
+    },
+    success: {
+      title: "Instalación actualizada",
+      description: "Los datos se han guardado correctamente.",
+      icon: <Icon icon="solar:check-circle-bold-duotone" className="w-5 h-5" />,
+    },
+    error: {
+      title: "Error al guardar",
+      description: "No se pudo actualizar la instalación.",
+      icon: <Icon icon="solar:danger-circle-bold-duotone" className="w-5 h-5" />,
+    },
+  }
+);
+
+    await fetchTabData();
+    await fetchAllData();
+
+    if (res?.data) {
+      const normalized = normalizeInstallation(res.data);
+      setSelectedInstallation(normalized);
+    }
+  } catch (error) {
+    console.error("Error updating installation:", error);
+  }
+};
+  // const fetchTabData = async () => {
+  //   setIsLoading(true);
+
+  //   try {
+  //     if (activeTab === "dashboard") {
+  //       await fetchAllData(false);
+  //       return;
+  //     }
+
+  //     if (activeTab === "studies") {
+  //       const res = await axios.get("/api/studies");
+  //       setStudies(Array.isArray(res.data) ? res.data : []);
+  //     } else if (activeTab === "clients") {
+  //       const res = await axios.get("/api/clients");
+  //       console.log("CLIENTS RESPONSE:", res.data);
+  //       setClients(Array.isArray(res.data) ? res.data : []);
+  //     } else if (activeTab === "installations") {
+  //       const res = await axios.get("/api/installations");
+  //       setInstallations(normalizeInstallations(res.data));
+  //     } else if (activeTab === "documents") {
+  //       const res = await axios.get("/api/documents");
+  //       setDocuments(Array.isArray(res.data) ? res.data : []);
+  //     }
+  //   } catch (error) {
+  //     console.error("Error fetching tab data:", error);
+  //   } finally {
+  //     setIsLoading(false);
+  //   }
+  // };
 
   const fetchTabData = async () => {
     setIsLoading(true);
@@ -1050,8 +1478,21 @@ export default function AdminDashboard() {
       }
 
       if (activeTab === "studies") {
-        const res = await axios.get("/api/studies");
-        setStudies(Array.isArray(res.data) ? res.data : []);
+        const [studiesRes, installationsRes] = await Promise.all([
+          axios.get("/api/studies"),
+          axios.get("/api/installations"),
+        ]);
+
+        const normalizedInstallations = normalizeInstallations(
+          installationsRes.data,
+        );
+        const normalizedStudies = normalizeStudies(
+          Array.isArray(studiesRes.data) ? studiesRes.data : [],
+          normalizedInstallations,
+        );
+
+        setInstallations(normalizedInstallations);
+        setStudies(normalizedStudies);
       } else if (activeTab === "clients") {
         const res = await axios.get("/api/clients");
         console.log("CLIENTS RESPONSE:", res.data);
@@ -1086,6 +1527,7 @@ export default function AdminDashboard() {
       console.error("Error deleting installation:", error);
     }
   };
+
   const displayedStudies = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
     if (!q) return studies;
@@ -1093,16 +1535,16 @@ export default function AdminDashboard() {
     return studies.filter((study) =>
       [
         getStudyCustomerName(study),
-        getStudyInstallationName(study),
-        study?.status,
-        study?.clientType,
-        study?.customer?.email,
+        getStudyCustomerEmail(study),
+        getStudyInstallationName(study, installations),
+        getStudyType(study),
+        getStudyStatusLabel(study?.status),
       ]
         .join(" ")
         .toLowerCase()
         .includes(q),
     );
-  }, [studies, searchTerm]);
+  }, [studies, searchTerm, installations]);
 
   const displayedClients = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
@@ -1151,6 +1593,42 @@ export default function AdminDashboard() {
         .includes(q),
     );
   }, [documents, searchTerm]);
+
+  const currentItems = useMemo(() => {
+    switch (activeTab) {
+      case "studies":
+        return displayedStudies;
+      case "clients":
+        return displayedClients;
+      case "installations":
+        return displayedInstallations;
+      case "documents":
+        return displayedDocuments;
+      default:
+        return [];
+    }
+  }, [
+    activeTab,
+    displayedStudies,
+    displayedClients,
+    displayedInstallations,
+    displayedDocuments,
+  ]);
+
+  const totalItems = currentItems.length;
+  const totalPages = Math.max(1, Math.ceil(totalItems / itemsPerPage));
+  useEffect(() => {
+    if (currentPage > totalPages) {
+      setCurrentPage(totalPages);
+    }
+  }, [currentPage, totalPages]);
+  const safeCurrentPage = Math.min(currentPage, totalPages);
+  const startIndex = (safeCurrentPage - 1) * itemsPerPage;
+  const endIndex = startIndex + itemsPerPage;
+
+  const paginatedItems = useMemo(() => {
+    return currentItems.slice(startIndex, endIndex);
+  }, [currentItems, startIndex, endIndex]);
 
   const tabLabels: Record<string, string> = {
     dashboard: "Dashboard",
@@ -1347,6 +1825,30 @@ export default function AdminDashboard() {
     () => getTopStatCards(activeTab, dashboardData),
     [activeTab, dashboardData],
   );
+
+  const selectedInstallationClientsCount = useMemo(() => {
+    if (!selectedInstallation) return 0;
+    return getInstallationClientsCount(selectedInstallation, studies);
+  }, [selectedInstallation, studies]);
+
+  const selectedInstallationConsumedKwp = useMemo(() => {
+    if (!selectedInstallation) return 0;
+    return getInstallationConsumedKwp(selectedInstallation, studies);
+  }, [selectedInstallation, studies]);
+
+  const selectedInstallationAvailableKwp = useMemo(() => {
+    if (!selectedInstallation) return 0;
+    return getInstallationAvailableKwp(selectedInstallation, studies);
+  }, [selectedInstallation, studies]);
+  const selectedInstallationOccupancy = useMemo(() => {
+    if (!selectedInstallation) return 0;
+    return getInstallationOccupancyPercent(selectedInstallation, studies);
+  }, [selectedInstallation, studies]);
+
+  const selectedInstallationClients = useMemo(() => {
+    if (!selectedInstallation) return [];
+    return getInstallationAssociatedClients(selectedInstallation, studies);
+  }, [selectedInstallation, studies]);
 
   return (
     <div className="flex flex-col lg:flex-row gap-10">
@@ -1575,366 +2077,502 @@ export default function AdminDashboard() {
             ) : (
               <div className="overflow-x-auto">
                 <table className="w-full text-left border-collapse">
-                  <thead>
-                    <tr className="bg-brand-navy/[0.02] border-b border-brand-navy/5">
-                      {activeTab === "studies" && (
-                        <>
-                          <th className="px-8 py-6 text-[10px] font-bold text-brand-navy/40 uppercase tracking-[0.2em]">
-                            Cliente
-                          </th>
-                          <th className="px-8 py-6 text-[10px] font-bold text-brand-navy/40 uppercase tracking-[0.2em]">
-                            Tipo
-                          </th>
-                          <th className="px-8 py-6 text-[10px] font-bold text-brand-navy/40 uppercase tracking-[0.2em]">
-                            Estado
-                          </th>
-                          <th className="px-8 py-6 text-[10px] font-bold text-brand-navy/40 uppercase tracking-[0.2em]">
-                            Ahorro Est.
-                          </th>
-                        </>
-                      )}
+                  <table className="w-full text-left border-collapse">
+                    <thead>
+                      <tr className="bg-brand-navy/[0.02] border-b border-brand-navy/5">
+                        {activeTab === "studies" && (
+                          <>
+                            <th className="px-8 py-6 text-[10px] font-bold text-brand-navy/40 uppercase tracking-[0.2em]">
+                              Cliente
+                            </th>
+                            <th className="px-8 py-6 text-[10px] font-bold text-brand-navy/40 uppercase tracking-[0.2em]">
+                              Tipo
+                            </th>
+                            <th className="px-8 py-6 text-[10px] font-bold text-brand-navy/40 uppercase tracking-[0.2em]">
+                              Estado
+                            </th>
+                            <th className="px-8 py-6 text-[10px] font-bold text-brand-navy/40 uppercase tracking-[0.2em]">
+                              Ahorro Est.
+                            </th>
+                          </>
+                        )}
 
-                      {activeTab === "clients" && (
-                        <>
-                          <th className="px-8 py-6 text-[10px] font-bold text-brand-navy/40 uppercase tracking-[0.2em]">
-                            Nombre
-                          </th>
-                          <th className="px-8 py-6 text-[10px] font-bold text-brand-navy/40 uppercase tracking-[0.2em]">
-                            Email
-                          </th>
-                          <th className="px-8 py-6 text-[10px] font-bold text-brand-navy/40 uppercase tracking-[0.2em]">
-                            Teléfono
-                          </th>
-                          <th className="px-8 py-6 text-[10px] font-bold text-brand-navy/40 uppercase tracking-[0.2em]">
-                            Estado
-                          </th>
-                        </>
-                      )}
+                        {activeTab === "clients" && (
+                          <>
+                            <th className="px-8 py-6 text-[10px] font-bold text-brand-navy/40 uppercase tracking-[0.2em]">
+                              Nombre
+                            </th>
+                            <th className="px-8 py-6 text-[10px] font-bold text-brand-navy/40 uppercase tracking-[0.2em]">
+                              Email
+                            </th>
+                            <th className="px-8 py-6 text-[10px] font-bold text-brand-navy/40 uppercase tracking-[0.2em]">
+                              Teléfono
+                            </th>
+                            <th className="px-8 py-6 text-[10px] font-bold text-brand-navy/40 uppercase tracking-[0.2em]">
+                              Estado
+                            </th>
+                          </>
+                        )}
 
-                      {activeTab === "installations" && (
-                        <>
-                          <th className="px-8 py-6 text-[10px] font-bold text-brand-navy/40 uppercase tracking-[0.2em]">
-                            Instalación
-                          </th>
-                          <th className="px-8 py-6 text-[10px] font-bold text-brand-navy/40 uppercase tracking-[0.2em]">
-                            Dirección
-                          </th>
-                          <th className="px-8 py-6 text-[10px] font-bold text-brand-navy/40 uppercase tracking-[0.2em]">
-                            Potencia
-                          </th>
-                          <th className="px-8 py-6 text-[10px] font-bold text-brand-navy/40 uppercase tracking-[0.2em]">
-                            Modalidad
-                          </th>
-                          <th className="px-8 py-6 text-[10px] font-bold text-brand-navy/40 uppercase tracking-[0.2em]">
-                            Estado
-                          </th>
-                        </>
-                      )}
+                        {activeTab === "installations" && (
+                          <>
+                            <th className="px-8 py-6 text-[10px] font-bold text-brand-navy/40 uppercase tracking-[0.2em]">
+                              Instalación
+                            </th>
+                            <th className="px-8 py-6 text-[10px] font-bold text-brand-navy/40 uppercase tracking-[0.2em]">
+                              Dirección
+                            </th>
+                            <th className="px-8 py-6 text-[10px] font-bold text-brand-navy/40 uppercase tracking-[0.2em]">
+                              Potencia
+                            </th>
+                            <th className="px-8 py-6 text-[10px] font-bold text-brand-navy/40 uppercase tracking-[0.2em]">
+                              Modalidad
+                            </th>
+                            <th className="px-8 py-6 text-[10px] font-bold text-brand-navy/40 uppercase tracking-[0.2em]">
+                              Estado
+                            </th>
+                          </>
+                        )}
 
-                      {activeTab === "documents" && (
-                        <>
-                          <th className="px-8 py-6 text-[10px] font-bold text-brand-navy/40 uppercase tracking-[0.2em]">
-                            Archivo
-                          </th>
-                          <th className="px-8 py-6 text-[10px] font-bold text-brand-navy/40 uppercase tracking-[0.2em]">
-                            Cliente
-                          </th>
-                          <th className="px-8 py-6 text-[10px] font-bold text-brand-navy/40 uppercase tracking-[0.2em]">
-                            Tipo
-                          </th>
-                          <th className="px-8 py-6 text-[10px] font-bold text-brand-navy/40 uppercase tracking-[0.2em]">
-                            Estado
-                          </th>
-                        </>
-                      )}
+                        {activeTab === "documents" && (
+                          <>
+                            <th className="px-8 py-6 text-[10px] font-bold text-brand-navy/40 uppercase tracking-[0.2em]">
+                              Archivo
+                            </th>
+                            <th className="px-8 py-6 text-[10px] font-bold text-brand-navy/40 uppercase tracking-[0.2em]">
+                              Cliente
+                            </th>
+                            <th className="px-8 py-6 text-[10px] font-bold text-brand-navy/40 uppercase tracking-[0.2em]">
+                              Tipo
+                            </th>
+                            <th className="px-8 py-6 text-[10px] font-bold text-brand-navy/40 uppercase tracking-[0.2em]">
+                              Estado
+                            </th>
+                          </>
+                        )}
 
-                      <th className="px-8 py-6 text-[10px] font-bold text-brand-navy/40 uppercase tracking-[0.2em] text-right">
-                        Acciones
-                      </th>
-                    </tr>
-                  </thead>
+                        <th className="px-8 py-6 text-[10px] font-bold text-brand-navy/40 uppercase tracking-[0.2em] text-right">
+                          Acciones
+                        </th>
+                      </tr>
+                    </thead>
 
-                  <tbody className="divide-y divide-brand-navy/5">
-                    <AnimatePresence mode="wait">
-                      {activeTab === "studies" &&
-                        displayedStudies.map((study, i) => (
-                          <motion.tr
-                            key={study._id ?? study.id ?? i}
-                            initial={{ opacity: 0, x: -20 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            exit={{ opacity: 0, x: 20 }}
-                            transition={{ delay: i * 0.05 }}
-                            className="hover:bg-brand-navy/[0.01] transition-colors group"
-                          >
-                            <td className="px-8 py-6">
-                              <div className="flex items-center gap-4">
-                                <div className="w-10 h-10 rounded-xl bg-brand-navy/5 flex items-center justify-center font-bold text-brand-navy text-xs">
-                                  {getStudyCustomerName(study).charAt(0)}{" "}
-                                </div>
-                                <div>
-                                  <p className="text-sm font-bold text-brand-navy group-hover:text-brand-mint transition-colors">
-                                    {study.clientData?.name}{" "}
-                                    {study.clientData?.lastName}
-                                  </p>
-                                  <div className="flex items-center gap-2 text-[10px] text-brand-navy/40 font-bold uppercase tracking-wider mt-0.5">
-                                    <Calendar className="w-3 h-3" />
-                                    {study.createdAt
-                                      ? new Date(
-                                          study.createdAt,
-                                        ).toLocaleDateString()
-                                      : "-"}
+                    <tbody className="divide-y divide-brand-navy/5">
+                      <AnimatePresence mode="wait">
+                        {activeTab === "studies" &&
+                          (paginatedItems as any[]).map((study, i) => (
+                            <motion.tr
+                              key={study._id ?? study.id ?? i}
+                              initial={{ opacity: 0, x: -20 }}
+                              animate={{ opacity: 1, x: 0 }}
+                              exit={{ opacity: 0, x: 20 }}
+                              transition={{ delay: i * 0.05 }}
+                              className="hover:bg-brand-navy/[0.01] transition-colors group"
+                            >
+                              <td className="px-8 py-6">
+                                <div className="flex items-center gap-4">
+                                  <div className="w-10 h-10 rounded-xl bg-brand-navy/5 flex items-center justify-center font-bold text-brand-navy text-xs">
+                                    {study.customerInitial ||
+                                      getStudyCustomerName(study).charAt(0)}
+                                  </div>
+
+                                  <div className="min-w-0">
+                                    <p className="text-sm font-bold text-brand-navy group-hover:text-brand-mint transition-colors truncate">
+                                      {getStudyCustomerName(study)}
+                                    </p>
+
+                                    <p className="text-[11px] text-brand-navy/40 mt-1 truncate">
+                                      {getStudyCustomerEmail(study) ||
+                                        "Sin email"}
+                                    </p>
+
+                                    <div className="flex items-center gap-2 text-[10px] text-brand-navy/40 font-bold uppercase tracking-wider mt-1">
+                                      <Calendar className="w-3 h-3" />
+                                      {getStudyCreatedAt(study)
+                                        ? new Date(
+                                            getStudyCreatedAt(study),
+                                          ).toLocaleDateString("es-ES")
+                                        : "-"}
+                                    </div>
                                   </div>
                                 </div>
-                              </div>
-                            </td>
-                            <td className="px-8 py-6">
-                              <span className="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest bg-brand-mint/10 text-brand-mint">
-                                {study.clientType}
-                              </span>
-                            </td>
-                            <td className="px-8 py-6">
-                              <div className="flex items-center gap-2">
-                                <div className="w-2 h-2 rounded-full bg-brand-mint animate-pulse" />
-                                <span className="text-xs font-bold text-brand-navy/60">
-                                  {study.status}
-                                </span>
-                              </div>
-                            </td>
-                            <td className="px-8 py-6">
-                              <p className="text-sm font-bold text-brand-navy">
-                                {formatCurrency(
-                                  study.results?.annualSavings || 0,
-                                )}
-                                /año
-                              </p>
-                            </td>
-                            <td className="px-8 py-6 text-right">
-                              <div className="flex justify-end gap-2">
-                                <button className="p-3 hover:bg-brand-navy/5 rounded-xl transition-all text-brand-navy/40 hover:text-brand-navy">
-                                  <Edit className="w-4 h-4" />
-                                </button>
-                                <button className="p-3 hover:bg-red-50 rounded-xl transition-all text-brand-navy/40 hover:text-red-500">
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </div>
-                            </td>
-                          </motion.tr>
-                        ))}
+                              </td>
 
-                      {activeTab === "clients" &&
-                        displayedClients.map((client, i) => (
-                          <motion.tr
-                            key={(client as any)._id ?? (client as any).id ?? i}
-                            initial={{ opacity: 0, x: -20 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            exit={{ opacity: 0, x: 20 }}
-                            transition={{ delay: i * 0.05 }}
-                            className="hover:bg-brand-navy/[0.01] transition-colors group"
-                          >
-                            <td className="px-8 py-6">
-                              <div className="flex items-center gap-4">
-                                <div className="w-10 h-10 rounded-xl bg-brand-navy/5 flex items-center justify-center font-bold text-brand-navy text-xs">
-                                  {client.name?.charAt(0) || "C"}
-                                </div>
-                                <div>
-                                  <p className="text-sm font-bold text-brand-navy">
-                                    {client.name} {client.lastname1}
-                                  </p>
-                                  <p className="text-[10px] text-brand-navy/40 font-bold uppercase tracking-wider">
-                                    {client.dni}
-                                  </p>
-                                </div>
-                              </div>
-                            </td>
-                            <td className="px-8 py-6 text-sm text-brand-navy/60">
-                              {client.email}
-                            </td>
-                            <td className="px-8 py-6 text-sm text-brand-navy/60">
-                              {client.phone}
-                            </td>
-                            <td className="px-8 py-6">
-                              <span className="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest bg-brand-sky/10 text-brand-sky">
-                                {client.status}
-                              </span>
-                            </td>
-                            <td className="px-8 py-6 text-right">
-                              <div className="flex justify-end gap-2">
-                                <button className="p-3 hover:bg-brand-navy/5 rounded-xl transition-all text-brand-navy/40 hover:text-brand-navy">
-                                  <Edit className="w-4 h-4" />
-                                </button>
-                              </div>
-                            </td>
-                          </motion.tr>
-                        ))}
+                              <td className="px-8 py-6">
+                                <div className="flex flex-col gap-2">
+                                  <span className="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest bg-brand-mint/10 text-brand-mint w-fit">
+                                    {getStudyType(study)}
+                                  </span>
 
-                      {activeTab === "installations" &&
-                        displayedInstallations.map((inst, i) => (
-                          <motion.tr
-                            key={inst.id}
-                            initial={{ opacity: 0, x: -20 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            exit={{ opacity: 0, x: 20 }}
-                            transition={{ delay: i * 0.05 }}
-                            className="hover:bg-brand-navy/[0.01] transition-colors group"
-                          >
-                            <td className="px-8 py-6">
-                              <div className="flex items-center gap-4">
-                                <div className="w-10 h-10 rounded-xl bg-brand-navy/5 flex items-center justify-center font-bold text-brand-navy text-xs">
-                                  {inst.nombre_instalacion?.charAt(0) || "I"}
+                                  <span className="text-[10px] font-bold uppercase tracking-wider text-brand-navy/40 truncate">
+                                    {getStudyInstallationName(
+                                      study,
+                                      installations,
+                                    )}
+                                  </span>
                                 </div>
-                                <div>
-                                  <p className="text-sm font-bold text-brand-navy group-hover:text-brand-mint transition-colors">
-                                    {inst.nombre_instalacion}
-                                  </p>
-                                  <div className="flex items-center gap-2 text-[10px] text-brand-navy/40 font-bold uppercase tracking-wider mt-0.5">
-                                    <MapPin className="w-3 h-3" />
-                                    {formatNumber(inst.lat)},{" "}
-                                    {formatNumber(inst.lng)}
-                                  </div>
-                                </div>
-                              </div>
-                            </td>
+                              </td>
 
-                            <td className="px-8 py-6">
-                              <div className="max-w-[320px]">
-                                <p className="text-sm text-brand-navy/70 truncate">
-                                  {inst.direccion || "Sin dirección"}
-                                </p>
-                                <p className="text-[10px] text-brand-navy/40 font-bold uppercase tracking-wider mt-1">
-                                  Autoconsumo:{" "}
-                                  {formatAutoconsumo(
-                                    inst.porcentaje_autoconsumo,
+                              <td className="px-8 py-6">
+                                <span
+                                  className={cn(
+                                    "inline-flex rounded-full px-3 py-1 text-[10px] font-bold uppercase tracking-widest",
+                                    getStudyStatusClasses(study?.status),
                                   )}
-                                </p>
-                              </div>
-                            </td>
+                                >
+                                  {getStudyStatusLabel(study?.status)}
+                                </span>
+                              </td>
 
-                            <td className="px-8 py-6">
-                              <div>
+                              <td className="px-8 py-6">
                                 <p className="text-sm font-bold text-brand-navy">
-                                  {formatNumber(inst.potencia_instalada_kwp)}{" "}
-                                  kWp
+                                  {formatCurrency(getStudyAnnualSavings(study))}
+                                  /año
                                 </p>
-                                <p className="text-[10px] text-brand-navy/40 font-bold uppercase tracking-wider mt-1">
-                                  {formatNumber(inst.almacenamiento_kwh)} kWh
-                                </p>
-                              </div>
-                            </td>
+                              </td>
 
-                            <td className="px-8 py-6">
-                              <div className="flex flex-col gap-2">
-                                <span className="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest bg-brand-sky/10 text-brand-sky w-fit">
-                                  {formatModalidad(inst.modalidad)}
-                                </span>
-                                <span className="text-[10px] font-bold uppercase tracking-wider text-brand-navy/40">
-                                  {formatNumber(inst.horas_efectivas)} h/año
-                                </span>
-                              </div>
-                            </td>
+                              <td className="px-8 py-6 text-right">
+                                <div className="flex justify-end gap-2">
+                                  <button className="p-3 hover:bg-brand-navy/5 rounded-xl transition-all text-brand-navy/40 hover:text-brand-navy">
+                                    <Edit className="w-4 h-4" />
+                                  </button>
 
-                            <td className="px-8 py-6">
-                              <span
-                                className={cn(
-                                  "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest",
-                                  inst.active
-                                    ? "bg-green-100 text-green-600"
-                                    : "bg-red-100 text-red-600",
-                                )}
+                                  <button className="p-3 hover:bg-red-50 rounded-xl transition-all text-brand-navy/40 hover:text-red-500">
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              </td>
+                            </motion.tr>
+                          ))}
+
+                        {activeTab === "clients" &&
+                          (paginatedItems as Client[]).map((client, i) => (
+                            <motion.tr
+                              key={
+                                (client as any)._id ?? (client as any).id ?? i
+                              }
+                              initial={{ opacity: 0, x: -20 }}
+                              animate={{ opacity: 1, x: 0 }}
+                              exit={{ opacity: 0, x: 20 }}
+                              transition={{ delay: i * 0.05 }}
+                              className="hover:bg-brand-navy/[0.01] transition-colors group"
+                            >
+                              <td className="px-8 py-6">
+                                <div className="flex items-center gap-4">
+                                  <div className="w-10 h-10 rounded-xl bg-brand-navy/5 flex items-center justify-center font-bold text-brand-navy text-xs">
+                                    {client.name?.charAt(0) || "C"}
+                                  </div>
+                                  <div>
+                                    <p className="text-sm font-bold text-brand-navy">
+                                      {client.name} {client.lastname1}
+                                    </p>
+                                    <p className="text-[10px] text-brand-navy/40 font-bold uppercase tracking-wider">
+                                      {client.dni}
+                                    </p>
+                                  </div>
+                                </div>
+                              </td>
+
+                              <td className="px-8 py-6 text-sm text-brand-navy/60">
+                                {client.email || "-"}
+                              </td>
+
+                              <td className="px-8 py-6 text-sm text-brand-navy/60">
+                                {client.phone || "-"}
+                              </td>
+
+                              <td className="px-8 py-6">
+                                <span className="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest bg-brand-sky/10 text-brand-sky">
+                                  {(client as any).status || "Activo"}
+                                </span>
+                              </td>
+
+                              <td className="px-8 py-6 text-right">
+                                <div className="flex justify-end gap-2">
+                                  <button className="p-3 hover:bg-brand-navy/5 rounded-xl transition-all text-brand-navy/40 hover:text-brand-navy">
+                                    <Edit className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              </td>
+                            </motion.tr>
+                          ))}
+
+                        {activeTab === "installations" &&
+                          (paginatedItems as InstallationRow[]).map(
+                            (inst, i) => (
+                              <motion.tr
+                                key={inst.id}
+                                initial={{ opacity: 0, x: -20 }}
+                                animate={{ opacity: 1, x: 0 }}
+                                exit={{ opacity: 0, x: 20 }}
+                                transition={{ delay: i * 0.05 }}
+                                className="hover:bg-brand-navy/[0.01] transition-colors group"
                               >
-                                {inst.active ? "Activa" : "Inactiva"}
-                              </span>
-                            </td>
+                                <td className="px-8 py-6">
+                                  <div className="flex items-center gap-4">
+                                    <div className="w-10 h-10 rounded-xl bg-brand-navy/5 flex items-center justify-center font-bold text-brand-navy text-xs">
+                                      {inst.nombre_instalacion?.charAt(0) ||
+                                        "I"}
+                                    </div>
+                                    <div>
+                                      <p className="text-sm font-bold text-brand-navy group-hover:text-brand-mint transition-colors">
+                                        {inst.nombre_instalacion}
+                                      </p>
+                                      <div className="flex items-center gap-2 text-[10px] text-brand-navy/40 font-bold uppercase tracking-wider mt-0.5">
+                                        <MapPin className="w-3 h-3" />
+                                        {formatNumber(inst.lat)},{" "}
+                                        {formatNumber(inst.lng)}
+                                      </div>
+                                    </div>
+                                  </div>
+                                </td>
 
-                            <td className="px-8 py-6 text-right">
-                              <div className="flex justify-end gap-2">
-                                <button
-                                  onClick={() => {
-                                    setEditingInstallation(inst);
-                                    setShowInstallationForm(true);
-                                  }}
-                                  className="p-3 hover:bg-brand-navy/5 rounded-xl transition-all text-brand-navy/40 hover:text-brand-navy"
-                                >
-                                  <Edit className="w-4 h-4" />
-                                </button>
+                                <td className="px-8 py-6">
+                                  <div className="max-w-[320px]">
+                                    <p className="text-sm text-brand-navy/70 truncate">
+                                      {inst.direccion || "Sin dirección"}
+                                    </p>
+                                    <p className="text-[10px] text-brand-navy/40 font-bold uppercase tracking-wider mt-1">
+                                      Autoconsumo:{" "}
+                                      {formatAutoconsumo(
+                                        inst.porcentaje_autoconsumo,
+                                      )}
+                                    </p>
+                                  </div>
+                                </td>
 
-                                <button
-                                  onClick={() =>
-                                    handleDeleteInstallation(inst.id)
-                                  }
-                                  className="p-3 hover:bg-red-50 rounded-xl transition-all text-brand-navy/40 hover:text-red-500"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </div>
-                            </td>
-                          </motion.tr>
-                        ))}
+                                <td className="px-8 py-6">
+                                  <div>
+                                    <p className="text-sm font-bold text-brand-navy">
+                                      {formatNumber(
+                                        inst.potencia_instalada_kwp,
+                                      )}{" "}
+                                      kWp
+                                    </p>
+                                    <p className="text-[10px] text-brand-navy/40 font-bold uppercase tracking-wider mt-1">
+                                      {formatNumber(inst.almacenamiento_kwh)}{" "}
+                                      kWh
+                                    </p>
+                                  </div>
+                                </td>
 
-                      {activeTab === "documents" &&
-                        displayedDocuments.map((doc, i) => (
-                          <motion.tr
-                            key={(doc as any)._id ?? (doc as any).id ?? i}
-                            initial={{ opacity: 0, x: -20 }}
-                            animate={{ opacity: 1, x: 0 }}
-                            exit={{ opacity: 0, x: 20 }}
-                            transition={{ delay: i * 0.05 }}
-                            className="hover:bg-brand-navy/[0.01] transition-colors group"
-                          >
-                            <td className="px-8 py-6">
-                              <div className="flex items-center gap-3">
-                                <FileText className="w-5 h-5 text-brand-navy/30" />
-                                <p className="text-sm font-bold text-brand-navy">
-                                  {(doc as any).fileName}
-                                </p>
-                              </div>
-                            </td>
-                            <td className="px-8 py-6 text-sm text-brand-navy/60">
-                              {(doc as any).client?.name || "Sin cliente"}
-                            </td>
-                            <td className="px-8 py-6">
-                              <span className="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest bg-brand-navy/5 text-brand-navy/40">
-                                {(doc as any).type}
-                              </span>
-                            </td>
-                            <td className="px-8 py-6">
-                              <span className="text-xs font-bold text-brand-navy/60">
-                                {(doc as any).status}
-                              </span>
-                            </td>
-                            <td className="px-8 py-6 text-right">
-                              <div className="flex justify-end gap-2">
-                                <a
-                                  href={(doc as any).webViewLink}
-                                  target="_blank"
-                                  rel="noopener noreferrer"
-                                  className="p-3 hover:bg-brand-navy/5 rounded-xl transition-all text-brand-navy/40 hover:text-brand-navy"
-                                >
-                                  <ExternalLink className="w-4 h-4" />
-                                </a>
-                              </div>
-                            </td>
-                          </motion.tr>
-                        ))}
-                    </AnimatePresence>
-                  </tbody>
+                                <td className="px-8 py-6">
+                                  <div className="flex flex-col gap-2">
+                                    <span className="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest bg-brand-sky/10 text-brand-sky w-fit">
+                                      {formatModalidad(inst.modalidad)}
+                                    </span>
+                                    <span className="text-[10px] font-bold uppercase tracking-wider text-brand-navy/40">
+                                      {formatNumber(inst.horas_efectivas)} h/año
+                                    </span>
+                                  </div>
+                                </td>
+
+                                <td className="px-8 py-6">
+                                  <span
+                                    className={cn(
+                                      "px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest",
+                                      inst.active
+                                        ? "bg-green-100 text-green-600"
+                                        : "bg-red-100 text-red-600",
+                                    )}
+                                  >
+                                    {inst.active ? "Activa" : "Inactiva"}
+                                  </span>
+                                </td>
+
+                                <td className="px-8 py-6 text-right">
+                                  <div className="flex justify-end gap-2">
+                                    <button
+                                      onClick={() =>
+                                        setSelectedInstallation(inst)
+                                      }
+                                      className="p-3 hover:bg-brand-sky/10 rounded-xl transition-all text-brand-navy/40 hover:text-brand-sky"
+                                      title="Ver detalle"
+                                    >
+                                      <Eye className="w-4 h-4" />
+                                    </button>
+
+                                    <button
+                                      onClick={() => {
+                                        setEditingInstallation(inst);
+                                        setShowInstallationForm(true);
+                                      }}
+                                      className="p-3 hover:bg-brand-navy/5 rounded-xl transition-all text-brand-navy/40 hover:text-brand-navy"
+                                      title="Editar"
+                                    >
+                                      <Edit className="w-4 h-4" />
+                                    </button>
+
+                                    <button
+                                      onClick={() =>
+                                        handleDeleteInstallation(inst.id)
+                                      }
+                                      className="p-3 hover:bg-red-50 rounded-xl transition-all text-brand-navy/40 hover:text-red-500"
+                                      title="Eliminar"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  </div>
+                                </td>
+                              </motion.tr>
+                            ),
+                          )}
+
+                        {activeTab === "documents" &&
+                          (paginatedItems as any[]).map((doc, i) => (
+                            <motion.tr
+                              key={(doc as any)._id ?? (doc as any).id ?? i}
+                              initial={{ opacity: 0, x: -20 }}
+                              animate={{ opacity: 1, x: 0 }}
+                              exit={{ opacity: 0, x: 20 }}
+                              transition={{ delay: i * 0.05 }}
+                              className="hover:bg-brand-navy/[0.01] transition-colors group"
+                            >
+                              <td className="px-8 py-6">
+                                <div className="flex items-center gap-3">
+                                  <FileText className="w-5 h-5 text-brand-navy/30" />
+                                  <p className="text-sm font-bold text-brand-navy">
+                                    {(doc as any).fileName}
+                                  </p>
+                                </div>
+                              </td>
+
+                              <td className="px-8 py-6 text-sm text-brand-navy/60">
+                                {(doc as any).client?.name || "Sin cliente"}
+                              </td>
+
+                              <td className="px-8 py-6">
+                                <span className="px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest bg-brand-navy/5 text-brand-navy/40">
+                                  {(doc as any).type}
+                                </span>
+                              </td>
+
+                              <td className="px-8 py-6">
+                                <span className="text-xs font-bold text-brand-navy/60">
+                                  {(doc as any).status}
+                                </span>
+                              </td>
+
+                              <td className="px-8 py-6 text-right">
+                                <div className="flex justify-end gap-2">
+                                  <a
+                                    href={(doc as any).webViewLink}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="p-3 hover:bg-brand-navy/5 rounded-xl transition-all text-brand-navy/40 hover:text-brand-navy"
+                                  >
+                                    <ExternalLink className="w-4 h-4" />
+                                  </a>
+                                </div>
+                              </td>
+                            </motion.tr>
+                          ))}
+                      </AnimatePresence>
+                    </tbody>
+                  </table>
+                  <tbody className="divide-y divide-brand-navy/5"></tbody>
                 </table>
               </div>
             )}
 
-            <div className="p-8 bg-brand-navy/[0.01] border-t border-brand-navy/5 flex justify-between items-center mt-auto">
-              <p className="text-[10px] font-bold text-brand-navy/40 uppercase tracking-widest">
-                {activeTab === "studies" &&
-                  `Mostrando ${studies.length} estudios`}
-                {activeTab === "clients" &&
-                  `Mostrando ${clients.length} clientes`}
-                {activeTab === "installations" &&
-                  `Mostrando ${installations.length} instalaciones`}
-                {activeTab === "documents" &&
-                  `Mostrando ${documents.length} documentos`}
-              </p>
+            <div className="p-6 md:p-8 bg-brand-navy/[0.01] border-t border-brand-navy/5 flex flex-col md:flex-row md:justify-between md:items-center gap-4 mt-auto">
+              <div className="text-[10px] font-bold text-brand-navy/40 uppercase tracking-widest">
+                Mostrando {totalItems === 0 ? 0 : startIndex + 1}-
+                {Math.min(endIndex, totalItems)} de {totalItems}
+                {activeTab === "studies" && " estudios"}
+                {activeTab === "clients" && " clientes"}
+                {activeTab === "installations" && " instalaciones"}
+                {activeTab === "documents" && " documentos"}
+              </div>
+
+              {totalPages > 1 && (
+                <div className="flex flex-wrap items-center gap-2">
+                  <button
+                    onClick={() =>
+                      setCurrentPage((prev) => Math.max(prev - 1, 1))
+                    }
+                    disabled={safeCurrentPage === 1}
+                    className={cn(
+                      "px-4 py-2 rounded-xl text-sm font-bold transition-all border",
+                      safeCurrentPage === 1
+                        ? "bg-brand-navy/5 text-brand-navy/25 border-brand-navy/5 cursor-not-allowed"
+                        : "bg-white text-brand-navy border-brand-navy/10 hover:bg-brand-navy/5",
+                    )}
+                  >
+                    Anterior
+                  </button>
+
+                  {getPaginationRange(safeCurrentPage, totalPages).map(
+                    (page, index) =>
+                      page === "..." ? (
+                        <span
+                          key={`dots-${index}`}
+                          className="px-2 text-sm font-bold text-brand-navy/30"
+                        >
+                          ...
+                        </span>
+                      ) : (
+                        <button
+                          key={page}
+                          onClick={() => setCurrentPage(Number(page))}
+                          className={cn(
+                            "min-w-[42px] h-[42px] rounded-xl text-sm font-bold transition-all",
+                            safeCurrentPage === page
+                              ? "brand-gradient text-brand-navy shadow-lg shadow-brand-mint/20"
+                              : "bg-white text-brand-navy border border-brand-navy/10 hover:bg-brand-navy/5",
+                          )}
+                        >
+                          {page}
+                        </button>
+                      ),
+                  )}
+
+                  <button
+                    onClick={() =>
+                      setCurrentPage((prev) => Math.min(prev + 1, totalPages))
+                    }
+                    disabled={safeCurrentPage === totalPages}
+                    className={cn(
+                      "px-4 py-2 rounded-xl text-sm font-bold transition-all border",
+                      safeCurrentPage === totalPages
+                        ? "bg-brand-navy/5 text-brand-navy/25 border-brand-navy/5 cursor-not-allowed"
+                        : "bg-white text-brand-navy border-brand-navy/10 hover:bg-brand-navy/5",
+                    )}
+                  >
+                    Siguiente
+                  </button>
+                </div>
+              )}
             </div>
           </div>
         )}
+
+        {/* <div className="p-8 bg-brand-navy/[0.01] border-t border-brand-navy/5 flex justify-between items-center mt-auto">
+          <p className="text-[10px] font-bold text-brand-navy/40 uppercase tracking-widest">
+            {activeTab === "studies" &&
+              `Mostrando ${displayedStudies.length} estudios`}
+            {activeTab === "clients" &&
+              `Mostrando ${displayedClients.length} clientes`}
+            {activeTab === "installations" &&
+              `Mostrando ${displayedInstallations.length} instalaciones`}
+            {activeTab === "documents" &&
+              `Mostrando ${displayedDocuments.length} documentos`}
+          </p>
+        </div> */}
+        <InstallationDetailDrawer
+          installation={selectedInstallation}
+          clientsCount={selectedInstallationClientsCount}
+          consumedKwp={selectedInstallationConsumedKwp}
+          availableKwp={selectedInstallationAvailableKwp}
+          occupancyPercent={selectedInstallationOccupancy}
+          associatedClients={selectedInstallationClients}
+          onClose={() => setSelectedInstallation(null)}
+          onSave={handleUpdateInstallation}
+          onDelete={async (installationId) => {
+            await handleDeleteInstallation(installationId);
+            setSelectedInstallation(null);
+          }}
+        />
         {showInstallationForm && (
           <InstallationForm
             onClose={() => {
