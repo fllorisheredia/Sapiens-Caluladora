@@ -10,7 +10,10 @@ import { createClient } from "@supabase/supabase-js";
 import { extractInvoiceWithFallback } from "./src/services/invoiceExtractionOrchestrator";
 import { google } from "googleapis";
 import { Readable } from "node:stream";
-import { sendProposalEmail } from "./src/services/mailer.service";
+import {
+  sendProposalEmail,
+  sendSignedContractEmail,
+} from "./src/services/mailer.service";
 // dotenv.config();
 
 const PORT = Number(process.env.PORT || 3000);
@@ -953,14 +956,14 @@ async function getContractContextFromStudy(studyId: string) {
     throw new Error("La instalación asociada al estudio no existe");
   }
 
-const assignedKwp =
-  toPositiveNumber(study.assigned_kwp) ??
-  toPositiveNumber(study?.calculation?.recommendedPowerKwp) ??
-  toPositiveNumber(study?.selected_installation_snapshot?.assigned_kwp);
+  const assignedKwp =
+    toPositiveNumber(study.assigned_kwp) ??
+    toPositiveNumber(study?.calculation?.recommendedPowerKwp) ??
+    toPositiveNumber(study?.selected_installation_snapshot?.assigned_kwp);
 
-if (assignedKwp === null) {
-  throw new Error("El estudio no tiene assigned_kwp válido");
-}
+  if (assignedKwp === null) {
+    throw new Error("El estudio no tiene assigned_kwp válido");
+  }
 
   return {
     study,
@@ -2217,275 +2220,482 @@ async function startServer() {
     }
   });
 
-
   app.post("/api/contracts/generate-from-study/:studyId", async (req, res) => {
-  try {
-    const { studyId } = req.params;
+    try {
+      const { studyId } = req.params;
 
-    const proposalMode =
-      req.body?.proposalMode === "service" ? "service" : "investment";
+      const proposalMode =
+        req.body?.proposalMode === "service" ? "service" : "investment";
 
-    const ctx = await getContractContextFromStudy(studyId);
+      const ctx = await getContractContextFromStudy(studyId);
 
-    const { data: existingContract } = await supabase
-      .from("contracts")
-      .select("*")
-      .eq("study_id", studyId)
-      .maybeSingle();
-
-    let contract = existingContract;
-
-    if (!contract) {
-      const insertPayload = {
-        study_id: ctx.study.id,
-        client_id: ctx.client.id,
-        installation_id: ctx.installation.id,
-        proposal_mode: proposalMode,
-        status: "generated",
-        contract_number: buildContractNumber(ctx.study.id),
-        signature_type: "simple",
-        metadata: {
-          assigned_kwp: ctx.assignedKwp,
-          study_created_at: ctx.study.created_at,
-        },
-      };
-
-      const { data: createdContract, error: contractError } = await supabase
+      const { data: existingContract } = await supabase
         .from("contracts")
-        .insert([insertPayload])
-        .select()
-        .single();
+        .select("*")
+        .eq("study_id", studyId)
+        .maybeSingle();
 
-      if (contractError || !createdContract) {
-        return res.status(500).json({
-          error: "No se pudo generar el contrato",
-          details: contractError?.message ?? "Error desconocido",
-        });
+      let contract = existingContract;
+
+      if (!contract) {
+        const insertPayload = {
+          study_id: ctx.study.id,
+          client_id: ctx.client.id,
+          installation_id: ctx.installation.id,
+          proposal_mode: proposalMode,
+          status: "generated",
+          contract_number: buildContractNumber(ctx.study.id),
+          signature_type: "simple",
+          metadata: {
+            assigned_kwp: ctx.assignedKwp,
+            study_created_at: ctx.study.created_at,
+          },
+        };
+
+        const { data: createdContract, error: contractError } = await supabase
+          .from("contracts")
+          .insert([insertPayload])
+          .select()
+          .single();
+
+        if (contractError || !createdContract) {
+          return res.status(500).json({
+            error: "No se pudo generar el contrato",
+            details: contractError?.message ?? "Error desconocido",
+          });
+        }
+
+        contract = createdContract;
       }
 
-      contract = createdContract;
-    }
-
-    const previewHtml = buildBasicContractHtml({
-      contractId: contract.id,
-      contractNumber: contract.contract_number,
-      proposalMode: contract.proposal_mode,
-      client: ctx.client,
-      study: ctx.study,
-      installation: ctx.installation,
-      assignedKwp: ctx.assignedKwp,
-    });
-
-    return res.json({
-      success: true,
-      contract,
-      previewHtml,
-      preview: {
+      const previewHtml = buildBasicContractHtml({
         contractId: contract.id,
         contractNumber: contract.contract_number,
         proposalMode: contract.proposal_mode,
+        client: ctx.client,
+        study: ctx.study,
+        installation: ctx.installation,
         assignedKwp: ctx.assignedKwp,
-        client: {
-          id: ctx.client.id,
-          nombre: ctx.client.nombre,
-          apellidos: ctx.client.apellidos,
-          dni: ctx.client.dni,
-          email: ctx.client.email,
-          telefono: ctx.client.telefono,
+      });
+
+      return res.json({
+        success: true,
+        contract,
+        previewHtml,
+        preview: {
+          contractId: contract.id,
+          contractNumber: contract.contract_number,
+          proposalMode: contract.proposal_mode,
+          assignedKwp: ctx.assignedKwp,
+          client: {
+            id: ctx.client.id,
+            nombre: ctx.client.nombre,
+            apellidos: ctx.client.apellidos,
+            dni: ctx.client.dni,
+            email: ctx.client.email,
+            telefono: ctx.client.telefono,
+          },
+          installation: {
+            id: ctx.installation.id,
+            nombre_instalacion: ctx.installation.nombre_instalacion,
+            direccion: ctx.installation.direccion,
+          },
         },
-        installation: {
-          id: ctx.installation.id,
-          nombre_instalacion: ctx.installation.nombre_instalacion,
-          direccion: ctx.installation.direccion,
-        },
-      },
-    });
-  } catch (error: any) {
-    console.error("Error en /api/contracts/generate-from-study/:studyId:", error);
+      });
+    } catch (error: any) {
+      console.error(
+        "Error en /api/contracts/generate-from-study/:studyId:",
+        error,
+      );
 
-    return res.status(500).json({
-      error: "No se pudo generar el contrato",
-      details: error?.message || "Error desconocido",
-    });
-  }
-});
-
-app.get("/api/contracts/:id", async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const { data: contract, error } = await supabase
-      .from("contracts")
-      .select("*")
-      .eq("id", id)
-      .single();
-
-    if (error || !contract) {
-      return res.status(404).json({
-        error: "Contrato no encontrado",
-        details: error?.message ?? "El contrato no existe",
+      return res.status(500).json({
+        error: "No se pudo generar el contrato",
+        details: error?.message || "Error desconocido",
       });
     }
+  });
 
-    return res.json(contract);
-  } catch (error: any) {
-    console.error("Error en /api/contracts/:id:", error);
-
-    return res.status(500).json({
-      error: "No se pudo obtener el contrato",
-      details: error?.message || "Error desconocido",
-    });
-  }
-});
-
-app.post(
-  "/api/contracts/:id/sign",
-  upload.fields([
-    { name: "signed_contract", maxCount: 1 },
-    { name: "file", maxCount: 1 },
-  ]),
-  async (req, res) => {
+  app.get("/api/contracts/:id", async (req, res) => {
     try {
       const { id } = req.params;
 
-      const files =
-        (req.files as {
-          [fieldname: string]: Express.Multer.File[];
-        }) || {};
-
-      const signedContractFile =
-        files.signed_contract?.[0] || files.file?.[0] || null;
-
-      if (!signedContractFile) {
-        return res.status(400).json({
-          error: "Debes enviar el PDF firmado del contrato",
-        });
-      }
-
-      const { data: contract, error: contractError } = await supabase
+      const { data: contract, error } = await supabase
         .from("contracts")
         .select("*")
         .eq("id", id)
         .single();
 
-      if (contractError || !contract) {
+      if (error || !contract) {
         return res.status(404).json({
           error: "Contrato no encontrado",
-          details: contractError?.message ?? "El contrato no existe",
+          details: error?.message ?? "El contrato no existe",
         });
       }
 
-      if (contract.status === "confirmed") {
-        return res.status(400).json({
-          error: "El contrato ya está confirmado",
-        });
-      }
-
-      const ctx = await getContractContextFromStudy(contract.study_id);
-
-      const contractsFolders = await ensureContractsStatusFolder(
-        "PendientesPago",
-      );
-
-      const contractFileName = buildContractFileName({
-        dni: ctx.client.dni,
-        nombre: ctx.client.nombre,
-        apellidos: ctx.client.apellidos,
-        contractId: contract.id,
-      });
-
-      const uploadedContract = await uploadBufferToDrive({
-        folderId: contractsFolders.folder.id,
-        fileName: contractFileName,
-        mimeType: signedContractFile.mimetype || "application/pdf",
-        buffer: signedContractFile.buffer,
-      });
-
-      const paymentDeadlineAt = new Date(
-        Date.now() + 15 * 24 * 60 * 60 * 1000,
-      ).toISOString();
-
-      const { data: reservation, error: reservationError } = await supabase.rpc(
-        "reserve_installation_kwp",
-        {
-          p_installation_id: ctx.installation.id,
-          p_study_id: ctx.study.id,
-          p_client_id: ctx.client.id,
-          p_contract_id: contract.id,
-          p_reserved_kwp: ctx.assignedKwp,
-          p_payment_deadline_at: paymentDeadlineAt,
-          p_deadline_enforced: false,
-          p_notes: "Reserva creada tras firma de contrato",
-        },
-      );
-
-      if (reservationError) {
-        return res.status(400).json({
-          error: "No se pudo crear la reserva de kWp",
-          details: reservationError.message,
-        });
-      }
-
-      const nowIso = new Date().toISOString();
-
-      const { data: updatedContract, error: updateContractError } =
-        await supabase
-          .from("contracts")
-          .update({
-            status: "uploaded",
-            signed_at: nowIso,
-            uploaded_at: nowIso,
-            drive_folder_id: contractsFolders.folder.id,
-            drive_folder_url: contractsFolders.folder.webViewLink,
-            contract_drive_file_id: uploadedContract.id,
-            contract_drive_url: uploadedContract.webViewLink,
-            metadata: {
-              ...(contract.metadata ?? {}),
-              assigned_kwp: ctx.assignedKwp,
-              reservation_created: true,
-              reservation_status: "pending_payment",
-              payment_deadline_at: paymentDeadlineAt,
-            },
-          })
-          .eq("id", contract.id)
-          .select()
-          .single();
-
-      if (updateContractError) {
-        return res.status(500).json({
-          error: "No se pudo actualizar el contrato tras la firma",
-          details: updateContractError.message,
-        });
-      }
-
-      return res.status(201).json({
-        success: true,
-        message:
-          "Contrato firmado y reserva creada correctamente. El cliente dispone de 15 días orientativos para realizar la transferencia.",
-        contract: updatedContract,
-        reservation,
-        drive: {
-          contractsRootFolderUrl: contractsFolders.root.webViewLink,
-          contractFolderUrl: contractsFolders.folder.webViewLink,
-          contractFileUrl: uploadedContract.webViewLink,
-        },
-        reservationSummary: {
-          installationName: ctx.installation.nombre_instalacion,
-          reservedKwp: ctx.assignedKwp,
-          paymentDeadlineAt,
-          deadlineEnforced: false,
-        },
-      });
+      return res.json(contract);
     } catch (error: any) {
-      console.error("Error en /api/contracts/:id/sign:", error);
+      console.error("Error en /api/contracts/:id:", error);
 
       return res.status(500).json({
-        error: "No se pudo firmar/subir el contrato",
+        error: "No se pudo obtener el contrato",
         details: error?.message || "Error desconocido",
       });
     }
-  },
-);
+  });
+
+  // app.post(
+
+  //   "/api/contracts/:id/sign",
+  //   upload.fields([
+  //     { name: "signed_contract", maxCount: 1 },
+  //     { name: "file", maxCount: 1 },
+  //   ]),
+  //   async (req, res) => {
+  //     try {
+  //       const { id } = req.params;
+
+  //       const files =
+  //         (req.files as {
+  //           [fieldname: string]: Express.Multer.File[];
+  //         }) || {};
+
+  //       const signedContractFile =
+  //         files.signed_contract?.[0] || files.file?.[0] || null;
+
+  //       if (!signedContractFile) {
+  //         return res.status(400).json({
+  //           error: "Debes enviar el PDF firmado del contrato",
+  //         });
+  //       }
+
+  //       const { data: contract, error: contractError } = await supabase
+  //         .from("contracts")
+  //         .select("*")
+  //         .eq("id", id)
+  //         .single();
+
+  //       if (contractError || !contract) {
+  //         return res.status(404).json({
+  //           error: "Contrato no encontrado",
+  //           details: contractError?.message ?? "El contrato no existe",
+  //         });
+  //       }
+
+  //       if (contract.status !== "generated") {
+  //         return res.status(400).json({
+  //           error: "Este contrato ya fue firmado o procesado anteriormente",
+  //         });
+  //       }
+
+  //       const { data: existingReservation } = await supabase
+  //         .from("installation_reservations")
+  //         .select("id, reservation_status, payment_status")
+  //         .eq("contract_id", contract.id)
+  //         .maybeSingle();
+
+  //       if (existingReservation) {
+  //         return res.status(400).json({
+  //           error: "Este contrato ya tiene una reserva asociada",
+  //         });
+  //       }
+
+  //       const ctx = await getContractContextFromStudy(contract.study_id);
+
+  //       const contractsFolders =
+  //         await ensureContractsStatusFolder("PendientesPago");
+
+  //       const contractFileName = buildContractFileName({
+  //         dni: ctx.client.dni,
+  //         nombre: ctx.client.nombre,
+  //         apellidos: ctx.client.apellidos,
+  //         contractId: contract.id,
+  //       });
+
+  //       const uploadedContract = await uploadBufferToDrive({
+  //         folderId: contractsFolders.folder.id,
+  //         fileName: contractFileName,
+  //         mimeType: signedContractFile.mimetype || "application/pdf",
+  //         buffer: signedContractFile.buffer,
+  //       });
+
+  //       const paymentDeadlineAt = new Date(
+  //         Date.now() + 15 * 24 * 60 * 60 * 1000,
+  //       ).toISOString();
+
+  //       const { data: reservation, error: reservationError } =
+  //         await supabase.rpc("reserve_installation_kwp", {
+  //           p_installation_id: ctx.installation.id,
+  //           p_study_id: ctx.study.id,
+  //           p_client_id: ctx.client.id,
+  //           p_contract_id: contract.id,
+  //           p_reserved_kwp: ctx.assignedKwp,
+  //           p_payment_deadline_at: paymentDeadlineAt,
+  //           p_deadline_enforced: false,
+  //           p_notes: "Reserva creada tras firma de contrato",
+  //         });
+
+  //       if (reservationError) {
+  //         return res.status(400).json({
+  //           error: "No se pudo crear la reserva de kWp",
+  //           details: reservationError.message,
+  //         });
+  //       }
+
+  //       const nowIso = new Date().toISOString();
+
+  //       const { data: updatedContract, error: updateContractError } =
+  //         await supabase
+  //           .from("contracts")
+  //           .update({
+  //             status: "uploaded",
+  //             signed_at: nowIso,
+  //             uploaded_at: nowIso,
+  //             drive_folder_id: contractsFolders.folder.id,
+  //             drive_folder_url: contractsFolders.folder.webViewLink,
+  //             contract_drive_file_id: uploadedContract.id,
+  //             contract_drive_url: uploadedContract.webViewLink,
+  //             metadata: {
+  //               ...(contract.metadata ?? {}),
+  //               assigned_kwp: ctx.assignedKwp,
+  //               reservation_created: true,
+  //               reservation_status: "pending_payment",
+  //               payment_deadline_at: paymentDeadlineAt,
+  //             },
+  //           })
+  //           .eq("id", contract.id)
+  //           .select()
+  //           .single();
+
+  //       if (updateContractError) {
+  //         return res.status(500).json({
+  //           error: "No se pudo actualizar el contrato tras la firma",
+  //           details: updateContractError.message,
+  //         });
+  //       }
+
+  //       return res.status(201).json({
+  //         success: true,
+  //         message:
+  //           "Contrato firmado y reserva creada correctamente. El cliente dispone de 15 días orientativos para realizar la transferencia.",
+  //         contract: updatedContract,
+  //         reservation,
+  //         drive: {
+  //           contractsRootFolderUrl: contractsFolders.root.webViewLink,
+  //           contractFolderUrl: contractsFolders.folder.webViewLink,
+  //           contractFileUrl: uploadedContract.webViewLink,
+  //         },
+  //         reservationSummary: {
+  //           installationName: ctx.installation.nombre_instalacion,
+  //           reservedKwp: ctx.assignedKwp,
+  //           paymentDeadlineAt,
+  //           deadlineEnforced: false,
+  //         },
+  //       });
+  //     } catch (error: any) {
+  //       console.error("Error en /api/contracts/:id/sign:", error);
+
+  //       return res.status(500).json({
+  //         error: "No se pudo firmar/subir el contrato",
+  //         details: error?.message || "Error desconocido",
+  //       });
+  //     }
+  //   },
+  // );
+
+  app.post(
+    "/api/contracts/:id/sign",
+    upload.fields([
+      { name: "signed_contract", maxCount: 1 },
+      { name: "file", maxCount: 1 },
+    ]),
+    async (req, res) => {
+      try {
+        const { id } = req.params;
+
+        const files =
+          (req.files as {
+            [fieldname: string]: Express.Multer.File[];
+          }) || {};
+
+        const signedContractFile =
+          files.signed_contract?.[0] || files.file?.[0] || null;
+
+        if (!signedContractFile) {
+          return res.status(400).json({
+            error: "Debes enviar el PDF firmado del contrato",
+          });
+        }
+
+        const { data: contract, error: contractError } = await supabase
+          .from("contracts")
+          .select("*")
+          .eq("id", id)
+          .single();
+
+        if (contractError || !contract) {
+          return res.status(404).json({
+            error: "Contrato no encontrado",
+            details: contractError?.message ?? "El contrato no existe",
+          });
+        }
+
+        if (contract.status !== "generated") {
+          return res.status(400).json({
+            error: "Este contrato ya fue firmado o procesado anteriormente",
+          });
+        }
+
+        const { data: existingReservation } = await supabase
+          .from("installation_reservations")
+          .select("id, reservation_status, payment_status")
+          .eq("contract_id", contract.id)
+          .maybeSingle();
+
+        if (existingReservation) {
+          return res.status(400).json({
+            error: "Este contrato ya tiene una reserva asociada",
+          });
+        }
+
+        const ctx = await getContractContextFromStudy(contract.study_id);
+
+        const contractsFolders =
+          await ensureContractsStatusFolder("PendientesPago");
+
+        const contractFileName = buildContractFileName({
+          dni: ctx.client.dni,
+          nombre: ctx.client.nombre,
+          apellidos: ctx.client.apellidos,
+          contractId: contract.id,
+        });
+
+        const uploadedContract = await uploadBufferToDrive({
+          folderId: contractsFolders.folder.id,
+          fileName: contractFileName,
+          mimeType: signedContractFile.mimetype || "application/pdf",
+          buffer: signedContractFile.buffer,
+        });
+
+        const paymentDeadlineAt = new Date(
+          Date.now() + 15 * 24 * 60 * 60 * 1000,
+        ).toISOString();
+
+        const { data: reservation, error: reservationError } =
+          await supabase.rpc("reserve_installation_kwp", {
+            p_installation_id: ctx.installation.id,
+            p_study_id: ctx.study.id,
+            p_client_id: ctx.client.id,
+            p_contract_id: contract.id,
+            p_reserved_kwp: ctx.assignedKwp,
+            p_payment_deadline_at: paymentDeadlineAt,
+            p_deadline_enforced: false,
+            p_notes: "Reserva creada tras firma de contrato",
+          });
+
+        if (reservationError) {
+          return res.status(400).json({
+            error: "No se pudo crear la reserva de kWp",
+            details: reservationError.message,
+          });
+        }
+
+        const nowIso = new Date().toISOString();
+
+        const { data: updatedContract, error: updateContractError } =
+          await supabase
+            .from("contracts")
+            .update({
+              status: "uploaded",
+              signed_at: nowIso,
+              uploaded_at: nowIso,
+              drive_folder_id: contractsFolders.folder.id,
+              drive_folder_url: contractsFolders.folder.webViewLink,
+              contract_drive_file_id: uploadedContract.id,
+              contract_drive_url: uploadedContract.webViewLink,
+              metadata: {
+                ...(contract.metadata ?? {}),
+                assigned_kwp: ctx.assignedKwp,
+                reservation_created: true,
+                reservation_status: "pending_payment",
+                payment_deadline_at: paymentDeadlineAt,
+              },
+            })
+            .eq("id", contract.id)
+            .select()
+            .single();
+
+        if (updateContractError) {
+          return res.status(500).json({
+            error: "No se pudo actualizar el contrato tras la firma",
+            details: updateContractError.message,
+          });
+        }
+
+        let contractEmailStatus: "pending" | "sent" | "failed" = "pending";
+        let contractEmailError: string | null = null;
+
+        if (ctx.client.email) {
+          try {
+            await sendSignedContractEmail({
+              to: ctx.client.email,
+              clientName: `${ctx.client.nombre} ${ctx.client.apellidos}`.trim(),
+              pdfBuffer: signedContractFile.buffer,
+              pdfFilename: contractFileName,
+              contractUrl: uploadedContract.webViewLink,
+              installationName: ctx.installation.nombre_instalacion,
+              reservedKwp: ctx.assignedKwp,
+              paymentDeadlineAt,
+            });
+
+            contractEmailStatus = "sent";
+          } catch (error: any) {
+            console.error(
+              "Error enviando el contrato firmado por email:",
+              error,
+            );
+            contractEmailStatus = "failed";
+            contractEmailError =
+              error?.message ||
+              "No se pudo enviar el correo del contrato firmado";
+          }
+        } else {
+          contractEmailStatus = "failed";
+          contractEmailError = "El cliente no tiene email";
+        }
+
+        return res.status(201).json({
+          success: true,
+          message:
+            "Contrato firmado y reserva creada correctamente. El cliente dispone de 15 días orientativos para realizar la transferencia.",
+          contract: updatedContract,
+          reservation,
+          drive: {
+            contractsRootFolderUrl: contractsFolders.root.webViewLink,
+            contractFolderUrl: contractsFolders.folder.webViewLink,
+            contractFileUrl: uploadedContract.webViewLink,
+          },
+          reservationSummary: {
+            installationName: ctx.installation.nombre_instalacion,
+            reservedKwp: ctx.assignedKwp,
+            paymentDeadlineAt,
+            deadlineEnforced: false,
+          },
+          email: {
+            to: ctx.client.email ?? null,
+            status: contractEmailStatus,
+            error: contractEmailError,
+          },
+        });
+      } catch (error: any) {
+        console.error("Error en /api/contracts/:id/sign:", error);
+
+        return res.status(500).json({
+          error: "No se pudo firmar/subir el contrato",
+          details: error?.message || "Error desconocido",
+        });
+      }
+    },
+  );
 
   //CLIENTS GET
   app.get("/api/clients", async (_req, res) => {

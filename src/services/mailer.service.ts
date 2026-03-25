@@ -70,3 +70,61 @@ export async function sendProposalEmail({
     ],
   });
 }
+
+
+export async function sendSignedContractEmail(params: {
+  to: string;
+  clientName: string;
+  pdfBuffer: Buffer;
+  pdfFilename: string;
+  contractUrl?: string | null;
+  installationName: string;
+  reservedKwp: number;
+  paymentDeadlineAt: string;
+}) {
+  const formattedDate = new Date(params.paymentDeadlineAt).toLocaleDateString(
+    "es-ES",
+    {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    },
+  );
+
+  await transporter.sendMail({
+    from: process.env.SMTP_FROM,
+    to: params.to,
+    subject: "Tu contrato firmado y reserva provisional - Sapiens Energía",
+    html: `
+      <div style="font-family: Arial, sans-serif; color: #1f2937; line-height: 1.6;">
+        <h2 style="color:#07005f;">Contrato firmado correctamente</h2>
+        <p>Hola ${params.clientName},</p>
+        <p>
+          Adjuntamos una copia de tu contrato firmado.
+        </p>
+        <p>
+          Hemos realizado una <strong>reserva provisional de ${params.reservedKwp} kWp</strong>
+          en la planta <strong>${params.installationName}</strong>.
+        </p>
+        <p>
+          Dispones de un plazo orientativo de <strong>15 días</strong>,
+          hasta el <strong>${formattedDate}</strong>, para realizar la transferencia
+          y confirmar la reserva.
+        </p>
+        ${
+          params.contractUrl
+            ? `<p>Puedes consultar también tu contrato aquí: <a href="${params.contractUrl}">${params.contractUrl}</a></p>`
+            : ""
+        }
+        <p>Gracias por confiar en Sapiens Energía.</p>
+      </div>
+    `,
+    attachments: [
+      {
+        filename: params.pdfFilename,
+        content: params.pdfBuffer,
+        contentType: "application/pdf",
+      },
+    ],
+  });
+}

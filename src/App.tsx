@@ -592,6 +592,11 @@ type SignedContractResponse = {
     contractFolderUrl: string;
     contractFileUrl: string;
   };
+  email?: {
+    to: string | null;
+    status: "pending" | "sent" | "failed";
+    error: string | null;
+  };
 };
 
 function getFirstNumericField(
@@ -1017,6 +1022,7 @@ export default function App() {
   } | null>(null);
 
   const clientCoords = clientCoordinates;
+  const contractAlreadySigned = Boolean(signedContractResult?.contract?.id);
   const getMonthlyFeeLabel = (
     proposal: ProposalCardData,
     isInvestment = false,
@@ -1450,17 +1456,24 @@ export default function App() {
   ) => {
     const rect = canvas.getBoundingClientRect();
 
+    let clientX = 0;
+    let clientY = 0;
+
     if ("touches" in event) {
       const touch = event.touches[0] ?? event.changedTouches[0];
-      return {
-        x: touch.clientX - rect.left,
-        y: touch.clientY - rect.top,
-      };
+      clientX = touch.clientX;
+      clientY = touch.clientY;
+    } else {
+      clientX = event.clientX;
+      clientY = event.clientY;
     }
 
+    const scaleX = canvas.width / rect.width;
+    const scaleY = canvas.height / rect.height;
+
     return {
-      x: event.clientX - rect.left,
-      y: event.clientY - rect.top,
+      x: (clientX - rect.left) * scaleX,
+      y: (clientY - rect.top) * scaleY,
     };
   };
 
@@ -1696,6 +1709,20 @@ export default function App() {
 
       setSignedContractResult(response.data);
       setIsContractModalOpen(false);
+
+      if (response.data.email?.status === "sent") {
+        sileo.success({
+          title: "Contrato enviado al cliente",
+          description: `Se ha enviado una copia firmada a ${response.data.email.to ?? "su correo"}.`,
+        });
+      } else if (response.data.email?.status === "failed") {
+        sileo.warning({
+          title: "Contrato firmado, pero el email falló",
+          description:
+            response.data.email.error ??
+            "No se pudo enviar la copia del contrato por correo.",
+        });
+      }
 
       sileo.success({
         title: "Contrato firmado correctamente",
@@ -3326,18 +3353,29 @@ export default function App() {
                               Enviar por Email
                             </Button>
                             <Button
-                              className="w-full py-5 md:py-7 text-base rounded-[1.2rem] md:rounded-2xl bg-brand-mint text-brand-navy hover:bg-brand-mint/90 border-none"
+                              className={cn(
+                                "w-full py-5 md:py-7 text-base rounded-[1.2rem] md:rounded-2xl border-none",
+                                contractAlreadySigned
+                                  ? "bg-white/10 text-white/60 cursor-not-allowed"
+                                  : "bg-brand-mint text-brand-navy hover:bg-brand-mint/90",
+                              )}
                               onClick={handleGenerateContract}
                               disabled={
                                 !savedStudy?.study?.id ||
                                 isGeneratingContract ||
-                                isSigningContract
+                                isSigningContract ||
+                                contractAlreadySigned
                               }
                             >
                               <span className="inline-flex items-center justify-center">
                                 <span className="mr-3 inline-flex h-6 w-6 items-center justify-center">
                                   {isGeneratingContract ? (
                                     <Loader2 className="h-6 w-6 animate-spin" />
+                                  ) : contractAlreadySigned ? (
+                                    <Icon
+                                      icon="solar:shield-check-bold-duotone"
+                                      className="h-6 w-6"
+                                    />
                                   ) : (
                                     <Icon
                                       icon="solar:pen-new-square-bold-duotone"
@@ -3345,7 +3383,12 @@ export default function App() {
                                     />
                                   )}
                                 </span>
-                                <span>Contratar</span>
+
+                                <span>
+                                  {contractAlreadySigned
+                                    ? "Contrato enviado"
+                                    : "Contratar"}
+                                </span>
                               </span>
                             </Button>
                           </div>
@@ -3446,142 +3489,146 @@ export default function App() {
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[200] bg-brand-navy/50 backdrop-blur-sm p-4 md:p-8"
+            className="fixed inset-0 z-[200] bg-brand-navy/50 backdrop-blur-sm overflow-y-auto"
           >
-            <div className="max-w-5xl mx-auto h-full flex items-center justify-center">
+            <div className="min-h-full px-4 py-4 md:px-8 md:py-8 flex items-start md:items-center justify-center">
               <motion.div
                 initial={{ opacity: 0, y: 24, scale: 0.98 }}
                 animate={{ opacity: 1, y: 0, scale: 1 }}
                 exit={{ opacity: 0, y: 12, scale: 0.98 }}
-                className="w-full max-h-[92vh] overflow-hidden rounded-[2rem] md:rounded-[2.5rem] bg-white border border-brand-navy/5 shadow-2xl"
+                className="w-full max-w-5xl rounded-[2rem] md:rounded-[2.5rem] bg-white border border-brand-navy/5 shadow-2xl overflow-hidden"
               >
-                <div className="px-5 md:px-8 py-5 border-b border-brand-navy/5 flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-brand-navy/40 mb-1">
-                      Contratación
-                    </p>
-                    <h3 className="text-xl md:text-2xl font-bold text-brand-navy">
-                      Revisa y firma tu contrato
-                    </h3>
+                <div className="max-h-[calc(100vh-2rem)] md:max-h-[92vh] overflow-y-auto">
+                  <div className="sticky top-0 z-20 px-5 md:px-8 py-5 border-b border-brand-navy/5 bg-white/95 backdrop-blur-md flex items-center justify-between gap-4">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-brand-navy/40 mb-1">
+                        Contratación
+                      </p>
+                      <h3 className="text-xl md:text-2xl font-bold text-brand-navy">
+                        Revisa y firma tu contrato
+                      </h3>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => setIsContractModalOpen(false)}
+                      className="w-11 h-11 rounded-2xl bg-brand-navy/5 hover:bg-brand-navy/10 text-brand-navy transition shrink-0"
+                    >
+                      ✕
+                    </button>
                   </div>
 
-                  <button
-                    type="button"
-                    onClick={() => setIsContractModalOpen(false)}
-                    className="w-11 h-11 rounded-2xl bg-brand-navy/5 hover:bg-brand-navy/10 text-brand-navy transition"
-                  >
-                    ✕
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_340px] gap-0">
-                  <div className="p-5 md:p-8 border-b lg:border-b-0 lg:border-r border-brand-navy/5">
-                    <div className="rounded-[1.5rem] overflow-hidden border border-brand-navy/5 bg-brand-sky/5">
-                      <iframe
-                        title="Vista previa del contrato"
-                        srcDoc={generatedContract.previewHtml}
-                        className="w-full h-[420px] md:h-[560px] bg-white"
-                      />
-                    </div>
-                  </div>
-
-                  <div className="p-5 md:p-6 space-y-5 bg-brand-navy/[0.02]">
-                    <div className="rounded-[1.4rem] bg-white border border-brand-navy/5 p-4">
-                      <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-brand-navy/40 mb-2">
-                        Contrato
-                      </p>
-                      <p className="font-bold text-brand-navy">
-                        {generatedContract.preview.contractNumber}
-                      </p>
-                      <p className="text-sm text-brand-gray mt-2">
-                        {generatedContract.preview.client.nombre}{" "}
-                        {generatedContract.preview.client.apellidos}
-                      </p>
-                      <p className="text-sm text-brand-gray">
-                        DNI: {generatedContract.preview.client.dni}
-                      </p>
-                    </div>
-
-                    <div className="rounded-[1.4rem] bg-white border border-brand-navy/5 p-4">
-                      <div className="flex items-center justify-between mb-3">
-                        <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-brand-navy/40">
-                          Firma
-                        </p>
-
-                        <button
-                          type="button"
-                          onClick={clearSignature}
-                          className="text-sm font-semibold text-brand-navy hover:text-brand-mint transition"
-                        >
-                          Limpiar
-                        </button>
-                      </div>
-
-                      <canvas
-                        ref={signatureCanvasRef}
-                        width={600}
-                        height={180}
-                        className="w-full h-40 rounded-[1.2rem] border border-dashed border-brand-navy/20 bg-white touch-none"
-                        onMouseDown={startSignatureDraw}
-                        onMouseMove={moveSignatureDraw}
-                        onMouseUp={endSignatureDraw}
-                        onMouseLeave={endSignatureDraw}
-                        onTouchStart={startSignatureDraw}
-                        onTouchMove={moveSignatureDraw}
-                        onTouchEnd={endSignatureDraw}
-                      />
-
-                      <p className="text-xs text-brand-gray mt-3 leading-relaxed">
-                        Firma dentro del recuadro. Al confirmar, se generará el
-                        PDF firmado y se enviará al backend para crear la
-                        reserva.
-                      </p>
-                    </div>
-
-                    <div className="rounded-[1.4rem] bg-brand-mint/10 border border-brand-mint/20 p-4 text-brand-navy">
-                      <div className="flex items-center gap-2 mb-2">
-                        <Icon
-                          icon="solar:bolt-bold-duotone"
-                          className="h-5 w-5"
+                  <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_340px]">
+                    <div className="p-4 md:p-8 border-b lg:border-b-0 lg:border-r border-brand-navy/5">
+                      <div className="rounded-[1.5rem] overflow-hidden border border-brand-navy/5 bg-brand-sky/5">
+                        <iframe
+                          title="Vista previa del contrato"
+                          srcDoc={generatedContract.previewHtml}
+                          className="w-full h-[320px] sm:h-[420px] md:h-[560px] bg-white"
                         />
-                        <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-brand-navy/60">
-                          Reserva provisional
+                      </div>
+                    </div>
+
+                    <div className="p-4 md:p-6 space-y-5 bg-brand-navy/[0.02]">
+                      <div className="rounded-[1.4rem] bg-white border border-brand-navy/5 p-4">
+                        <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-brand-navy/40 mb-2">
+                          Contrato
+                        </p>
+                        <p className="font-bold text-brand-navy">
+                          {generatedContract.preview.contractNumber}
+                        </p>
+                        <p className="text-sm text-brand-gray mt-2">
+                          {generatedContract.preview.client.nombre}{" "}
+                          {generatedContract.preview.client.apellidos}
+                        </p>
+                        <p className="text-sm text-brand-gray">
+                          DNI: {generatedContract.preview.client.dni}
                         </p>
                       </div>
 
-                      <p className="text-sm leading-relaxed">
-                        Al firmar, se reservarán{" "}
-                        <span className="font-bold">
-                          {generatedContract.preview.assignedKwp} kWp
-                        </span>{" "}
-                        en la instalación seleccionada.
-                      </p>
-                    </div>
+                      <div className="rounded-[1.4rem] bg-white border border-brand-navy/5 p-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-brand-navy/40">
+                            Firma
+                          </p>
 
-                    <div className="space-y-3">
-                      <Button
-                        className="w-full py-5 rounded-[1.2rem] brand-gradient text-brand-navy border-none"
-                        onClick={handleSubmitSignedContract}
-                        disabled={isSigningContract}
-                      >
-                        {isSigningContract ? (
-                          <Loader2 className="mr-3 h-5 w-5 animate-spin" />
-                        ) : (
+                          <button
+                            type="button"
+                            onClick={clearSignature}
+                            className="text-sm font-semibold text-brand-navy hover:text-brand-mint transition"
+                          >
+                            Limpiar
+                          </button>
+                        </div>
+
+                        <canvas
+                          ref={signatureCanvasRef}
+                          width={600}
+                          height={180}
+                          className="w-full h-40 rounded-[1.2rem] border border-dashed border-brand-navy/20 bg-white touch-none"
+                          onMouseDown={startSignatureDraw}
+                          onMouseMove={moveSignatureDraw}
+                          onMouseUp={endSignatureDraw}
+                          onMouseLeave={endSignatureDraw}
+                          onTouchStart={startSignatureDraw}
+                          onTouchMove={moveSignatureDraw}
+                          onTouchEnd={endSignatureDraw}
+                        />
+
+                        <p className="text-xs text-brand-gray mt-3 leading-relaxed">
+                          Firma dentro del recuadro. Al confirmar, se generará
+                          el PDF firmado y se enviará al backend para crear la
+                          reserva.
+                        </p>
+                      </div>
+
+                      <div className="rounded-[1.4rem] bg-brand-mint/10 border border-brand-mint/20 p-4 text-brand-navy">
+                        <div className="flex items-center gap-2 mb-2">
                           <Icon
-                            icon="solar:shield-check-bold-duotone"
-                            className="mr-3 h-5 w-5"
+                            icon="solar:bolt-bold-duotone"
+                            className="h-5 w-5"
                           />
-                        )}
-                        Firmar y reservar
-                      </Button>
+                          <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-brand-navy/60">
+                            Reserva provisional
+                          </p>
+                        </div>
 
-                      <Button
-                        variant="outline"
-                        className="w-full py-5 rounded-[1.2rem] border-brand-navy/10 text-brand-navy"
-                        onClick={() => setIsContractModalOpen(false)}
-                      >
-                        Cancelar
-                      </Button>
+                        <p className="text-sm leading-relaxed">
+                          Al firmar, se reservarán{" "}
+                          <span className="font-bold">
+                            {generatedContract.preview.assignedKwp} kWp
+                          </span>{" "}
+                          en la instalación seleccionada.
+                        </p>
+                      </div>
+
+                      <div className="sticky bottom-0 bg-brand-navy/[0.02] pt-2">
+                        <div className="space-y-3">
+                          <Button
+                            className="w-full py-5 rounded-[1.2rem] brand-gradient text-brand-navy border-none"
+                            onClick={handleSubmitSignedContract}
+                            disabled={isSigningContract}
+                          >
+                            {isSigningContract ? (
+                              <Loader2 className="mr-3 h-5 w-5 animate-spin" />
+                            ) : (
+                              <Icon
+                                icon="solar:shield-check-bold-duotone"
+                                className="mr-3 h-5 w-5"
+                              />
+                            )}
+                            Firmar y reservar
+                          </Button>
+
+                          <Button
+                            variant="outline"
+                            className="w-full py-5 rounded-[1.2rem] border-brand-navy/10 text-brand-navy"
+                            onClick={() => setIsContractModalOpen(false)}
+                          >
+                            Cancelar
+                          </Button>
+                        </div>
+                      </div>
                     </div>
                   </div>
                 </div>
