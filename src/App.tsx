@@ -47,6 +47,16 @@ import "leaflet/dist/leaflet.css";
 import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
 import markerIcon from "leaflet/dist/images/marker-icon.png";
 import markerShadow from "leaflet/dist/images/marker-shadow.png";
+import { Icon } from "@iconify/react";
+import {
+  ResponsiveContainer,
+  BarChart,
+  Bar,
+  XAxis,
+  YAxis,
+  Tooltip,
+  CartesianGrid,
+} from "recharts";
 
 delete (L.Icon.Default.prototype as any)._getIconUrl;
 
@@ -798,6 +808,47 @@ function buildProposalPdfSummary(
   };
 }
 
+function formatPaybackYears(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return "-";
+  return `${value.toFixed(1).replace(".", ",")} años`;
+}
+
+function buildEconomicChartData(
+  investmentProposal: ProposalCardData,
+  serviceProposal: ProposalCardData,
+) {
+  const investmentRecurring = investmentProposal.annualMaintenance || 0;
+  const serviceRecurring =
+    (serviceProposal.monthlyFee ?? 0) * 12 +
+    (serviceProposal.annualMaintenance || 0);
+
+  const investmentNet25 =
+    investmentProposal.totalSavings25Years -
+    investmentProposal.upfrontCost -
+    investmentRecurring * 25;
+
+  const serviceNet25 =
+    serviceProposal.totalSavings25Years - serviceRecurring * 25;
+
+  return [
+    {
+      name: "Entrada",
+      inversion: Number(investmentProposal.upfrontCost.toFixed(2)),
+      servicio: 0,
+    },
+    {
+      name: "Coste anual",
+      inversion: Number(investmentRecurring.toFixed(2)),
+      servicio: Number(serviceRecurring.toFixed(2)),
+    },
+    {
+      name: "Balance 25 años",
+      inversion: Number(investmentNet25.toFixed(2)),
+      servicio: Number(serviceNet25.toFixed(2)),
+    },
+  ];
+}
+
 // function getClientCoords(rawExtraction: ExtractedBillData | null): {
 //   lat: number;
 //   lng: number;
@@ -852,6 +903,14 @@ async function geocodeAddress(address: string): Promise<{
     lng: Number(coords.lng),
   };
 }
+
+const chartPalette = {
+  navy: "#07005f",
+  mint: "#57d9d3",
+  text: "#7c83a3",
+  grid: "rgba(7, 0, 95, 0.08)",
+  hover: "rgba(7, 0, 95, 0.04)",
+};
 export default function App() {
   const [view, setView] = useState<"public" | "admin">("public");
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
@@ -906,9 +965,7 @@ export default function App() {
   };
 
   const getPaybackLabel = (proposal: ProposalCardData) => {
-    return proposal.paybackYears > 0
-      ? `${proposal.paybackYears.toFixed(1)} años`
-      : "-";
+    return formatPaybackYears(proposal.paybackYears);
   };
 
   const getProposalMetrics = (proposal: ProposalCardData) => ({
@@ -939,13 +996,17 @@ export default function App() {
             value: activeMetrics.annualSavings,
           },
           {
-            label: "Coste",
-            value: activeMetrics.upfrontCost,
+            label: "Ahorro 25 años",
+            value: activeMetrics.totalSavings25Years,
           },
           {
-            label: "rentabilidad",
-            value: activeMetrics.payback,
+            label: "Coste inicial",
+            value: activeMetrics.upfrontCost,
           },
+          // {
+          //   label: "Rentabilidad",
+          //   value: activeMetrics.payback,
+          // },
         ]
       : [
           {
@@ -990,6 +1051,11 @@ export default function App() {
       service: serviceMetrics.payback,
     },
   ];
+
+  const economicChartData = buildEconomicChartData(
+    investmentProposal,
+    serviceProposal,
+  );
 
   const activeSlideIndex = activeProposalMode === "investment" ? 0 : 1;
 
@@ -1717,7 +1783,13 @@ export default function App() {
             <AdminDashboard />
           )
         ) : (
-          <div className="max-w-5xl mx-auto">
+          <div
+            className={cn(
+              "mx-auto",
+              currentStep === "result" ? "max-w-[1380px]" : "max-w-5xl",
+            )}
+          >
+            {" "}
             <div className="mb-12 md:mb-20 relative px-4">
               <div className="absolute top-1/2 left-0 w-full h-1 bg-brand-navy/5 -translate-y-1/2 rounded-full" />
               <div className="relative flex justify-between items-center">
@@ -1780,7 +1852,6 @@ export default function App() {
                 })}
               </div>
             </div>
-
             <AnimatePresence mode="wait">
               {currentStep === "upload" && (
                 <motion.div
@@ -2417,306 +2488,276 @@ export default function App() {
               {currentStep === "result" && proposalResults && (
                 <motion.div
                   key="result"
-                  initial={{ opacity: 0, y: 30 }}
+                  initial={{ opacity: 0, y: 24 }}
                   animate={{ opacity: 1, y: 0 }}
-                  className="space-y-8 md:space-y-12"
+                  className="space-y-6 md:space-y-8"
                 >
-                  <div className="brand-gradient rounded-[2rem] md:rounded-[3.5rem] p-5 md:p-12 text-brand-navy shadow-2xl shadow-brand-mint/20 relative overflow-hidden">
-                    {" "}
-                    <div className="absolute top-0 right-0 w-64 md:w-96 h-64 md:h-96 bg-white/10 blur-3xl rounded-full -mr-32 md:-mr-48 -mt-32 md:-mt-48" />
-                    <div className="relative z-10 space-y-10">
-                      <div className="flex flex-col xl:flex-row xl:items-start xl:justify-between gap-8">
-                        <div>
-                          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-white/20 text-brand-navy text-[10px] font-bold uppercase tracking-widest mb-4">
-                            <Sparkles className="w-3 h-3" />
-                            Estudio Finalizado
-                          </div>
+                  {/* HERO MOBILE FIRST */}
+                  <div className="brand-gradient rounded-[2rem] md:rounded-[3rem] p-5 md:p-8 text-brand-navy shadow-2xl shadow-brand-mint/20 relative overflow-hidden">
+                    <div className="absolute top-0 right-0 w-56 h-56 md:w-80 md:h-80 bg-white/10 blur-3xl rounded-full -mr-24 -mt-24" />
 
-                          <h2 className="text-4xl md:text-6xl font-bold mb-4 leading-tight">
-                            Compara tu modalidad{" "}
-                            <br className="hidden md:block" />y elige cómo
-                            ahorrar
-                          </h2>
-
-                          <p className="text-brand-navy/60 font-medium text-base md:text-lg max-w-2xl">
-                            Hemos preparado una comparativa entre inversión y
-                            servicio para que puedas ver rápidamente cuál encaja
-                            mejor con tu perfil.
-                          </p>
+                    <div className="relative z-10 space-y-6">
+                      <div className="flex flex-col gap-4">
+                        <div className="inline-flex w-fit items-center gap-2 px-3 py-1.5 rounded-full bg-white/25 border border-white/20 text-[10px] font-bold uppercase tracking-[0.18em]">
+                          <Icon
+                            icon="solar:check-circle-bold-duotone"
+                            className="h-4 w-4"
+                          />
+                          Estudio finalizado
                         </div>
 
-                        <div className="bg-white/30 backdrop-blur-xl p-4 md:p-8 rounded-[1.4rem] md:rounded-[2.5rem] border border-white/20 shadow-xl text-center w-full xl:w-auto xl:min-w-[260px]">
-                          {" "}
-                          <p className="text-[10px] uppercase tracking-[0.2em] font-bold text-brand-navy/40 mb-2">
-                            Opción seleccionada
+                        <div className="space-y-3">
+                          <h2 className="text-3xl md:text-5xl font-bold leading-tight">
+                            Tu propuesta energética
+                            <br className="hidden md:block" />
+                            ya está lista
+                          </h2>
+
+                          <p className="text-sm md:text-base text-brand-navy/70 max-w-2xl leading-relaxed">
+                            Elige entre inversión y servicio y revisa de forma
+                            clara cuál encaja mejor contigo.
                           </p>
-                          <p className="text-2xl md:text-4xl font-bold">
-                            {" "}
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_260px] md:items-start">
+                        <div className="space-y-4">
+                          <div className="inline-flex w-full rounded-[1.25rem] bg-white/35 p-1.5 backdrop-blur-xl border border-white/30 shadow-lg shadow-brand-navy/5">
+                            <button
+                              type="button"
+                              onClick={() =>
+                                setSelectedProposalView("investment")
+                              }
+                              className={cn(
+                                "flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-[1rem] text-sm font-semibold transition-all",
+                                activeProposalMode === "investment"
+                                  ? "bg-brand-navy text-white shadow-md"
+                                  : "text-brand-navy/70 hover:text-brand-navy",
+                              )}
+                            >
+                              <Icon
+                                icon="solar:wallet-money-bold-duotone"
+                                className="h-5 w-5"
+                              />
+                              Inversión
+                            </button>
+
+                            <button
+                              type="button"
+                              onClick={() => setSelectedProposalView("service")}
+                              className={cn(
+                                "flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-[1rem] text-sm font-semibold transition-all",
+                                activeProposalMode === "service"
+                                  ? "bg-brand-navy text-white shadow-md"
+                                  : "text-brand-navy/70 hover:text-brand-navy",
+                              )}
+                            >
+                              <Icon
+                                icon="solar:bolt-bold-duotone"
+                                className="h-5 w-5"
+                              />
+                              Servicio
+                            </button>
+                          </div>
+
+                          <div className="grid grid-cols-2 gap-3">
+                            {[
+                              {
+                                label: "Potencia",
+                                value: `${formatNumber(activeProposal.recommendedPowerKwp)} kWp`,
+                                icon: "solar:bolt-bold-duotone",
+                              },
+                              {
+                                label: "Consumo anual",
+                                value: `${formatNumber(activeProposal.annualConsumptionKwh)} kWh`,
+                                icon: "solar:chart-2-bold-duotone",
+                              },
+                              {
+                                label:
+                                  activeProposalMode === "investment"
+                                    ? "Coste inicial"
+                                    : "Entrada inicial",
+                                value: formatCurrency(
+                                  activeProposal.upfrontCost,
+                                ),
+                                icon: "solar:calculator-bold-duotone",
+                              },
+                              {
+                                label:
+                                  activeProposalMode === "investment"
+                                    ? "Rentabilidad"
+                                    : "Cuota mensual",
+                                value:
+                                  activeProposalMode === "investment"
+                                    ? activeProposal.paybackYears > 0
+                                      ? `${Math.round(activeProposal.paybackYears)} años`
+                                      : "-"
+                                    : activeProposal.monthlyFee &&
+                                        activeProposal.monthlyFee > 0
+                                      ? `${formatCurrency(activeProposal.monthlyFee)} / mes`
+                                      : "Sin cuota",
+                                icon:
+                                  activeProposalMode === "investment"
+                                    ? "solar:graph-up-bold-duotone"
+                                    : "solar:wallet-money-bold-duotone",
+                              },
+                            ].map((stat, i) => (
+                              <div
+                                key={i}
+                                className="rounded-[1.2rem] bg-white/35 backdrop-blur-xl border border-white/25 p-3.5 shadow-md shadow-brand-navy/5"
+                              >
+                                <div className="flex items-center gap-2 mb-2">
+                                  <Icon
+                                    icon={stat.icon}
+                                    className="h-4 w-4 text-brand-navy/70"
+                                  />
+                                  <p className="text-[10px] uppercase tracking-[0.14em] font-bold text-brand-navy/40">
+                                    {stat.label}
+                                  </p>
+                                </div>
+
+                                <p className="text-sm md:text-lg font-bold text-brand-navy leading-tight">
+                                  {stat.value}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+
+                        <div className="bg-white/30 backdrop-blur-xl p-4 md:p-6 rounded-[1.5rem] md:rounded-[2rem] border border-white/20 shadow-xl text-center">
+                          <div className="flex items-center justify-center gap-2 mb-2">
+                            <Icon
+                              icon="solar:star-bold-duotone"
+                              className="h-5 w-5 text-brand-navy"
+                            />
+                            <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-brand-navy/40">
+                              Opción activa
+                            </p>
+                          </div>
+
+                          <p className="text-2xl md:text-3xl font-bold">
                             {activeProposal.title}
                           </p>
+
                           <p className="text-sm text-brand-navy/60 mt-3">
                             Ahorro estimado anual
                           </p>
+
                           <p className="text-xl md:text-2xl font-bold mt-1">
-                            {" "}
                             {formatCurrency(activeProposal.annualSavings)}
                           </p>
-                        </div>
-                      </div>
-
-                      <div className="w-full md:w-auto">
-                        <div className="inline-flex w-full md:w-auto rounded-[1.4rem] bg-white/35 p-1.5 backdrop-blur-xl border border-white/30 shadow-lg shadow-brand-navy/5">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setSelectedProposalView("investment")
-                            }
-                            className={cn(
-                              "flex-1 md:flex-none px-4 py-3 rounded-[1rem] text-sm font-semibold transition-all",
-                              activeProposalMode === "investment"
-                                ? "bg-brand-navy text-white shadow-md"
-                                : "text-brand-navy/70 hover:text-brand-navy",
-                            )}
-                          >
-                            Inversión
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => setSelectedProposalView("service")}
-                            className={cn(
-                              "flex-1 md:flex-none px-4 py-3 rounded-[1rem] text-sm font-semibold transition-all",
-                              activeProposalMode === "service"
-                                ? "bg-brand-navy text-white shadow-md"
-                                : "text-brand-navy/70 hover:text-brand-navy",
-                            )}
-                          >
-                            Servicio
-                          </button>
-                        </div>
-                      </div>
-
-                      <div className="overflow-x-auto pb-2 -mx-1 md:mx-0 md:overflow-visible">
-                        <div className="flex gap-3 px-1 md:grid md:grid-cols-4 md:gap-8 md:px-0">
-                          {[
-                            {
-                              label: "Potencia Rec.",
-                              value: `${formatNumber(activeProposal.recommendedPowerKwp)} kWp`,
-                            },
-                            {
-                              label: "Consumo Anual",
-                              value: `${formatNumber(activeProposal.annualConsumptionKwh)} kWh`,
-                            },
-                            {
-                              label:
-                                activeProposalMode === "investment"
-                                  ? "Coste 25 años"
-                                  : "Coste inicial",
-                              value: formatCurrency(activeProposal.upfrontCost),
-                            },
-                            {
-                              label:
-                                activeProposalMode === "investment"
-                                  ? "Payback"
-                                  : "Cuota mensual",
-                              value:
-                                activeProposalMode === "investment"
-                                  ? activeProposal.paybackYears > 0
-                                    ? `${formatNumber(activeProposal.paybackYears)} años`
-                                    : "-"
-                                  : activeProposal.monthlyFee &&
-                                      activeProposal.monthlyFee > 0
-                                    ? `${formatCurrency(activeProposal.monthlyFee)} / mes`
-                                    : "Sin cuota",
-                            },
-                          ].map((stat, i) => (
-                            <div
-                              key={i}
-                              className="min-w-[145px] rounded-[1.25rem] bg-white/35 backdrop-blur-xl border border-white/25 p-3.5 shadow-md shadow-brand-navy/5 md:min-w-0 md:bg-transparent md:backdrop-blur-0 md:border-0 md:p-0 md:shadow-none"
-                            >
-                              <p className="text-[9px] uppercase tracking-[0.16em] font-bold text-brand-navy/40">
-                                {" "}
-                                {stat.label}
-                              </p>
-                              <p className="text-base md:text-2xl font-bold mt-1.5 text-brand-navy leading-tight">
-                                {" "}
-                                {stat.value}
-                              </p>
-                            </div>
-                          ))}
                         </div>
                       </div>
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 md:gap-10">
+                  {/* CONTENIDO PRINCIPAL */}
+                  <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,1fr)_340px] gap-6 md:gap-8 items-stretch">
                     {" "}
-                    <div className="lg:col-span-2 space-y-8">
-                      <div className="bg-white rounded-[3rem] p-6 md:p-8 border border-brand-navy/5 shadow-xl shadow-brand-navy/5">
-                        <div className="flex items-start justify-between gap-3 mb-5">
-                          {" "}
-                          <div>
-                            <p className="text-[10px] uppercase tracking-[0.2em] font-bold text-brand-navy/40 mb-2">
-                              Modalidad
-                            </p>
-                            <h3 className="text-2xl font-bold text-brand-navy">
-                              {activeProposal.title}
-                            </h3>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={goPrevProposal}
-                              className="w-11 h-11 rounded-2xl bg-brand-navy/5 hover:bg-brand-navy/10 text-brand-navy font-bold transition"
-                            >
-                              ←
-                            </button>
-
-                            <button
-                              type="button"
-                              onClick={goNextProposal}
-                              className="w-11 h-11 rounded-2xl bg-brand-navy/5 hover:bg-brand-navy/10 text-brand-navy font-bold transition"
-                            >
-                              →
-                            </button>
-                          </div>
-                        </div>
-
-                        <div className="hidden md:flex gap-3 mb-6">
-                          <button
-                            type="button"
-                            onClick={() => goToProposal("investment")}
+                    {/* COLUMNA 1: CARD PRINCIPAL */}
+                    <div className="space-y-6">
+                      <div className="relative overflow-hidden">
+                        <AnimatePresence mode="wait">
+                          <motion.div
+                            key={activeProposal.id}
+                            initial={{ opacity: 0, y: 18 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            exit={{ opacity: 0, y: -18 }}
+                            transition={{ duration: 0.28 }}
                             className={cn(
-                              "px-4 py-2 rounded-2xl text-sm font-bold transition-all border",
-                              activeProposalMode === "investment"
+                              "h-full xl:min-h-[560px] rounded-[2rem] md:rounded-[3rem] p-5 md:p-8 border relative overflow-hidden flex flex-col",
+                              activeProposal.id === "investment"
                                 ? "bg-brand-navy text-white border-brand-navy"
-                                : "bg-white text-brand-navy border-brand-navy/10 hover:bg-brand-navy/5",
+                                : "bg-gradient-to-br from-white to-brand-sky/10 text-brand-navy border-brand-navy/5 ",
                             )}
                           >
-                            Inversión
-                          </button>
-
-                          <button
-                            type="button"
-                            onClick={() => goToProposal("service")}
-                            className={cn(
-                              "px-4 py-2 rounded-2xl text-sm font-bold transition-all border",
-                              activeProposalMode === "service"
-                                ? "bg-brand-navy text-white border-brand-navy"
-                                : "bg-white text-brand-navy border-brand-navy/10 hover:bg-brand-navy/5",
-                            )}
-                          >
-                            Servicio
-                          </button>
-                        </div>
-
-                        <div className="relative overflow-hidden">
-                          <AnimatePresence mode="wait">
-                            <motion.div
-                              key={activeProposal.id}
-                              initial={{
-                                opacity: 0,
-                                x:
-                                  activeProposalMode === "investment"
-                                    ? -40
-                                    : 40,
-                              }}
-                              animate={{ opacity: 1, x: 0 }}
-                              exit={{
-                                opacity: 0,
-                                x:
-                                  activeProposalMode === "investment"
-                                    ? 40
-                                    : -40,
-                              }}
-                              transition={{ duration: 0.28 }}
+                            <div
                               className={cn(
-                                "rounded-[2rem] md:rounded-[2.5rem] p-5 md:p-10 border relative overflow-hidden min-h-[unset] md:min-h-[420px]",
+                                "absolute top-0 right-0 w-40 h-40 rounded-full blur-3xl",
                                 activeProposal.id === "investment"
-                                  ? "bg-brand-navy text-white border-brand-navy shadow-2xl shadow-brand-navy/20"
-                                  : "bg-gradient-to-br from-white to-brand-sky/10 text-brand-navy border-brand-navy/5 shadow-lg",
+                                  ? "bg-brand-mint/20"
+                                  : "bg-brand-sky/20",
                               )}
-                            >
-                              <div
-                                className={cn(
-                                  "absolute top-0 right-0 w-40 h-40 rounded-full blur-3xl",
-                                  activeProposal.id === "investment"
-                                    ? "bg-brand-mint/20"
-                                    : "bg-brand-sky/20",
-                                )}
-                              />
+                            />
 
-                              <div className="relative z-10">
-                                <div className="flex flex-wrap items-start justify-between gap-4 mb-6">
-                                  <div>
-                                    <span
-                                      className={cn(
-                                        "inline-flex px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest mb-4",
-                                        activeProposal.id === "investment"
-                                          ? "bg-white/10 text-white"
-                                          : "bg-brand-mint/10 text-brand-navy",
-                                      )}
-                                    >
-                                      {activeProposal.badge}
-                                    </span>
-
-                                    <h3 className="text-3xl md:text-4xl font-bold">
-                                      {activeProposal.title}
-                                    </h3>
-
-                                    <p
-                                      className={cn(
-                                        "mt-3 text-sm leading-relaxed max-w-xl",
-                                        activeProposal.id === "investment"
-                                          ? "text-white/75"
-                                          : "text-brand-gray",
-                                      )}
-                                    >
-                                      {activeProposal.description}
-                                    </p>
-                                  </div>
-
-                                  <div
-                                    className={cn(
-                                      "rounded-[1.4rem] px-4 py-3 border w-full sm:w-auto sm:min-w-[180px]",
+                            <div className="relative z-10 space-y-6">
+                              <div className="flex flex-col gap-4">
+                                <span
+                                  className={cn(
+                                    "inline-flex w-fit items-center gap-2 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest",
+                                    activeProposal.id === "investment"
+                                      ? "bg-white/10 text-white"
+                                      : "bg-brand-mint/10 text-brand-navy",
+                                  )}
+                                >
+                                  <Icon
+                                    icon={
                                       activeProposal.id === "investment"
-                                        ? "bg-white/10 border-white/10"
-                                        : "bg-white border-brand-navy/5",
+                                        ? "solar:wallet-money-bold-duotone"
+                                        : "solar:bolt-bold-duotone"
+                                    }
+                                    className="h-4 w-4"
+                                  />
+                                  {activeProposal.badge}
+                                </span>
+
+                                <div className="space-y-2">
+                                  <h3 className="text-3xl md:text-4xl font-bold">
+                                    {activeProposal.title}
+                                  </h3>
+
+                                  <p
+                                    className={cn(
+                                      "text-sm md:text-base leading-relaxed max-w-2xl",
+                                      activeProposal.id === "investment"
+                                        ? "text-white/75"
+                                        : "text-brand-gray",
                                     )}
                                   >
-                                    <p
+                                    {activeProposal.description}
+                                  </p>
+                                </div>
+                              </div>
+
+                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                                {" "}
+                                {activeProposalStats.map((stat, index) => {
+                                  const statIcons =
+                                    activeProposal.id === "investment"
+                                      ? [
+                                          "solar:wallet-money-bold-duotone",
+                                          "solar:calculator-bold-duotone",
+                                          "solar:graph-up-bold-duotone",
+                                        ]
+                                      : [
+                                          "solar:wallet-money-bold-duotone",
+                                          "solar:wallet-money-bold-duotone",
+                                          "solar:chart-2-bold-duotone",
+                                        ];
+
+                                  return (
+                                    <div
+                                      key={stat.label}
                                       className={cn(
-                                        "text-[10px] uppercase tracking-[0.2em] font-bold mb-2",
+                                        "rounded-[1.2rem] p-4 border",
                                         activeProposal.id === "investment"
-                                          ? "text-white/50"
-                                          : "text-brand-navy/40",
+                                          ? "bg-white/10 border-white/10"
+                                          : "bg-white border-brand-navy/5",
                                       )}
                                     >
-                                      Ahorro anual
-                                    </p>
-                                    <p className="text-2xl font-bold">
-                                      {formatCurrency(
-                                        activeProposal.annualSavings,
-                                      )}
-                                    </p>
-                                  </div>
-                                </div>
-
-                                <div className="overflow-x-auto pb-1 -mx-1 mb-8 md:mx-0 md:overflow-visible">
-                                  <div className="flex gap-3 px-1 md:grid md:grid-cols-3 md:gap-4 md:px-0">
-                                    {activeProposalStats.map((stat) => (
-                                      <div
-                                        key={stat.label}
-                                        className={cn(
-                                          "min-w-[145px] rounded-[1.2rem] p-3 border md:min-w-0 md:rounded-2xl md:p-4",
-                                          activeProposal.id === "investment"
-                                            ? "bg-white/10 border-white/10"
-                                            : "bg-white border-brand-navy/5",
-                                        )}
-                                      >
+                                      <div className="flex items-center gap-2 mb-2">
+                                        <Icon
+                                          icon={statIcons[index]}
+                                          className={cn(
+                                            "h-4 w-4",
+                                            activeProposal.id === "investment"
+                                              ? "text-white/70"
+                                              : "text-brand-mint",
+                                          )}
+                                        />
                                         <p
                                           className={cn(
-                                            "text-[9px] md:text-[10px] uppercase tracking-[0.14em] md:tracking-widest font-bold mb-1",
+                                            "text-[10px] uppercase tracking-[0.14em] font-bold",
                                             activeProposal.id === "investment"
                                               ? "text-white/50"
                                               : "text-brand-navy/40",
@@ -2724,246 +2765,254 @@ export default function App() {
                                         >
                                           {stat.label}
                                         </p>
-                                        <p className="text-sm md:text-lg font-bold leading-tight">
-                                          {stat.value}
-                                        </p>
                                       </div>
-                                    ))}
-                                  </div>
-                                </div>
 
-                                <div className="grid grid-cols-1 md:grid-cols-2 gap-3 md:gap-5">
-                                  {activeProposal.valuePoints.map((item, i) => (
+                                      <p className="text-lg md:text-xl font-bold leading-tight">
+                                        {stat.value}
+                                      </p>
+                                    </div>
+                                  );
+                                })}
+                              </div>
+
+                              <div className="grid grid-cols-1 gap-3">
+                                {[
+                                  {
+                                    icon: "solar:check-circle-bold-duotone",
+                                    text: activeProposal.valuePoints[0],
+                                  },
+                                  {
+                                    icon: "solar:shield-check-bold-duotone",
+                                    text: activeProposal.valuePoints[1],
+                                  },
+                                  {
+                                    icon: "solar:leaf-bold-duotone",
+                                    text: activeProposal.valuePoints[2],
+                                  },
+                                ].map((item, i) => (
+                                  <div
+                                    key={i}
+                                    className={cn(
+                                      "rounded-[1.2rem] p-4 border flex items-start gap-3",
+                                      activeProposal.id === "investment"
+                                        ? "bg-white/5 border-white/10"
+                                        : "bg-brand-navy/[0.03] border-brand-navy/5",
+                                    )}
+                                  >
                                     <div
-                                      key={i}
                                       className={cn(
-                                        "flex gap-3 rounded-[1.2rem] md:rounded-none p-3 md:p-0",
+                                        "w-10 h-10 rounded-xl flex items-center justify-center shrink-0",
                                         activeProposal.id === "investment"
-                                          ? "bg-white/5 md:bg-transparent"
-                                          : "bg-brand-navy/[0.03] md:bg-transparent",
+                                          ? "bg-white/10"
+                                          : "brand-gradient shadow-md shadow-brand-mint/20",
                                       )}
                                     >
-                                      <div
+                                      <Icon
+                                        icon={item.icon}
                                         className={cn(
-                                          "w-8 h-8 md:w-10 md:h-10 rounded-xl flex items-center justify-center shrink-0",
+                                          "h-5 w-5",
                                           activeProposal.id === "investment"
-                                            ? "bg-white/10"
-                                            : "brand-gradient shadow-md shadow-brand-mint/20",
+                                            ? "text-white"
+                                            : "text-brand-navy",
                                         )}
-                                      >
-                                        <Check
-                                          className={cn(
-                                            "w-4 h-4 md:w-5 md:h-5",
-                                            activeProposal.id === "investment"
-                                              ? "text-white"
-                                              : "text-brand-navy",
-                                          )}
-                                        />
-                                      </div>
-
-                                      <div>
-                                        <h4 className="font-semibold md:font-bold text-sm md:text-base mb-0.5 md:mb-1">
-                                          {item}
-                                        </h4>
-
-                                        <p
-                                          className={cn(
-                                            "hidden md:block text-xs leading-relaxed",
-                                            activeProposal.id === "investment"
-                                              ? "text-white/70"
-                                              : "text-brand-gray",
-                                          )}
-                                        >
-                                          {activeProposal.id === "investment"
-                                            ? "Pensada para clientes que quieren maximizar el retorno y consolidar el ahorro a largo plazo."
-                                            : "Pensada para clientes que quieren una entrada más cómoda y una decisión más flexible."}
-                                        </p>
-                                      </div>
+                                      />
                                     </div>
-                                  ))}
-                                </div>
-                              </div>
-                            </motion.div>
-                          </AnimatePresence>
-                        </div>
 
-                        <div className="flex items-center justify-center gap-2 mt-6">
-                          {proposalSlides.map((slide, index) => (
-                            <button
-                              key={slide.id}
-                              type="button"
-                              onClick={() => goToProposal(slide.id)}
-                              className={cn(
-                                "h-2.5 rounded-full transition-all",
-                                index === activeSlideIndex
-                                  ? "w-10 bg-brand-navy"
-                                  : "w-2.5 bg-brand-navy/20 hover:bg-brand-navy/40",
-                              )}
-                            />
-                          ))}
-                        </div>
+                                    <p className="font-semibold text-sm md:text-base leading-snug">
+                                      {item.text}
+                                    </p>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          </motion.div>
+                        </AnimatePresence>
                       </div>
-                      <div className="bg-white rounded-[2rem] md:rounded-[3rem] p-5 md:p-10 border border-brand-navy/5 shadow-xl shadow-brand-navy/5">
-                        <h3 className="font-bold text-xl md:text-2xl text-brand-navy mb-6 md:mb-8 flex items-center gap-3">
-                          <TrendingUp className="w-5 h-5 md:w-6 md:h-6 text-brand-mint" />
-                          Comparativa rápida
-                        </h3>
+                    </div>
+                    {/* COLUMNA 2: GRÁFICA */}
+                    <div className="space-y-6">
+                      <div className="bg-white rounded-[2rem] md:rounded-[3rem] p-5 md:p-6 border border-brand-navy/5 shadow-xl shadow-brand-navy/5 h-full xl:min-h-[560px] flex flex-col">
+                        {" "}
+                        <div className="space-y-3 mb-5">
+                          <div className="inline-flex items-center gap-2 rounded-full bg-brand-navy/[0.04] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-brand-navy/60">
+                            <Icon
+                              icon="solar:chart-2-bold-duotone"
+                              className="h-4 w-4 text-brand-mint"
+                            />
+                            Visual comparativo
+                          </div>
 
-                        {/* Mobile */}
-                        <div className="md:hidden space-y-3">
-                          {comparisonRows.map((row) => (
-                            <div
-                              key={row.label}
-                              className="rounded-[1.25rem] border border-brand-navy/5 bg-gradient-to-b from-white to-brand-sky/5 p-3.5 shadow-sm"
-                            >
-                              <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-brand-navy/35 mb-3">
-                                {row.label}
-                              </p>
-
-                              <div className="grid grid-cols-2 gap-3">
-                                <div className="rounded-[1rem] bg-brand-navy text-white p-3">
-                                  <p className="text-[10px] uppercase tracking-widest text-white/50 font-bold mb-1">
-                                    Inversión
-                                  </p>
-                                  <p className="text-[13px] font-semibold leading-snug">
-                                    {" "}
-                                    {row.investment}
-                                  </p>
-                                </div>
-
-                                <div className="rounded-[1rem] bg-brand-navy/[0.04] p-3">
-                                  <p className="text-[10px] uppercase tracking-widest text-brand-navy/40 font-bold mb-1">
-                                    Servicio
-                                  </p>
-                                  <p className="text-[13px] font-semibold leading-snug">
-                                    {" "}
-                                    {row.service}
-                                  </p>
-                                </div>
-                              </div>
-                            </div>
-                          ))}
+                          <div>
+                            <h3 className="font-bold text-xl text-brand-navy">
+                              Comparativa económica
+                            </h3>
+                            <p className="text-sm text-brand-gray mt-1">
+                              Comparación visual entre inversión y servicio.
+                            </p>
+                          </div>
                         </div>
+                        <motion.div
+                          initial={{ opacity: 0, y: 16 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: 0.45, delay: 0.1 }}
+                          className="mt-auto h-[260px] md:h-[320px] xl:h-[420px] rounded-[1.5rem] bg-gradient-to-b from-white to-brand-sky/5 p-3 md:p-4 border border-brand-navy/5"
+                        >
+                          <ResponsiveContainer width="100%" height="100%">
+                            <BarChart data={economicChartData} barGap={10}>
+                              <CartesianGrid
+                                stroke={chartPalette.grid}
+                                vertical={false}
+                              />
 
-                        {/* Desktop */}
-                        <div className="hidden md:block overflow-hidden rounded-[2rem] border border-brand-navy/5">
-                          <div className="grid grid-cols-3 bg-brand-navy/[0.03]">
-                            <div className="p-4 text-xs font-bold uppercase tracking-widest text-brand-navy/40">
-                              Concepto
+                              <XAxis
+                                dataKey="name"
+                                tickLine={false}
+                                axisLine={false}
+                                tick={{
+                                  fill: chartPalette.text,
+                                  fontSize: 11,
+                                  fontWeight: 600,
+                                }}
+                              />
+
+                              <YAxis
+                                tickLine={false}
+                                axisLine={false}
+                                tick={{ fill: chartPalette.text, fontSize: 11 }}
+                                tickFormatter={(value) => {
+                                  const num = Number(value);
+                                  if (num >= 1000)
+                                    return `${Math.round(num / 1000)}k€`;
+                                  return `${Math.round(num)}€`;
+                                }}
+                              />
+
+                              <Tooltip
+                                cursor={{ fill: chartPalette.hover }}
+                                formatter={(value) =>
+                                  formatCurrency(Number(value))
+                                }
+                                contentStyle={{
+                                  borderRadius: 18,
+                                  border: "1px solid rgba(7, 0, 95, 0.08)",
+                                  boxShadow: "0 20px 45px rgba(7, 0, 95, 0.08)",
+                                }}
+                              />
+
+                              <Bar
+                                dataKey="inversion"
+                                name="Inversión"
+                                fill={chartPalette.navy}
+                                radius={[10, 10, 0, 0]}
+                                isAnimationActive
+                                animationDuration={900}
+                              />
+
+                              <Bar
+                                dataKey="servicio"
+                                name="Servicio"
+                                fill={chartPalette.mint}
+                                radius={[10, 10, 0, 0]}
+                                isAnimationActive
+                                animationDuration={1200}
+                              />
+                            </BarChart>
+                          </ResponsiveContainer>
+                        </motion.div>
+                      </div>
+                    </div>
+                    {/* COLUMNA 3: BOTONES */}
+                    <div className="space-y-6">
+                      <div className="bg-brand-navy rounded-[2rem] md:rounded-[3rem] p-5 md:p-7 text-white shadow-2xl shadow-brand-navy/20 h-full xl:min-h-[560px] flex flex-col justify-between">
+                        {" "}
+                        <div className="space-y-4">
+                          <div className="flex items-center gap-3">
+                            <div className="w-11 h-11 rounded-2xl bg-white/10 flex items-center justify-center">
+                              <Icon
+                                icon="solar:document-text-bold-duotone"
+                                className="h-6 w-6 text-brand-mint"
+                              />
                             </div>
-                            <div className="p-4 text-xs font-bold uppercase tracking-widest text-brand-navy/40">
-                              Inversión
-                            </div>
-                            <div className="p-4 text-xs font-bold uppercase tracking-widest text-brand-navy/40">
-                              Servicio
+
+                            <div>
+                              <h3 className="font-bold text-lg md:text-xl">
+                                Acciones disponibles
+                              </h3>
+                              <p className="text-white/60 text-sm">
+                                Modalidad activa:{" "}
+                                <span className="font-semibold text-white">
+                                  {activeProposal.title}
+                                </span>
+                              </p>
                             </div>
                           </div>
 
-                          {comparisonRows.map((row, index) => (
-                            <div
-                              key={row.label}
-                              className={cn(
-                                "grid grid-cols-3",
-                                index % 2 === 0
-                                  ? "bg-white"
-                                  : "bg-brand-navy/[0.02]",
-                              )}
+                          <div className="space-y-3 pt-2">
+                            <Button
+                              className="w-full py-5 md:py-7 text-base rounded-[1.2rem] md:rounded-2xl brand-gradient text-brand-navy border-none"
+                              onClick={handleDownloadPDF}
                             >
-                              <div className="p-4 text-sm font-bold text-brand-navy">
-                                {row.label}
-                              </div>
-                              <div className="p-4 text-sm text-brand-gray">
-                                {row.investment}
-                              </div>
-                              <div className="p-4 text-sm text-brand-gray">
-                                {row.service}
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div>
-                      {/* 
-                      <div className="bg-white rounded-[3rem] p-10 border border-brand-navy/5 shadow-xl shadow-brand-navy/5">
-                        <h3 className="font-bold text-2xl text-brand-navy mb-8 flex items-center gap-3">
-                          <Check className="w-6 h-6 text-brand-mint" />
-                          Propuesta activa: {activeProposal.title}
-                        </h3>
+                              <Icon
+                                icon="solar:download-minimalistic-bold-duotone"
+                                className="mr-3 h-6 w-6"
+                              />
+                              Descargar PDF
+                            </Button>
 
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-                          {activeProposal.valuePoints.map((item, i) => (
-                            <div key={i} className="flex gap-4">
-                              <div className="w-10 h-10 rounded-xl brand-gradient flex items-center justify-center shrink-0 shadow-md shadow-brand-mint/20">
-                                <Check className="w-5 h-5 text-brand-navy" />
-                              </div>
-                              <div>
-                                <h4 className="font-bold text-brand-navy mb-1">
-                                  {item}
-                                </h4>
-                                <p className="text-xs text-brand-gray leading-relaxed">
-                                  {activeProposal.id === "investment"
-                                    ? "Pensada para clientes que quieren maximizar el retorno y consolidar su ahorro en el tiempo."
-                                    : "Pensada para clientes que prefieren una entrada más cómoda y una decisión de contratación más simple."}
-                                </p>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      </div> */}
-                    </div>
-                    <div className="space-y-6">
-                      <div className="bg-brand-navy rounded-[2rem] md:rounded-[3rem] p-5 md:p-10 text-white shadow-2xl shadow-brand-navy/20 md:sticky md:top-8">
-                        {" "}
-                        <h3 className="font-bold text-xl mb-3">
-                          Próximos Pasos
-                        </h3>
-                        <p className="text-white/60 text-sm mb-8 leading-relaxed">
-                          Las acciones de abajo se generarán usando la modalidad
-                          activa:
-                          <span className="font-bold text-white">
+                            <Button
+                              className="w-full py-5 md:py-7 text-base rounded-[1.2rem] md:rounded-2xl bg-white/10 hover:bg-white/20 border-white/10 text-white"
+                              variant="outline"
+                              onClick={handleSendEmail}
+                            >
+                              <Icon
+                                icon="solar:letter-bold-duotone"
+                                className="mr-3 h-6 w-6"
+                              />
+                              Enviar por Email
+                            </Button>
+                          </div>
+
+                          <div className="mt-5 rounded-[1.4rem] bg-white/10 p-4 border border-white/10 space-y-2.5">
                             {" "}
-                            {activeProposal.title}
-                          </span>
-                          .
-                        </p>
-                        <div className="space-y-4">
-                          <Button
-                            className="w-full py-5 md:py-8 text-base md:text-lg rounded-[1.2rem] md:rounded-2xl brand-gradient text-brand-navy border-none"
-                            onClick={handleDownloadPDF}
-                          >
-                            <Download className="mr-3 w-6 h-6" /> Descargar PDF
-                          </Button>
+                            <div className="flex items-center gap-2">
+                              <Icon
+                                icon="solar:wallet-money-bold-duotone"
+                                className="h-5 w-5 text-brand-mint"
+                              />
+                              <p className="text-[10px] font-bold uppercase tracking-widest text-white/50">
+                                Resumen
+                              </p>
+                            </div>
+                            <p className="text-2xl font-bold">
+                              {formatCurrency(activeProposal.annualSavings)} /
+                              año
+                            </p>
+                            <div className="space-y-2 text-sm text-white/65">
+                              <div className="flex items-center gap-2">
+                                <Icon
+                                  icon="solar:calculator-bold-duotone"
+                                  className="h-4 w-4 text-brand-mint"
+                                />
+                                <span>
+                                  {activeProposal.id === "investment"
+                                    ? `Coste inicial ${formatCurrency(activeProposal.upfrontCost)}`
+                                    : activeProposal.monthlyFee &&
+                                        activeProposal.monthlyFee > 0
+                                      ? `Cuota estimada ${formatCurrency(activeProposal.monthlyFee)} / mes`
+                                      : "Sin cuota mensual"}
+                                </span>
+                              </div>
 
-                          <Button
-                            className="w-full py-5 md:py-8 text-base md:text-lg rounded-[1.2rem] md:rounded-2xl bg-white/10 hover:bg-white/20 border-white/10 text-white"
-                            variant="outline"
-                            onClick={handleSendEmail}
-                          >
-                            <Mail className="mr-3 w-6 h-6" /> Enviar por Email
-                          </Button>
-
-                          <Button className="w-full py-5 md:py-8 text-base md:text-lg rounded-[1.2rem] md:rounded-2xl bg-brand-mint text-brand-navy hover:bg-brand-mint/90 border-none font-bold">
-                            Hablar con Asesor
-                          </Button>
+                              <div className="flex items-center gap-2">
+                                <Icon
+                                  icon="solar:clock-circle-bold-duotone"
+                                  className="h-4 w-4 text-brand-mint"
+                                />
+                                <span>Oferta válida por 7 días</span>
+                              </div>
+                            </div>
+                          </div>
                         </div>
-                        <div className="mt-8 rounded-2xl bg-white/10 p-5 border border-white/10">
-                          <p className="text-[10px] font-bold uppercase tracking-widest text-white/50 mb-2">
-                            Resumen activo
-                          </p>
-                          <p className="text-2xl font-bold">
-                            {formatCurrency(activeProposal.annualSavings)} / año
-                          </p>
-                          <p className="text-sm text-white/60 mt-2">
-                            {activeProposal.id === "investment"
-                              ? `Coste estimado 25 años ${formatCurrency(activeProposal.upfrontCost)}`
-                              : activeProposal.monthlyFee &&
-                                  activeProposal.monthlyFee > 0
-                                ? `Cuota estimada ${formatCurrency(activeProposal.monthlyFee)} / mes`
-                                : "Sin cuota mensual"}
-                          </p>
-                        </div>
-                        <p className="text-center text-[10px] font-bold uppercase tracking-widest text-white/40 mt-8">
-                          Oferta válida por 7 días
-                        </p>
                       </div>
                     </div>
                   </div>
