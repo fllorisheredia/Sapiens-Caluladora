@@ -1714,6 +1714,76 @@ async function startServer() {
     }
   });
 
+
+  //CLIENTS GET
+  app.get("/api/clients", async (_req, res) => {
+  try {
+    const { data, error } = await supabase
+      .from("studies")
+      .select("id, created_at, customer, email_status, status")
+      .order("created_at", { ascending: false });
+
+    if (error) {
+      console.error("Error fetching clients from studies:", error);
+      return res.status(500).json({
+        error: "No se pudieron obtener los clientes",
+        details: error.message,
+      });
+    }
+
+    const studies = Array.isArray(data) ? data : [];
+
+    const clientsMap = new Map<string, any>();
+
+    for (const study of studies) {
+      const customer = study?.customer ?? {};
+
+      const name = String(customer?.name ?? customer?.nombre ?? "").trim();
+      const lastname1 = String(
+        customer?.lastname1 ??
+          customer?.lastName ??
+          customer?.apellidos ??
+          "",
+      ).trim();
+      const email = String(customer?.email ?? "").trim().toLowerCase();
+      const phone = String(
+        customer?.phone ?? customer?.telefono ?? "",
+      ).trim();
+      const dni = String(customer?.dni ?? "").trim();
+
+      const uniqueKey =
+        email ||
+        dni ||
+        phone ||
+        `${name}-${lastname1}-${study?.id ?? Math.random()}`;
+
+      if (!uniqueKey) continue;
+
+      if (!clientsMap.has(uniqueKey)) {
+        clientsMap.set(uniqueKey, {
+          id: uniqueKey,
+          name,
+          lastname1,
+          email,
+          phone,
+          dni,
+          status: study?.status ?? "uploaded",
+          email_status: study?.email_status ?? "pending",
+          created_at: study?.created_at ?? null,
+        });
+      }
+    }
+
+    return res.json(Array.from(clientsMap.values()));
+  } catch (error: any) {
+    console.error("Unexpected error in /api/clients:", error);
+    return res.status(500).json({
+      error: "Error interno al obtener clientes",
+      details: error?.message ?? "Unknown error",
+    });
+  }
+});
+
   //SENDMAIL
   // server.ts
   // app.post("/api/send-proposal-email", async (req, res) => {
