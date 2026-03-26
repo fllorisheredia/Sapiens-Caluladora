@@ -2,7 +2,7 @@ import express from "express";
 import { createServer as createViteServer } from "vite";
 import path from "path";
 // import dotenv from "dotenv";
-
+import Stripe from "stripe";
 import "dotenv/config";
 import cors from "cors";
 import multer from "multer";
@@ -22,6 +22,24 @@ const PORT = Number(process.env.PORT || 3000);
 const SAPIENS_CONTACT_PHONE = process.env.SAPIENS_CONTACT_PHONE || "960000000";
 const SAPIENS_CONTACT_EMAIL =
   process.env.SAPIENS_CONTACT_EMAIL || "info@sapiensenergia.com";
+
+//Strine
+
+const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || "";
+const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || "";
+const DEFAULT_SIGNAL_AMOUNT_EUR = Number(
+  process.env.DEFAULT_SIGNAL_AMOUNT_EUR || 150,
+);
+
+if (!STRIPE_SECRET_KEY) {
+  throw new Error("Falta STRIPE_SECRET_KEY en .env");
+}
+
+if (!STRIPE_WEBHOOK_SECRET) {
+  throw new Error("Falta STRIPE_WEBHOOK_SECRET en .env");
+}
+
+const stripe = new Stripe(STRIPE_SECRET_KEY);
 
 const FRONTEND_URL =
   process.env.FRONTEND_URL ||
@@ -1287,12 +1305,207 @@ function verifyContractResumeToken(token: string): {
   };
 }
 
+function buildReservationSuccessUrl() {
+  return `${FRONTEND_URL.replace(
+    /\/$/,
+    "",
+  )}/continuar-contratacion/exito?session_id={CHECKOUT_SESSION_ID}`;
+}
+
+function buildReservationCancelUrl(contractId: string) {
+  return `${FRONTEND_URL.replace(
+    /\/$/,
+    "",
+  )}/continuar-contratacion/cancelado?contractId=${encodeURIComponent(
+    contractId,
+  )}`;
+}
+
+function getStripeSessionExpiresAt(paymentDeadlineAt?: string | null) {
+  const maxMs = Date.now() + 23 * 60 * 60 * 1000;
+
+  if (!paymentDeadlineAt) {
+    return Math.floor(maxMs / 1000);
+  }
+
+  const deadlineMs = new Date(paymentDeadlineAt).getTime();
+  const finalMs = Math.min(deadlineMs, maxMs);
+
+  return Math.floor(finalMs / 1000);
+}
+
+async function createCheckoutSessionForReservation(params: {
+  reservationId: string;
+  contractId: string;
+  studyId: string;
+  clientId: string;
+  installationId: string;
+  installationName: string;
+  clientEmail?: string | null;
+  signalAmount: number;
+  currency: string;
+  paymentDeadlineAt?: string | null;
+}) {
+  const unitAmount = Math.round(params.signalAmount * 100);
+
+  const session = await stripe.checkout.sessions.create({
+    mode: "payment",
+    client_reference_id: params.reservationId,
+    customer_email: params.clientEmail || undefined,
+    success_url: buildReservationSuccessUrl(),
+    cancel_url: buildReservationCancelUrl(params.contractId),
+    expires_at: getStripeSessionExpiresAt(params.paymentDeadlineAt),
+    line_items: [
+      {
+        quantity: 1,
+        price_data: {
+          currency: params.currency.toLowerCase(),
+          unit_amount: unitAmount,
+          product_data: {
+            name: `Señal de reserva - ${params.installationName}`,
+            description: `Precontrato ${params.contractId}`,
+          },
+        },
+      },
+    ],
+    payment_intent_data: {
+      receipt_email: params.clientEmail || undefined,
+      metadata: {
+        reservationId: params.reservationId,
+        contractId: params.contractId,
+        studyId: params.studyId,
+        clientId: params.clientId,
+        installationId: params.installationId,
+      },
+    },
+    metadata: {
+      reservationId: params.reservationId,
+      contractId: params.contractId,
+      studyId: params.studyId,
+      clientId: params.clientId,
+      installationId: params.installationId,
+    },
+  });
+
+  if (!session.url) {
+    throw new Error("Stripe no devolvió checkoutUrl");
+  }
+
+  return session;
+}
+
 async function startServer() {
   const app = express();
 
   app.use(cors());
-  app.use(express.json({ limit: "10mb" }));
   // app.use('/assets', express.static(path.join(__dirname, 'assets')));
+
+  app.post(
+    "/api/stripe/webhook",
+    express.raw({ type: "application/json" }),
+    async (req, res) => {
+      let event: Stripe.Event;
+
+      try {
+        const signature = req.headers["stripe-signature"];
+
+        if (!signature || Array.isArray(signature)) {
+          return res.status(400).send("Falta Stripe-Signature");
+        }
+
+        event = stripe.webhooks.constructEvent(
+          req.body,
+          signature,
+          STRIPE_WEBHOOK_SECRET,
+        );
+      } catch (error: any) {
+        console.error("Error verificando webhook de Stripe:", error);
+        return res.status(400).send(`Webhook Error: ${error.message}`);
+      }
+
+      try {
+        switch (event.type) {
+          case "checkout.session.completed":
+          case "checkout.session.async_payment_succeeded": {
+            const session = event.data.object as Stripe.Checkout.Session;
+
+            const reservationId =
+              String(session.client_reference_id || "") ||
+              String(session.metadata?.reservationId || "");
+
+            if (!reservationId) {
+              return res.json({ received: true });
+            }
+
+            const paymentIntentId =
+              typeof session.payment_intent === "string"
+                ? session.payment_intent
+                : session.payment_intent?.id || null;
+
+            const { error } = await supabase.rpc(
+              "confirm_installation_reservation_payment",
+              {
+                p_reservation_id: reservationId,
+                p_stripe_checkout_session_id: session.id,
+                p_stripe_payment_intent_id: paymentIntentId,
+              },
+            );
+
+            if (error) {
+              throw new Error(error.message);
+            }
+
+            break;
+          }
+
+          case "checkout.session.expired":
+          case "checkout.session.async_payment_failed": {
+            const session = event.data.object as Stripe.Checkout.Session;
+
+            const reservationId =
+              String(session.client_reference_id || "") ||
+              String(session.metadata?.reservationId || "");
+
+            if (!reservationId) {
+              return res.json({ received: true });
+            }
+
+            const paymentStatus =
+              event.type === "checkout.session.expired" ? "expired" : "failed";
+
+            const { error } = await supabase.rpc(
+              "release_installation_reservation",
+              {
+                p_reservation_id: reservationId,
+                p_release_reason: `stripe_${event.type}`,
+                p_payment_status: paymentStatus,
+              },
+            );
+
+            if (error) {
+              throw new Error(error.message);
+            }
+
+            break;
+          }
+
+          default:
+            break;
+        }
+
+        return res.json({ received: true });
+      } catch (error: any) {
+        console.error("Error procesando webhook de Stripe:", error);
+        return res.status(500).json({
+          error: "No se pudo procesar el webhook de Stripe",
+          details: error?.message || "Error desconocido",
+        });
+      }
+    },
+  );
+
+  app.use(express.json({ limit: "10mb" }));
+
   app.use("/assets", express.static(path.join(process.cwd(), "src", "assets")));
 
   const upload = multer({
@@ -2298,6 +2511,149 @@ async function startServer() {
     }
   });
 
+  app.post("/api/contracts/:id/retry-payment", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const { data: contract, error: contractError } = await supabase
+      .from("contracts")
+      .select("*")
+      .eq("id", id)
+      .single();
+
+    if (contractError || !contract) {
+      return res.status(404).json({
+        error: "Contrato no encontrado",
+        details: contractError?.message ?? "El contrato no existe",
+      });
+    }
+
+    const { data: reservation, error: reservationError } = await supabase
+      .from("installation_reservations")
+      .select("*")
+      .eq("contract_id", contract.id)
+      .maybeSingle();
+
+    if (reservationError || !reservation) {
+      return res.status(404).json({
+        error: "No existe una reserva asociada a este contrato",
+        details: reservationError?.message ?? "Reserva no encontrada",
+      });
+    }
+
+    if (reservation.payment_status === "paid") {
+      return res.status(409).json({
+        error: "La reserva ya está pagada",
+      });
+    }
+
+    if (reservation.reservation_status !== "pending_payment") {
+      return res.status(409).json({
+        error: "La reserva ya no está en estado pendiente de pago",
+      });
+    }
+
+    const ctx = await getContractContextFromStudy(contract.study_id);
+
+    const checkoutSession = await createCheckoutSessionForReservation({
+      reservationId: reservation.id,
+      contractId: contract.id,
+      studyId: ctx.study.id,
+      clientId: ctx.client.id,
+      installationId: ctx.installation.id,
+      installationName: ctx.installation.nombre_instalacion,
+      clientEmail: ctx.client.email ?? null,
+      signalAmount: Number(reservation.signal_amount ?? DEFAULT_SIGNAL_AMOUNT_EUR),
+      currency: String(reservation.currency || "eur"),
+      paymentDeadlineAt: reservation.payment_deadline_at,
+    });
+
+    const { error: updateError } = await supabase
+      .from("installation_reservations")
+      .update({
+        stripe_checkout_session_id: checkoutSession.id,
+      })
+      .eq("id", reservation.id);
+
+    if (updateError) {
+      return res.status(500).json({
+        error: "No se pudo actualizar la nueva sesión de Stripe",
+        details: updateError.message,
+      });
+    }
+
+    return res.json({
+      success: true,
+      reservationId: reservation.id,
+      stripe: {
+        checkoutSessionId: checkoutSession.id,
+        checkoutUrl: checkoutSession.url,
+      },
+    });
+  } catch (error: any) {
+    console.error("Error en /api/contracts/:id/retry-payment:", error);
+    return res.status(500).json({
+      error: "No se pudo regenerar el pago",
+      details: error?.message || "Error desconocido",
+    });
+  }
+});
+
+app.get("/api/contracts/:id/reservation-status", async (req, res) => {
+  try {
+    const { id } = req.params;
+
+    const { data: contract, error: contractError } = await supabase
+      .from("contracts")
+      .select("id, contract_number, status")
+      .eq("id", id)
+      .single();
+
+    if (contractError || !contract) {
+      return res.status(404).json({
+        error: "Contrato no encontrado",
+        details: contractError?.message ?? "El contrato no existe",
+      });
+    }
+
+    const { data: reservation, error: reservationError } = await supabase
+      .from("installation_reservations")
+      .select("*")
+      .eq("contract_id", id)
+      .maybeSingle();
+
+    if (reservationError) {
+      return res.status(500).json({
+        error: "No se pudo consultar la reserva",
+        details: reservationError.message,
+      });
+    }
+
+    return res.json({
+      success: true,
+      contract,
+      reservation: reservation
+        ? {
+            id: reservation.id,
+            reservationStatus: reservation.reservation_status,
+            paymentStatus: reservation.payment_status,
+            paymentDeadlineAt: reservation.payment_deadline_at,
+            confirmedAt: reservation.confirmed_at,
+            releasedAt: reservation.released_at,
+            signalAmount: reservation.signal_amount,
+            currency: reservation.currency,
+          }
+        : null,
+    });
+  } catch (error: any) {
+    console.error("Error en /api/contracts/:id/reservation-status:", error);
+    return res.status(500).json({
+      error: "No se pudo consultar el estado de la reserva",
+      details: error?.message || "Error desconocido",
+    });
+  }
+});
+
   app.patch("/api/studies/:id/assign-installation", async (req, res) => {
     try {
       const { id } = req.params;
@@ -3144,223 +3500,317 @@ async function startServer() {
   //   },
   // );
 
-  app.post(
-    "/api/contracts/:id/sign",
-    upload.fields([
-      { name: "signed_contract", maxCount: 1 },
-      { name: "file", maxCount: 1 },
-    ]),
-    async (req, res) => {
-      try {
-        const { id } = req.params;
+ app.post(
+  "/api/contracts/:id/sign",
+  upload.fields([
+    { name: "signed_contract", maxCount: 1 },
+    { name: "file", maxCount: 1 },
+  ]),
+  async (req, res) => {
+    try {
+      const { id } = req.params;
 
-        const files =
-          (req.files as {
-            [fieldname: string]: Express.Multer.File[];
-          }) || {};
+      const files =
+        (req.files as {
+          [fieldname: string]: Express.Multer.File[];
+        }) || {};
 
-        const signedContractFile =
-          files.signed_contract?.[0] || files.file?.[0] || null;
+      const signedContractFile =
+        files.signed_contract?.[0] || files.file?.[0] || null;
 
-        if (!signedContractFile) {
-          return res.status(400).json({
-            error: "Debes enviar el PDF firmado del contrato",
-          });
-        }
+      if (!signedContractFile) {
+        return res.status(400).json({
+          error: "Debes enviar el PDF firmado del pre-contrato",
+        });
+      }
 
-        const { data: contract, error: contractError } = await supabase
-          .from("contracts")
-          .select("*")
-          .eq("id", id)
-          .single();
+      const { data: contract, error: contractError } = await supabase
+        .from("contracts")
+        .select("*")
+        .eq("id", id)
+        .single();
 
-        if (contractError || !contract) {
-          return res.status(404).json({
-            error: "Contrato no encontrado",
-            details: contractError?.message ?? "El contrato no existe",
-          });
-        }
+      if (contractError || !contract) {
+        return res.status(404).json({
+          error: "Contrato no encontrado",
+          details: contractError?.message ?? "El contrato no existe",
+        });
+      }
 
-        if (contract.status !== "generated") {
-          return res.status(409).json({
-            alreadySigned: true,
-            error: "Este pre-contrato ya fue firmado anteriormente",
-            message: "Este pre-contrato ya fue firmado anteriormente",
-            contract: {
-              id: contract.id,
-              status: contract.status,
-              contract_number: contract.contract_number,
-            },
-          });
-        }
+      if (contract.status !== "generated") {
+        return res.status(409).json({
+          alreadySigned: true,
+          error: "Este pre-contrato ya fue firmado anteriormente",
+          message: "Este pre-contrato ya fue firmado anteriormente",
+          contract: {
+            id: contract.id,
+            status: contract.status,
+            contract_number: contract.contract_number,
+          },
+        });
+      }
 
-        const { data: existingReservation } = await supabase
+      const { data: existingReservation, error: existingReservationError } =
+        await supabase
           .from("installation_reservations")
-          .select("id, reservation_status, payment_status")
+          .select(
+            "id, reservation_status, payment_status, payment_deadline_at, stripe_checkout_session_id",
+          )
           .eq("contract_id", contract.id)
           .maybeSingle();
 
-        // if (existingReservation) {
-        //   return res.status(400).json({
-        //     error: "Este contrato ya tiene una reserva asociada",
-        //   });
-        // }
-        if (existingReservation) {
-          return res.status(409).json({
-            alreadySigned: true,
-            error: "Este pre-contrato ya tiene una reserva asociada",
-            message: "Este pre-contrato ya fue firmado anteriormente",
-            contract: {
-              id: contract.id,
-              status: contract.status,
-              contract_number: contract.contract_number,
-            },
-            reservationSummary: {
-              reservationStatus: existingReservation.reservation_status ?? null,
-              paymentStatus: existingReservation.payment_status ?? null,
-            },
-          });
-        }
-
-        const ctx = await getContractContextFromStudy(contract.study_id);
-
-        const contractsFolders =
-          await ensureContractsStatusFolder("PendientesPago");
-
-        const contractFileName = buildContractFileName({
-          dni: ctx.client.dni,
-          nombre: ctx.client.nombre,
-          apellidos: ctx.client.apellidos,
-          contractId: contract.id,
+      if (existingReservationError) {
+        return res.status(500).json({
+          error: "No se pudo comprobar si ya existe una reserva asociada",
+          details: existingReservationError.message,
         });
+      }
 
-        const uploadedContract = await uploadBufferToDrive({
-          folderId: contractsFolders.folder.id,
-          fileName: contractFileName,
-          mimeType: signedContractFile.mimetype || "application/pdf",
-          buffer: signedContractFile.buffer,
-        });
-
-        const paymentDeadlineAt = new Date(
-          Date.now() + 15 * 24 * 60 * 60 * 1000,
-        ).toISOString();
-
-        const { data: reservation, error: reservationError } =
-          await supabase.rpc("reserve_installation_kwp", {
-            p_installation_id: ctx.installation.id,
-            p_study_id: ctx.study.id,
-            p_client_id: ctx.client.id,
-            p_contract_id: contract.id,
-            p_reserved_kwp: ctx.assignedKwp,
-            p_payment_deadline_at: paymentDeadlineAt,
-            p_deadline_enforced: false,
-            p_notes: "Reserva creada tras firma de contrato",
-          });
-
-        if (reservationError) {
-          return res.status(400).json({
-            error: "No se pudo crear la reserva de kWp",
-            details: reservationError.message,
-          });
-        }
-
-        const nowIso = new Date().toISOString();
-
-        const { data: updatedContract, error: updateContractError } =
-          await supabase
-            .from("contracts")
-            .update({
-              status: "uploaded",
-              signed_at: nowIso,
-              uploaded_at: nowIso,
-              drive_folder_id: contractsFolders.folder.id,
-              drive_folder_url: contractsFolders.folder.webViewLink,
-              contract_drive_file_id: uploadedContract.id,
-              contract_drive_url: uploadedContract.webViewLink,
-              metadata: {
-                ...(contract.metadata ?? {}),
-                assigned_kwp: ctx.assignedKwp,
-                reservation_created: true,
-                reservation_status: "pending_payment",
-                payment_deadline_at: paymentDeadlineAt,
-              },
-            })
-            .eq("id", contract.id)
-            .select()
-            .single();
-
-        if (updateContractError) {
-          return res.status(500).json({
-            error: "No se pudo actualizar el contrato tras la firma",
-            details: updateContractError.message,
-          });
-        }
-
-        let contractEmailStatus: "pending" | "sent" | "failed" = "pending";
-        let contractEmailError: string | null = null;
-
-        if (ctx.client.email) {
-          try {
-            await sendSignedContractEmail({
-              to: ctx.client.email,
-              clientName: `${ctx.client.nombre} ${ctx.client.apellidos}`.trim(),
-              pdfBuffer: signedContractFile.buffer,
-              pdfFilename: contractFileName,
-              contractUrl: uploadedContract.webViewLink,
-              installationName: ctx.installation.nombre_instalacion,
-              reservedKwp: ctx.assignedKwp,
-              paymentDeadlineAt,
-            });
-
-            contractEmailStatus = "sent";
-          } catch (error: any) {
-            console.error(
-              "Error enviando el contrato firmado por email:",
-              error,
-            );
-            contractEmailStatus = "failed";
-            contractEmailError =
-              error?.message ||
-              "No se pudo enviar el correo del contrato firmado";
-          }
-        } else {
-          contractEmailStatus = "failed";
-          contractEmailError = "El cliente no tiene email";
-        }
-
-        return res.status(201).json({
-          success: true,
-          message:
-            "Contrato firmado y reserva creada correctamente. El cliente dispone de 15 días orientativos para realizar la transferencia.",
-          contract: updatedContract,
-          reservation,
-          drive: {
-            contractsRootFolderUrl: contractsFolders.root.webViewLink,
-            contractFolderUrl: contractsFolders.folder.webViewLink,
-            contractFileUrl: uploadedContract.webViewLink,
+      if (existingReservation) {
+        return res.status(409).json({
+          alreadySigned: true,
+          error: "Este pre-contrato ya tiene una reserva asociada",
+          message: "Este pre-contrato ya fue firmado anteriormente",
+          contract: {
+            id: contract.id,
+            status: contract.status,
+            contract_number: contract.contract_number,
           },
           reservationSummary: {
+            reservationId: existingReservation.id,
+            reservationStatus: existingReservation.reservation_status ?? null,
+            paymentStatus: existingReservation.payment_status ?? null,
+            paymentDeadlineAt:
+              existingReservation.payment_deadline_at ?? null,
+            stripeCheckoutSessionId:
+              existingReservation.stripe_checkout_session_id ?? null,
+          },
+        });
+      }
+
+      const ctx = await getContractContextFromStudy(contract.study_id);
+
+      const contractsFolders =
+        await ensureContractsStatusFolder("PendientesPago");
+
+      const contractFileName = buildContractFileName({
+        dni: ctx.client.dni,
+        nombre: ctx.client.nombre,
+        apellidos: ctx.client.apellidos,
+        contractId: contract.id,
+      });
+
+      const uploadedContract = await uploadBufferToDrive({
+        folderId: contractsFolders.folder.id,
+        fileName: contractFileName,
+        mimeType: signedContractFile.mimetype || "application/pdf",
+        buffer: signedContractFile.buffer,
+      });
+
+      const paymentDeadlineAt = new Date(
+        Date.now() + 15 * 24 * 60 * 60 * 1000,
+      ).toISOString();
+
+      const signalAmount =
+        toPositiveNumber(
+          req.body.signalAmount ??
+            req.body.signal_amount ??
+            contract?.metadata?.signal_amount ??
+            DEFAULT_SIGNAL_AMOUNT_EUR,
+        ) ?? null;
+
+      if (signalAmount === null) {
+        return res.status(400).json({
+          error: "La señal debe ser un número mayor que 0",
+        });
+      }
+
+      const currency = String(req.body.currency || "eur")
+        .trim()
+        .toLowerCase();
+
+      const { data: reservation, error: reservationError } =
+        await supabase.rpc("reserve_installation_kwp", {
+          p_installation_id: ctx.installation.id,
+          p_study_id: ctx.study.id,
+          p_client_id: ctx.client.id,
+          p_contract_id: contract.id,
+          p_reserved_kwp: ctx.assignedKwp,
+          p_payment_deadline_at: paymentDeadlineAt,
+          p_deadline_enforced: false,
+          p_notes:
+            "Reserva creada tras firma del pre-contrato y pendiente de pago Stripe",
+        });
+
+      if (reservationError) {
+        return res.status(400).json({
+          error: "No se pudo crear la reserva de kWp",
+          details: reservationError.message,
+        });
+      }
+
+      const reservationId = Array.isArray(reservation)
+        ? reservation[0]?.id
+        : (reservation as any)?.id;
+
+      if (!reservationId) {
+        return res.status(500).json({
+          error: "La reserva se creó pero no devolvió id",
+        });
+      }
+
+      let checkoutSession: Stripe.Checkout.Session;
+
+      try {
+        checkoutSession = await createCheckoutSessionForReservation({
+          reservationId,
+          contractId: contract.id,
+          studyId: ctx.study.id,
+          clientId: ctx.client.id,
+          installationId: ctx.installation.id,
+          installationName: ctx.installation.nombre_instalacion,
+          clientEmail: ctx.client.email ?? null,
+          signalAmount,
+          currency,
+          paymentDeadlineAt,
+        });
+      } catch (stripeError: any) {
+        console.error(
+          "Error creando la sesión de Stripe para la reserva:",
+          stripeError,
+        );
+
+        return res.status(500).json({
+          error: "No se pudo crear la sesión de pago en Stripe",
+          details: stripeError?.message || "Error desconocido en Stripe",
+        });
+      }
+
+      const { error: reservationStripeUpdateError } = await supabase
+        .from("installation_reservations")
+        .update({
+          stripe_checkout_session_id: checkoutSession.id,
+          signal_amount: signalAmount,
+          currency,
+        })
+        .eq("id", reservationId);
+
+      if (reservationStripeUpdateError) {
+        return res.status(500).json({
+          error: "No se pudo guardar la sesión de Stripe en la reserva",
+          details: reservationStripeUpdateError.message,
+        });
+      }
+
+      const nowIso = new Date().toISOString();
+
+      const { data: updatedContract, error: updateContractError } =
+        await supabase
+          .from("contracts")
+          .update({
+            status: "uploaded",
+            signed_at: nowIso,
+            uploaded_at: nowIso,
+            drive_folder_id: contractsFolders.folder.id,
+            drive_folder_url: contractsFolders.folder.webViewLink,
+            contract_drive_file_id: uploadedContract.id,
+            contract_drive_url: uploadedContract.webViewLink,
+            metadata: {
+              ...(contract.metadata ?? {}),
+              assigned_kwp: ctx.assignedKwp,
+              reservation_created: true,
+              reservation_id: reservationId,
+              reservation_status: "pending_payment",
+              payment_status: "pending",
+              payment_deadline_at: paymentDeadlineAt,
+              signal_amount: signalAmount,
+              currency,
+              stripe_checkout_session_id: checkoutSession.id,
+            },
+          })
+          .eq("id", contract.id)
+          .select()
+          .single();
+
+      if (updateContractError) {
+        return res.status(500).json({
+          error: "No se pudo actualizar el contrato tras la firma",
+          details: updateContractError.message,
+        });
+      }
+
+      let contractEmailStatus: "pending" | "sent" | "failed" = "pending";
+      let contractEmailError: string | null = null;
+
+      if (ctx.client.email) {
+        try {
+          await sendSignedContractEmail({
+            to: ctx.client.email,
+            clientName: `${ctx.client.nombre} ${ctx.client.apellidos}`.trim(),
+            pdfBuffer: signedContractFile.buffer,
+            pdfFilename: contractFileName,
+            contractUrl: uploadedContract.webViewLink,
             installationName: ctx.installation.nombre_instalacion,
             reservedKwp: ctx.assignedKwp,
             paymentDeadlineAt,
-            deadlineEnforced: false,
-          },
-          email: {
-            to: ctx.client.email ?? null,
-            status: contractEmailStatus,
-            error: contractEmailError,
-          },
-        });
-      } catch (error: any) {
-        console.error("Error en /api/contracts/:id/sign:", error);
+          });
 
-        return res.status(500).json({
-          error: "No se pudo firmar/subir el contrato",
-          details: error?.message || "Error desconocido",
-        });
+          contractEmailStatus = "sent";
+        } catch (error: any) {
+          console.error(
+            "Error enviando el pre-contrato firmado por email:",
+            error,
+          );
+          contractEmailStatus = "failed";
+          contractEmailError =
+            error?.message ||
+            "No se pudo enviar el correo del pre-contrato firmado";
+        }
+      } else {
+        contractEmailStatus = "failed";
+        contractEmailError = "El cliente no tiene email";
       }
-    },
-  );
+
+      return res.status(201).json({
+        success: true,
+        message:
+          "Pre-contrato firmado y reserva creada correctamente. Falta completar el pago de la señal en Stripe.",
+        contract: updatedContract,
+        reservation: {
+          id: reservationId,
+          reservationStatus: "pending_payment",
+          paymentStatus: "pending",
+          paymentDeadlineAt,
+          signalAmount,
+          currency,
+          installationName: ctx.installation.nombre_instalacion,
+          reservedKwp: ctx.assignedKwp,
+        },
+        stripe: {
+          checkoutSessionId: checkoutSession.id,
+          checkoutUrl: checkoutSession.url,
+        },
+        drive: {
+          contractsRootFolderUrl: contractsFolders.root.webViewLink,
+          contractFolderUrl: contractsFolders.folder.webViewLink,
+          contractFileUrl: uploadedContract.webViewLink,
+        },
+        email: {
+          to: ctx.client.email ?? null,
+          status: contractEmailStatus,
+          error: contractEmailError,
+        },
+      });
+    } catch (error: any) {
+      console.error("Error en /api/contracts/:id/sign:", error);
+
+      return res.status(500).json({
+        error: "No se pudo firmar/subir el contrato",
+        details: error?.message || "Error desconocido",
+      });
+    }
+  },
+);
 
   //CLIENTS GET
   app.get("/api/clients", async (_req, res) => {

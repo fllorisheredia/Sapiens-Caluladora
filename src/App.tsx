@@ -627,12 +627,19 @@ type SignedContractResponse = {
   success: boolean;
   message: string;
   contract: any;
-  reservation: any;
-  reservationSummary: {
+  reservation: {
+    id: string;
+    reservationStatus: string;
+    paymentStatus: string;
+    paymentDeadlineAt: string;
+    signalAmount: number;
+    currency: string;
     installationName: string;
     reservedKwp: number;
-    paymentDeadlineAt: string;
-    deadlineEnforced: boolean;
+  };
+  stripe: {
+    checkoutSessionId: string;
+    checkoutUrl: string;
   };
   drive: {
     contractsRootFolderUrl: string;
@@ -1613,7 +1620,7 @@ function MainAppContent() {
     pdf.setFont("helvetica", "bold");
     pdf.setFontSize(22);
     pdf.setTextColor(7, 0, 95);
-    pdf.text("Contrato de adhesión", margin, y);
+    pdf.text("Contrato de Reserva", margin, y);
     y += 24;
 
     pdf.setFont("helvetica", "normal");
@@ -1640,15 +1647,14 @@ function MainAppContent() {
 
     writeSectionTitle("Condiciones básicas");
     writeParagraph(
-      "El cliente solicita la reserva de la potencia indicada en la instalación seleccionada, quedando dicha reserva pendiente de confirmación económica.",
+      "El cliente solicita la reserva de la potencia indicada en la instalación seleccionada, quedando dicha reserva vinculada al presente precontrato.",
     );
     writeParagraph(
-      "Se informa al cliente de un plazo orientativo de 15 días para realizar la transferencia correspondiente.",
+      "La reserva se formalizará mediante el pago de una señal a través de Stripe.",
     );
     writeParagraph(
-      "Hasta la validación del pago, la reserva tendrá carácter provisional.",
+      "Hasta la confirmación del pago de la señal, la reserva tendrá carácter pendiente de validación.",
     );
-
     y += 12;
     pdf.setFont("helvetica", "bold");
     pdf.setFontSize(12);
@@ -1677,7 +1683,7 @@ function MainAppContent() {
       sileo.error({
         title: "No hay estudio disponible",
         description:
-          "Primero debe haberse guardado correctamente el estudio antes de contratar.",
+          "Primero debe haberse guardado correctamente el estudio antes de iniciar la reserva.",
       });
       return;
     }
@@ -1716,8 +1722,8 @@ function MainAppContent() {
   const handleSubmitSignedContract = async () => {
     if (!generatedContract?.contract?.id || !generatedContract?.preview) {
       sileo.error({
-        title: "Contrato no disponible",
-        description: "No se ha podido preparar el contrato para firmar.",
+        title: "Precontrato no disponible",
+        description: "No se ha podido preparar el precontrato para firmar.",
       });
       return;
     }
@@ -1753,37 +1759,52 @@ function MainAppContent() {
           },
         },
       );
+      console.log("RESPUESTA /sign:", response.data);
 
       setSignedContractResult(response.data);
       setIsContractModalOpen(false);
 
       if (response.data.email?.status === "sent") {
         sileo.success({
-          title: "Contrato enviado al cliente",
-          description: `Se ha enviado una copia firmada a ${response.data.email.to ?? "su correo"}.`,
+          title: "Precontrato enviado al cliente",
+          description: `Se ha enviado una copia a ${response.data.email.to ?? "su correo"}.`,
         });
       } else if (response.data.email?.status === "failed") {
         sileo.warning({
-          title: "Contrato firmado, pero el email falló",
+          title: "Precontrato firmado, pero el email falló",
           description:
             response.data.email.error ??
-            "No se pudo enviar la copia del contrato por correo.",
+            "No se pudo enviar la copia del precontrato por correo.",
         });
       }
 
       sileo.success({
-        title: "Contrato firmado correctamente",
-        description: `Se han reservado ${response.data.reservationSummary.reservedKwp} kWp en ${response.data.reservationSummary.installationName}.`,
+        title: "Precontrato firmado correctamente",
+        description: `Se han reservado ${response.data.reservation.reservedKwp} kWp en ${response.data.reservation.installationName}. Ahora te redirigiremos al pago de la señal.`,
       });
+
+      const checkoutUrl = response.data.stripe?.checkoutUrl;
+
+      if (!checkoutUrl) {
+        sileo.error({
+          title: "Pago no disponible",
+          description:
+            "La reserva se creó, pero no se pudo obtener la URL de pago.",
+        });
+        return;
+      }
+
+      window.location.href = checkoutUrl;
     } catch (error: any) {
-      console.error("Error firmando contrato:", error);
+      console.error("Error firmando precontrato:", error);
       console.error("status:", error?.response?.status);
       console.error("data:", error?.response?.data);
 
       sileo.error({
-        title: "No se pudo firmar el contrato",
+        title: "No se pudo iniciar la reserva",
         description:
           error?.response?.data?.details ||
+          error?.response?.data?.error ||
           error?.message ||
           "Ha ocurrido un error inesperado.",
       });
@@ -2469,7 +2490,6 @@ function MainAppContent() {
                           />
 
                           <Input
-                          
                             label="Dirección completa"
                             {...register("address")}
                             error={errors.address?.message}
@@ -3438,8 +3458,8 @@ function MainAppContent() {
 
                                 <span>
                                   {contractAlreadySigned
-                                    ? "Contrato enviado"
-                                    : "Contratar"}
+                                    ? "Reservado"
+                                    : "Reservar"}
                                 </span>
                               </span>
                             </Button>
@@ -3456,7 +3476,7 @@ function MainAppContent() {
                                 Resumen
                               </p>
                             </div>
-                            {signedContractResult?.reservationSummary ? (
+                            {signedContractResult?.reservation ? (
                               <div className="mt-5 rounded-[1.4rem] bg-brand-mint/15 p-4 border border-brand-mint/20 space-y-3 text-brand-navy">
                                 <div className="flex items-center gap-2">
                                   <Icon
@@ -3464,7 +3484,7 @@ function MainAppContent() {
                                     className="h-5 w-5 text-brand-navy"
                                   />
                                   <p className="text-[10px] font-bold uppercase tracking-widest text-brand-navy/60">
-                                    Reserva creada
+                                    Reserva iniciada
                                   </p>
                                 </div>
 
@@ -3472,7 +3492,7 @@ function MainAppContent() {
                                   Se han reservado{" "}
                                   <span className="font-bold">
                                     {
-                                      signedContractResult.reservationSummary
+                                      signedContractResult.reservation
                                         .reservedKwp
                                     }{" "}
                                     kWp
@@ -3480,7 +3500,7 @@ function MainAppContent() {
                                   en la planta{" "}
                                   <span className="font-bold">
                                     {
-                                      signedContractResult.reservationSummary
+                                      signedContractResult.reservation
                                         .installationName
                                     }
                                   </span>
@@ -3488,10 +3508,25 @@ function MainAppContent() {
                                 </p>
 
                                 <p className="text-sm leading-relaxed">
-                                  Dispones de un plazo orientativo de{" "}
-                                  <span className="font-bold">15 días</span>{" "}
-                                  para realizar la transferencia y confirmar la
-                                  reserva.
+                                  Estado actual del pago:{" "}
+                                  <span className="font-bold">
+                                    {
+                                      signedContractResult.reservation
+                                        .paymentStatus
+                                    }
+                                  </span>
+                                  .
+                                </p>
+
+                                <p className="text-sm leading-relaxed">
+                                  Señal pendiente:{" "}
+                                  <span className="font-bold">
+                                    {formatCurrency(
+                                      signedContractResult.reservation
+                                        .signalAmount,
+                                    )}
+                                  </span>
+                                  .
                                 </p>
                               </div>
                             ) : null}
@@ -3520,7 +3555,10 @@ function MainAppContent() {
                                   icon="solar:clock-circle-bold-duotone"
                                   className="h-4 w-4 text-brand-mint"
                                 />
-                                <span>Oferta válida por 7 días</span>
+                                <span>
+                                  La reserva se confirma tras el pago de la
+                                  señal
+                                </span>{" "}
                               </div>
                             </div>
                           </div>
@@ -3557,7 +3595,7 @@ function MainAppContent() {
                         Contratación
                       </p>
                       <h3 className="text-xl md:text-2xl font-bold text-brand-navy">
-                        Revisa y firma tu contrato
+                        Revisa y firma tu precontrato
                       </h3>
                     </div>
 
@@ -3629,8 +3667,8 @@ function MainAppContent() {
 
                         <p className="text-xs text-brand-gray mt-3 leading-relaxed">
                           Firma dentro del recuadro. Al confirmar, se generará
-                          el PDF firmado y se enviará al backend para crear la
-                          reserva.
+                          el PDF firmado, se creará tu reserva provisional y
+                          serás redirigido al pago de la señal.
                         </p>
                       </div>
 
@@ -3641,16 +3679,18 @@ function MainAppContent() {
                             className="h-5 w-5"
                           />
                           <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-brand-navy/60">
-                            Reserva provisional
+                            Reserva pendiente de Pago
                           </p>
                         </div>
 
                         <p className="text-sm leading-relaxed">
-                          Al firmar, se reservarán{" "}
+                          Al firmar, se creará una reserva de{" "}
                           <span className="font-bold">
                             {generatedContract.preview.assignedKwp} kWp
                           </span>{" "}
-                          en la instalación seleccionada.
+                          en la instalación seleccionada. La reserva se
+                          registrará definitivamente cuando completes el pago de
+                          la señal.
                         </p>
                       </div>
 
@@ -3669,7 +3709,7 @@ function MainAppContent() {
                                 className="mr-3 h-5 w-5"
                               />
                             )}
-                            Firmar y reservar
+                            Firmar y pagar señal
                           </Button>
 
                           <Button
@@ -3708,6 +3748,15 @@ export default function App() {
       <Route
         path="/contratacion-desde-propuesta"
         element={<ContratacionDesdePropuestaPage />}
+      />
+      <Route
+        path="/continuar-contratacion/exito"
+        element={<ContinuarContratacionPage />}
+      />
+
+      <Route
+        path="/continuar-contratacion/cancelado"
+        element={<ContinuarContratacionPage />}
       />
 
       <Route path="*" element={<MainAppContent />} />
