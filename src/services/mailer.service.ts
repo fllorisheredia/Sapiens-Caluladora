@@ -23,6 +23,7 @@ type SendProposalEmailParams = {
   pdfBuffer: Buffer;
   pdfFilename?: string;
   proposalUrl?: string | null;
+  continueContractUrl?: string | null;
 };
 
 export async function sendProposalEmail({
@@ -31,34 +32,108 @@ export async function sendProposalEmail({
   pdfBuffer,
   pdfFilename = "propuesta.pdf",
   proposalUrl = null,
+  continueContractUrl = null,
 }: SendProposalEmailParams) {
   console.log("[mailer] to:", to);
-  console.log("[mailer] from:", process.env.SMTP_FROM);
-  console.log("[mailer] host:", process.env.SMTP_HOST);
-  console.log("[mailer] port:", process.env.SMTP_PORT);
+  console.log("[mailer] from:", SMTP_FROM);
+  console.log("[mailer] host:", SMTP_HOST);
+  console.log("[mailer] port:", SMTP_PORT);
   console.log("[mailer] filename:", pdfFilename);
   console.log("[mailer] proposalUrl:", proposalUrl);
+  console.log("[mailer] continueContractUrl:", continueContractUrl);
   console.log("[mailer] pdfBuffer length:", pdfBuffer?.length);
+
+  const text = [
+    `Hola ${clientName}, te adjuntamos tu propuesta energética personalizada en PDF.`,
+    `Hemos preparado esta propuesta a partir de los datos de tu factura.`,
+    proposalUrl ? `También puedes consultarla aquí: ${proposalUrl}` : "",
+    continueContractUrl
+      ? `Si deseas continuar con la contratación más adelante, puedes acceder desde este enlace seguro: ${continueContractUrl}`
+      : "",
+    `Si tienes cualquier duda, estaremos encantados de ayudarte.`,
+    ``,
+    `${SMTP_FROM_NAME}`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
+  const proposalLinkHtml = proposalUrl
+    ? `
+      <p style="margin: 0 0 16px 0;">
+        También puedes consultar tu propuesta online aquí:<br />
+        <a
+          href="${proposalUrl}"
+          target="_blank"
+          style="color:#07005f; word-break: break-word;"
+        >
+          ${proposalUrl}
+        </a>
+      </p>
+    `
+    : "";
+
+  const continueContractHtml = continueContractUrl
+    ? `
+      <div style="margin: 28px 0;">
+        <p style="margin: 0 0 12px 0;">
+          Si deseas continuar con la contratación más adelante, puedes hacerlo desde el siguiente acceso seguro:
+        </p>
+
+        <a
+          href="${continueContractUrl}"
+          target="_blank"
+          style="
+            display:inline-block;
+            background:#07005f;
+            color:#ffffff;
+            text-decoration:none;
+            padding:14px 22px;
+            border-radius:12px;
+            font-weight:700;
+            font-size:14px;
+          "
+        >
+          Continuar contratación
+        </a>
+
+        <p style="margin: 12px 0 0 0; font-size: 12px; color: #6b7280;">
+          Por seguridad, este enlace puede caducar.
+        </p>
+      </div>
+    `
+    : "";
+
   await transporter.sendMail({
     from: `"${SMTP_FROM_NAME}" <${SMTP_FROM}>`,
     to,
     subject: "Tu propuesta energética personalizada",
-    text: `Hola ${clientName}, te adjuntamos tu propuesta energética personalizada en PDF.${
-      proposalUrl ? ` También puedes consultarla aquí: ${proposalUrl}` : ""
-    }`,
+    text,
     html: `
       <div style="font-family: Arial, sans-serif; color: #1f2937; line-height: 1.6;">
-        <h2>Hola ${clientName},</h2>
-        <p>Te adjuntamos tu propuesta energética personalizada en PDF.</p>
-        <p>Hemos preparado esta propuesta a partir de los datos de tu factura.</p>
-        ${
-          proposalUrl
-            ? `<p>También puedes consultar tu propuesta online aquí:<br><a href="${proposalUrl}" target="_blank">${proposalUrl}</a></p>`
-            : ""
-        }
-        <p>Si tienes cualquier duda, estaremos encantados de ayudarte.</p>
+        <h2 style="margin-bottom: 12px; color:#07005f;">Hola ${clientName},</h2>
+
+        <p style="margin: 0 0 12px 0;">
+          Te adjuntamos tu propuesta energética personalizada en PDF.
+        </p>
+
+        <p style="margin: 0 0 16px 0;">
+          Hemos preparado esta propuesta a partir de los datos de tu factura.
+        </p>
+
+        ${proposalLinkHtml}
+
+        ${continueContractHtml}
+
+        <p style="margin: 24px 0 0 0;">
+          Si tienes cualquier duda, estaremos encantados de ayudarte.
+        </p>
+
         <br />
-        <p>Un saludo,<br><strong>${SMTP_FROM_NAME}</strong></p>
+
+        <p style="margin: 0;">
+          Un saludo,<br />
+          <strong>${SMTP_FROM_NAME}</strong>
+        </p>
       </div>
     `,
     attachments: [
@@ -70,7 +145,6 @@ export async function sendProposalEmail({
     ],
   });
 }
-
 
 export async function sendSignedContractEmail(params: {
   to: string;
@@ -92,7 +166,7 @@ export async function sendSignedContractEmail(params: {
   );
 
   await transporter.sendMail({
-    from: process.env.SMTP_FROM,
+    from: `"${SMTP_FROM_NAME}" <${SMTP_FROM}>`,
     to: params.to,
     subject: "Tu contrato firmado y reserva provisional - Sapiens Energía",
     html: `
@@ -113,7 +187,7 @@ export async function sendSignedContractEmail(params: {
         </p>
         ${
           params.contractUrl
-            ? `<p>Puedes consultar también tu contrato aquí: <a href="${params.contractUrl}">${params.contractUrl}</a></p>`
+            ? `<p>Puedes consultar también tu contrato aquí: <a href="${params.contractUrl}" target="_blank">${params.contractUrl}</a></p>`
             : ""
         }
         <p>Gracias por confiar en Sapiens Energía.</p>

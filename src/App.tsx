@@ -12,6 +12,9 @@ import { motion, AnimatePresence } from "motion/react";
 import { extractBillFromApi } from "./services/extractionApiService";
 import type { ExtractedBillData } from "./services/geminiService";
 import { confirmStudy } from "./services/confirmStudyService";
+import { Routes, Route } from "react-router-dom";
+
+import ContinuarContratacionPage from "./pages/ContinueContraction";
 import { z } from "zod";
 import {
   Check,
@@ -977,7 +980,7 @@ const chartPalette = {
   grid: "rgba(7, 0, 95, 0.08)",
   hover: "rgba(7, 0, 95, 0.04)",
 };
-export default function App() {
+function MainAppContent() {
   const [view, setView] = useState<"public" | "admin">("public");
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
   const [currentStep, setCurrentStep] = useState<Step>("upload");
@@ -3658,5 +3661,23 @@ export default function App() {
         ) : null}
       </AnimatePresence>
     </Layout>
+  );
+}
+
+export default function App() {
+  return (
+    <Routes>
+      <Route
+        path="/continuar-contratacion"
+        element={<ContinuarContratacionPage />}
+      />
+
+      <Route
+        path="/continue-contract"
+        element={<ContinuarContratacionPage />}
+      />
+
+      <Route path="*" element={<MainAppContent />} />
+    </Routes>
   );
 }
