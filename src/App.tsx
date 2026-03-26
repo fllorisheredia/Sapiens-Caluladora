@@ -2318,7 +2318,7 @@ function MainAppContent() {
                   exit={{ opacity: 0, y: -30 }}
                   className="text-center"
                 >
-                  <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-brand-sky/10 text-brand-navy text-[10px] font-bold uppercase tracking-widest mb-6 border border-brand-sky/20">
+                  {/* <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-brand-sky/10 text-brand-navy text-[10px] font-bold uppercase tracking-widest mb-6 border border-brand-sky/20">
                     <Sparkles className="w-3 h-3 text-brand-sky" />
                     Estudio Gratuito en 2 Minutos
                   </div>
@@ -2332,7 +2332,7 @@ function MainAppContent() {
                     Sube tu última factura eléctrica y deja que nuestra
                     inteligencia artificial diseñe la solución de ahorro
                     perfecta para tu hogar.
-                  </p>
+                  </p> */}
 
                   <div className="max-w-2xl mx-auto mb-8 text-left">
                     <label className="flex items-start gap-3 rounded-2xl border border-brand-navy/10 bg-white p-4 shadow-sm">
@@ -2364,7 +2364,7 @@ function MainAppContent() {
                     disabled={!privacyAccepted}
                     disabledMessage="Debes aceptar la política de privacidad y el tratamiento de datos antes de subir la factura."
                   />
-                  <div className="mt-20 grid grid-cols-1 md:grid-cols-3 gap-8 text-left">
+                  {/* <div className="mt-20 grid grid-cols-1 md:grid-cols-3 gap-8 text-left">
                     {[
                       {
                         icon: ShieldCheck,
@@ -2397,7 +2397,7 @@ function MainAppContent() {
                         </p>
                       </div>
                     ))}
-                  </div>
+                  </div> */}
                 </motion.div>
               )}
 
@@ -2471,7 +2471,7 @@ function MainAppContent() {
                         subtitle="Revisa la dirección completa y el tipo de factura."
                       >
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
-                          <Controller
+                          {/* <Controller
                             name="billType"
                             control={control}
                             render={({ field }) => (
@@ -2487,7 +2487,7 @@ function MainAppContent() {
                                 placeholder="Selecciona una opción"
                               />
                             )}
-                          />
+                          /> */}
 
                           <Input
                             label="Dirección completa"
@@ -2804,7 +2804,7 @@ function MainAppContent() {
                           </p>
 
                           <div className="mt-4 space-y-1 text-sm font-semibold text-brand-navy">
-                            <p>Teléfono: 960 000 000</p>
+                            <p>Teléfono: 960 99 27 77</p>
                             <p>Email: info@sapiensenergia.com</p>
                           </div>
                         </div>

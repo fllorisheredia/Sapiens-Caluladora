@@ -145,7 +145,87 @@ export async function sendProposalEmail({
     ],
   });
 }
+export async function sendReservationConfirmedEmail(params: {
+  to: string;
+  clientName: string;
+  precontractPdfBuffer: Buffer;
+  precontractPdfFilename: string;
+  receiptPdfBuffer: Buffer;
+  receiptPdfFilename: string;
+  contractNumber: string;
+  installationName: string;
+  reservedKwp: number;
+  signalAmount: number;
+  paymentDate: string;
+}) {
+  const {
+    to,
+    clientName,
+    precontractPdfBuffer,
+    precontractPdfFilename,
+    receiptPdfBuffer,
+    receiptPdfFilename,
+    contractNumber,
+    installationName,
+    reservedKwp,
+    signalAmount,
+    paymentDate,
+  } = params;
 
+  const paymentDateFormatted = new Date(paymentDate).toLocaleString("es-ES");
+
+  await transporter.sendMail({
+    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    to,
+    subject: `Reserva confirmada y pago recibido - ${contractNumber}`,
+    html: `
+      <div style="font-family: Arial, sans-serif; color: #1f2937; line-height: 1.6;">
+        <h2 style="color: #07005f; margin-bottom: 16px;">
+          Reserva confirmada
+        </h2>
+
+        <p>Hola <strong>${clientName}</strong>,</p>
+
+        <p>
+          Hemos recibido correctamente el pago de tu señal y tu reserva ha quedado registrada.
+        </p>
+
+        <div style="margin: 20px 0; padding: 16px; border: 1px solid #e5e7eb; border-radius: 12px; background: #f9fafb;">
+          <p style="margin: 0 0 8px 0;"><strong>Precontrato:</strong> ${contractNumber}</p>
+          <p style="margin: 0 0 8px 0;"><strong>Instalación:</strong> ${installationName}</p>
+          <p style="margin: 0 0 8px 0;"><strong>Potencia reservada:</strong> ${reservedKwp} kWp</p>
+          <p style="margin: 0 0 8px 0;"><strong>Señal abonada:</strong> ${signalAmount} €</p>
+          <p style="margin: 0;"><strong>Fecha de pago:</strong> ${paymentDateFormatted}</p>
+        </div>
+
+        <p>
+          Te adjuntamos:
+        </p>
+
+        <ul>
+          <li>Copia del precontrato firmado</li>
+          <li>Justificante del pago realizado</li>
+        </ul>
+
+        <p>
+          Gracias por confiar en Sapiens Energía.
+        </p>
+      </div>
+    `,
+    attachments: [
+      {
+        filename: precontractPdfFilename,
+        content: precontractPdfBuffer,
+        contentType: "application/pdf",
+      },
+      {
+        filename: receiptPdfFilename,
+        content: receiptPdfBuffer,
+        contentType: "application/pdf",
+      },
+    ],
+  });
+}
 export async function sendSignedContractEmail(params: {
   to: string;
   clientName: string;
@@ -201,4 +281,8 @@ export async function sendSignedContractEmail(params: {
       },
     ],
   });
+
+
+
+  
 }

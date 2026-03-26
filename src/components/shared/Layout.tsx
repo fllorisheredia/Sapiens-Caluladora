@@ -13,7 +13,7 @@ export default function Layout({ children }: LayoutProps) {
       <header className="sticky top-0 z-50 w-full border-b border-brand-navy/5 bg-white/80 backdrop-blur-xl">
         <div className="container mx-auto px-4 h-20 flex items-center justify-between">
           <div className="flex items-center gap-3 group cursor-pointer">
-            <div className="w-12 h-12 rounded-xl overflow-hidden flex items-center justify-center bg-white shadow-lg shadow-brand-mint/20 group-hover:scale-105 transition-transform duration-300">
+            <div className="w-40 h-14 rounded-2xl overflow-hidden flex items-center justify-center bg-transparent  px-3 group-hover:scale-105 transition-transform duration-300">
               <img
                 src={sapiensLogo}
                 alt="Sapiens Energia"
@@ -21,18 +21,14 @@ export default function Layout({ children }: LayoutProps) {
               />
             </div>
 
-            <div className="flex flex-col">
-
-            </div>
+            <div className="flex flex-col"></div>
           </div>
         </div>
       </header>
 
-      <main className="container mx-auto px-4 py-12">
-        {children}
-      </main>
+      <main className="container mx-auto px-4 py-12">{children}</main>
 
-      <footer className="hidden md:block border-t border-brand-navy/5 py-16 bg-white">
+      {/* <footer className="hidden md:block border-t border-brand-navy/5 py-16 bg-white">
         <div className="container mx-auto px-4">
           <div className="grid grid-cols-1 md:grid-cols-4 gap-12 mb-12">
             <div className="col-span-1 md:col-span-2">
@@ -78,7 +74,7 @@ export default function Layout({ children }: LayoutProps) {
             <p>© 2026 SolarStudy Pro. Todos los derechos reservados. Hecho con pasión por la energía limpia.</p>
           </div>
         </div>
-      </footer>
+      </footer> */}
 
       <Toaster position="top-center" theme="light" />
     </div>
