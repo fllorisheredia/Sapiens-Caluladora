@@ -29,7 +29,7 @@ const SAPIENS_CONTACT_EMAIL =
 const STRIPE_SECRET_KEY = process.env.STRIPE_SECRET_KEY || "";
 const STRIPE_WEBHOOK_SECRET = process.env.STRIPE_WEBHOOK_SECRET || "";
 const DEFAULT_SIGNAL_AMOUNT_EUR = Number(
-  process.env.DEFAULT_SIGNAL_AMOUNT_EUR || 150,
+  process.env.DEFAULT_SIGNAL_AMOUNT_EUR || 0.5,
 );
 
 if (!STRIPE_SECRET_KEY) {
@@ -76,10 +76,9 @@ const supabase = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY);
 const GOOGLE_SERVICE_ACCOUNT_EMAIL =
   process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || "";
 
-const GOOGLE_PRIVATE_KEY = (process.env.GOOGLE_PRIVATE_KEY || "").replace(
-  /\\n/g,
-  "\n",
-);
+const GOOGLE_PRIVATE_KEY = (process.env.GOOGLE_PRIVATE_KEY || "")
+  .replace(/\\n/g, "\n")
+  .replace(/^"|"$/g, "");
 
 const GOOGLE_DRIVE_ROOT_FOLDER_ID =
   process.env.GOOGLE_DRIVE_ROOT_FOLDER_ID || "";
