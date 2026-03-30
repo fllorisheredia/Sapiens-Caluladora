@@ -60,7 +60,7 @@ import {
   Tooltip,
   CartesianGrid,
 } from "recharts";
-
+//ASASASS
 // import {ContratacionDesdePropuestaPage} from "./pages/ContratacionDesdePropuestaPage"
 import ContratacionDesdePropuestaPage from "./pages/ContratacionDesdePropuestaPage";
 import ReservationConfirmedPage from "./pages/ReservationConfirmedPage";
