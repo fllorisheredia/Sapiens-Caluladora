@@ -10,6 +10,7 @@ import { createClient } from "@supabase/supabase-js";
 import { extractInvoiceWithFallback } from "./src/services/invoiceExtractionOrchestrator";
 import { google } from "googleapis";
 import { Readable } from "node:stream";
+import fs from "node:fs";
 import {
   sendProposalEmail,
   sendReservationConfirmedEmail,
@@ -4703,21 +4704,52 @@ async function startServer() {
     app.use(vite.middlewares);
   } else {
     const distPath = path.join(process.cwd(), "dist");
+    const assetsPath = path.join(distPath, "assets");
+    const indexPath = path.join(distPath, "index.html");
 
-    app.use(express.static(distPath, { index: false }));
+    console.log("[static] distPath:", distPath);
+    console.log("[static] index exists:", fs.existsSync(indexPath));
+    console.log("[static] assets exists:", fs.existsSync(assetsPath));
+    if (fs.existsSync(assetsPath)) {
+      console.log("[static] assets files:", fs.readdirSync(assetsPath));
+    }
+
+    app.use(
+      "/assets",
+      express.static(assetsPath, {
+        index: false,
+        immutable: true,
+        maxAge: "1y",
+      }),
+    );
+
+    app.use(express.static(distPath, { index: false, maxAge: 0 }));
 
     app.get("*", (req, res, next) => {
       if (req.path.startsWith("/api/")) return next();
-      if (path.extname(req.path)) return next();
 
-      res.sendFile(path.join(distPath, "index.html"));
+      // Si pide un archivo real (.js, .css, .png, etc.) y no existe, 404.
+      // Nunca devolver index.html para assets.
+      if (path.extname(req.path)) {
+        return res.status(404).send("Not found");
+      }
+
+      res.setHeader(
+        "Cache-Control",
+        "no-store, no-cache, must-revalidate, proxy-revalidate",
+      );
+      res.setHeader("Pragma", "no-cache");
+      res.setHeader("Expires", "0");
+
+      res.sendFile(indexPath);
     });
   }
 
   app.listen(PORT, "0.0.0.0", () => {
     console.log(`Server running on http://localhost:${PORT}`);
   });
-
 }
+
+startServer();
 
 startServer();
