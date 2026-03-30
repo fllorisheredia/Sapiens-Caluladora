@@ -12,7 +12,7 @@ import { google } from "googleapis";
 import { Readable } from "node:stream";
 import {
   sendProposalEmail,
-  // sendSignedContractEmail,
+  sendReservationConfirmedEmail,
 } from "./src/services/mailer.service";
 // dotenv.config();
 
@@ -20,7 +20,8 @@ import crypto from "node:crypto";
 import jwt from "jsonwebtoken";
 import jsPDF from "jspdf";
 const PORT = Number(process.env.PORT || 3000);
-const SAPIENS_CONTACT_PHONE = process.env.SAPIENS_CONTACT_PHONE || "960 99 27 77";
+const SAPIENS_CONTACT_PHONE =
+  process.env.SAPIENS_CONTACT_PHONE || "960 99 27 77";
 const SAPIENS_CONTACT_EMAIL =
   process.env.SAPIENS_CONTACT_EMAIL || "info@sapiensenergia.es";
 
@@ -523,6 +524,12 @@ async function sendReservationConfirmationAfterPayment(params: {
 }) {
   const { reservationId, stripeSessionId, stripePaymentIntentId } = params;
 
+  console.log("[payment-email] START", {
+    reservationId,
+    stripeSessionId,
+    stripePaymentIntentId,
+  });
+
   const { data: reservation, error: reservationError } = await supabase
     .from("installation_reservations")
     .select("*")
@@ -530,11 +537,19 @@ async function sendReservationConfirmationAfterPayment(params: {
     .single();
 
   if (reservationError || !reservation) {
+    console.error("[payment-email] Reserva no encontrada", reservationError);
     throw new Error(
       reservationError?.message ||
         "No se encontró la reserva para enviar el correo",
     );
   }
+
+  console.log("[payment-email] reservation OK", {
+    id: reservation.id,
+    contract_id: reservation.contract_id,
+    signal_amount: reservation.signal_amount,
+    currency: reservation.currency,
+  });
 
   const { data: contract, error: contractError } = await supabase
     .from("contracts")
@@ -543,19 +558,34 @@ async function sendReservationConfirmationAfterPayment(params: {
     .single();
 
   if (contractError || !contract) {
+    console.error("[payment-email] Contrato no encontrado", contractError);
     throw new Error(
       contractError?.message || "No se encontró el precontrato asociado",
     );
   }
 
+  console.log("[payment-email] contract OK", {
+    id: contract.id,
+    contract_number: contract.contract_number,
+    contract_drive_file_id: contract.contract_drive_file_id,
+    study_id: contract.study_id,
+  });
+
   const alreadySentAt =
     (reservation.metadata as any)?.payment_confirmation_email_sent_at ?? null;
 
   if (alreadySentAt) {
+    console.log("[payment-email] Ya enviado anteriormente", alreadySentAt);
     return;
   }
 
   const ctx = await getContractContextFromStudy(contract.study_id);
+
+  console.log("[payment-email] client/context OK", {
+    clientEmail: ctx.client.email,
+    clientName: `${ctx.client.nombre} ${ctx.client.apellidos}`.trim(),
+    installationName: ctx.installation.nombre_instalacion,
+  });
 
   if (!ctx.client.email) {
     throw new Error("El cliente no tiene email");
@@ -568,6 +598,12 @@ async function sendReservationConfirmationAfterPayment(params: {
   const precontractFile = await downloadDriveFileAsBuffer(
     contract.contract_drive_file_id,
   );
+
+  console.log("[payment-email] precontract descargado", {
+    fileName: precontractFile.fileName,
+    mimeType: precontractFile.mimeType,
+    size: precontractFile.buffer.length,
+  });
 
   const receiptBuffer = await buildPaymentReceiptPdfBuffer({
     contractNumber: contract.contract_number,
@@ -582,6 +618,10 @@ async function sendReservationConfirmationAfterPayment(params: {
     paidAt: new Date().toISOString(),
     clientName: `${ctx.client.nombre} ${ctx.client.apellidos}`.trim(),
     clientDni: ctx.client.dni,
+  });
+
+  console.log("[payment-email] justificante generado", {
+    size: receiptBuffer.length,
   });
 
   await sendReservationConfirmedEmail({
@@ -599,6 +639,10 @@ async function sendReservationConfirmationAfterPayment(params: {
     paymentDate: new Date().toISOString(),
   });
 
+  console.log("[payment-email] EMAIL ENVIADO OK", {
+    to: ctx.client.email,
+  });
+
   const { error: updateReservationError } = await supabase
     .from("installation_reservations")
     .update({
@@ -612,10 +656,16 @@ async function sendReservationConfirmationAfterPayment(params: {
     .eq("id", reservation.id);
 
   if (updateReservationError) {
+    console.error(
+      "[payment-email] Error actualizando metadata",
+      updateReservationError,
+    );
     throw new Error(
       `No se pudo marcar el email como enviado: ${updateReservationError.message}`,
     );
   }
+
+  console.log("[payment-email] FIN OK");
 }
 
 type InstallationWithAvailability = {
@@ -1618,11 +1668,18 @@ function verifyContractResumeToken(token: string): {
   };
 }
 
-function buildReservationSuccessUrl() {
-  return `${FRONTEND_URL.replace(
-    /\/$/,
-    "",
-  )}/continuar-contratacion/exito?session_id={CHECKOUT_SESSION_ID}`;
+function buildReservationSuccessUrl(params: {
+  contractId: string;
+  reservationId: string;
+}) {
+  const base = FRONTEND_URL.replace(/\/$/, "");
+
+  return (
+    `${base}/reserva-confirmada` +
+    `?session_id={CHECKOUT_SESSION_ID}` +
+    `&contractId=${encodeURIComponent(params.contractId)}` +
+    `&reservationId=${encodeURIComponent(params.reservationId)}`
+  );
 }
 
 function buildReservationCancelUrl(contractId: string) {
@@ -1665,7 +1722,10 @@ async function createCheckoutSessionForReservation(params: {
     mode: "payment",
     client_reference_id: params.reservationId,
     customer_email: params.clientEmail || undefined,
-    success_url: buildReservationSuccessUrl(),
+    success_url: buildReservationSuccessUrl({
+      contractId: params.contractId,
+      reservationId: params.reservationId,
+    }),
     cancel_url: buildReservationCancelUrl(params.contractId),
     expires_at: getStripeSessionExpiresAt(params.paymentDeadlineAt),
     line_items: [
@@ -1717,6 +1777,7 @@ async function startServer() {
     "/api/stripe/webhook",
     express.raw({ type: "application/json" }),
     async (req, res) => {
+      console.log("[stripe webhook] HIT");
       let event: Stripe.Event;
 
       try {
@@ -1747,6 +1808,10 @@ async function startServer() {
               String(session.metadata?.reservationId || "");
 
             if (!reservationId) {
+              console.log(
+                "[stripe webhook] sesión sin reservationId",
+                session.id,
+              );
               return res.json({ received: true });
             }
 
@@ -1754,6 +1819,12 @@ async function startServer() {
               typeof session.payment_intent === "string"
                 ? session.payment_intent
                 : session.payment_intent?.id || null;
+
+            console.log("[stripe webhook] pago completado", {
+              sessionId: session.id,
+              reservationId,
+              paymentIntentId,
+            });
 
             const { error } = await supabase.rpc(
               "confirm_installation_reservation_payment",
@@ -1765,14 +1836,26 @@ async function startServer() {
             );
 
             if (error) {
+              console.error(
+                "[stripe webhook] error confirmando reserva",
+                error,
+              );
               throw new Error(error.message);
             }
 
-            await sendReservationConfirmationAfterPayment({
-              reservationId,
-              stripeSessionId: session.id,
-              stripePaymentIntentId: paymentIntentId,
-            });
+            try {
+              await sendReservationConfirmationAfterPayment({
+                reservationId,
+                stripeSessionId: session.id,
+                stripePaymentIntentId: paymentIntentId,
+              });
+            } catch (mailError) {
+              console.error(
+                "[stripe webhook] pago confirmado pero falló el email de confirmación:",
+                mailError,
+              );
+              throw mailError;
+            }
 
             break;
           }
@@ -2370,6 +2453,110 @@ async function startServer() {
       }
     },
   );
+
+  app.get("/api/stripe/checkout-session-status", async (req, res) => {
+    try {
+      const sessionId = String(req.query.session_id || "").trim();
+
+      if (!sessionId) {
+        return res.status(400).json({
+          error: "Falta session_id",
+        });
+      }
+
+      const session = await stripe.checkout.sessions.retrieve(sessionId);
+
+      const reservationId =
+        String(session.client_reference_id || "") ||
+        String(session.metadata?.reservationId || "");
+
+      const contractId =
+        String(session.metadata?.contractId || "") ||
+        String(req.query.contractId || "");
+
+      let reservation: any = null;
+      let contract: any = null;
+
+      if (reservationId) {
+        const { data, error } = await supabase
+          .from("installation_reservations")
+          .select("*")
+          .eq("id", reservationId)
+          .maybeSingle();
+
+        if (error) {
+          return res.status(500).json({
+            error: "No se pudo consultar la reserva",
+            details: error.message,
+          });
+        }
+
+        reservation = data;
+      }
+
+      const effectiveContractId =
+        reservation?.contract_id ?? contractId ?? null;
+
+      if (effectiveContractId) {
+        const { data, error } = await supabase
+          .from("contracts")
+          .select("id, contract_number, status, contract_drive_url")
+          .eq("id", effectiveContractId)
+          .maybeSingle();
+
+        if (error) {
+          return res.status(500).json({
+            error: "No se pudo consultar el contrato",
+            details: error.message,
+          });
+        }
+
+        contract = data;
+      }
+
+      const waitingWebhook =
+        session.status === "complete" && reservation?.payment_status !== "paid";
+
+      return res.json({
+        success: true,
+        session: {
+          id: session.id,
+          status: session.status,
+          paymentStatus: session.payment_status,
+          customerEmail: session.customer_email ?? null,
+        },
+        reservation: reservation
+          ? {
+              id: reservation.id,
+              contractId: reservation.contract_id,
+              reservationStatus: reservation.reservation_status,
+              paymentStatus: reservation.payment_status,
+              paymentDeadlineAt: reservation.payment_deadline_at,
+              confirmedAt: reservation.confirmed_at,
+              releasedAt: reservation.released_at,
+              signalAmount: reservation.signal_amount,
+              currency: reservation.currency,
+            }
+          : null,
+        contract: contract
+          ? {
+              id: contract.id,
+              contractNumber: contract.contract_number,
+              status: contract.status,
+              contractUrl: contract.contract_drive_url ?? null,
+            }
+          : null,
+        waitingWebhook,
+      });
+    } catch (error: any) {
+      console.error("Error en /api/stripe/checkout-session-status:", error);
+
+      return res.status(500).json({
+        error: "No se pudo consultar el estado de la sesión de Stripe",
+        details: error?.message || "Error desconocido",
+      });
+    }
+  });
 
   app.post("/api/studies/:id/send-proposal-email", async (req, res) => {
     try {

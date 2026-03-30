@@ -63,7 +63,8 @@ import {
 
 // import {ContratacionDesdePropuestaPage} from "./pages/ContratacionDesdePropuestaPage"
 import ContratacionDesdePropuestaPage from "./pages/ContratacionDesdePropuestaPage";
-
+import ReservationConfirmedPage from "./pages/ReservationconfirmedPage";
+import ReservationCancelledPage from "./pages/ReservationCancelledPage";
 delete (L.Icon.Default.prototype as any)._getIconUrl;
 
 L.Icon.Default.mergeOptions({
@@ -645,11 +646,6 @@ type SignedContractResponse = {
     contractsRootFolderUrl: string;
     contractFolderUrl: string;
     contractFileUrl: string;
-  };
-  email?: {
-    to: string | null;
-    status: "pending" | "sent" | "failed";
-    error: string | null;
   };
 };
 
@@ -1764,23 +1760,23 @@ function MainAppContent() {
       setSignedContractResult(response.data);
       setIsContractModalOpen(false);
 
-      if (response.data.email?.status === "sent") {
-        sileo.success({
-          title: "Precontrato enviado al cliente",
-          description: `Se ha enviado una copia a ${response.data.email.to ?? "su correo"}.`,
-        });
-      } else if (response.data.email?.status === "failed") {
-        sileo.warning({
-          title: "Precontrato firmado, pero el email falló",
-          description:
-            response.data.email.error ??
-            "No se pudo enviar la copia del precontrato por correo.",
-        });
-      }
+      // if (response.data.email?.status === "sent") {
+      //   sileo.success({
+      //     title: "Precontrato enviado al cliente",
+      //     description: `Se ha enviado una copia a ${response.data.email.to ?? "su correo"}.`,
+      //   });
+      // } else if (response.data.email?.status === "failed") {
+      //   sileo.warning({
+      //     title: "Precontrato firmado, pero el email falló",
+      //     description:
+      //       response.data.email.error ??
+      //       "No se pudo enviar la copia del precontrato por correo.",
+      //   });
+      // }
 
       sileo.success({
         title: "Precontrato firmado correctamente",
-        description: `Se han reservado ${response.data.reservation.reservedKwp} kWp en ${response.data.reservation.installationName}. Ahora te redirigiremos al pago de la señal.`,
+        description: `Se han reservado ${response.data.reservation.reservedKwp} kWp en ${response.data.reservation.installationName}. Ahora te redirigiremos al pago de la señal. Tras confirmarse el pago, recibirás el precontrato y el justificante por email.`,
       });
 
       const checkoutUrl = response.data.stripe?.checkoutUrl;
@@ -1813,139 +1809,6 @@ function MainAppContent() {
     }
   };
 
-  //   if (!calculationResult || !extractedData?.email) {
-  //     sileo.error({
-  //       title: "Falta el email del cliente",
-  //       description: "Añade un correo válido antes de enviarlo.",
-  //     });
-  //     return;
-  //   }
-
-  //   sileo.promise(
-  //     (async () => {
-  //       const billData = toBaseBillData(extractedData);
-  //       const pdfArtifact = await buildPdfArtifact(billData, calculationResult);
-
-  //       // Verificar que el PDF se ha generado
-  //       console.log("PDF generado:", pdfArtifact);
-
-  //       let pdfBlob: Blob | undefined;
-
-  //       // Si pdfArtifact es un ArrayBuffer o Uint8Array, lo convertimos a un Blob
-  //       if (
-  //         pdfArtifact instanceof ArrayBuffer ||
-  //         pdfArtifact instanceof Uint8Array
-  //       ) {
-  //         pdfBlob = new Blob([pdfArtifact as ArrayBuffer], {
-  //           type: "application/pdf",
-  //         });
-  //       } else if (pdfArtifact instanceof Blob) {
-  //         pdfBlob = pdfArtifact;
-  //       } else if (pdfArtifact && typeof pdfArtifact.output === "function") {
-  //         const pdfAsBlob = pdfArtifact.output("blob");
-
-  //         // Verificamos si la salida es un Blob, de lo contrario, lo convertimos
-  //         if (pdfAsBlob instanceof Blob) {
-  //           pdfBlob = pdfAsBlob;
-  //         } else {
-  //           pdfBlob = new Blob([pdfAsBlob as ArrayBuffer], {
-  //             type: "application/pdf",
-  //           });
-  //         }
-  //       }
-
-  //       console.log("PDF convertido a Blob:", pdfBlob);
-
-  //       if (!pdfBlob) {
-  //         sileo.error({
-  //           title: "Error al generar el PDF",
-  //           description: "No se pudo generar el PDF correctamente.",
-  //         });
-  //         return;
-  //       }
-
-  //       // Aquí guardamos el archivo PDF localmente
-  //       savePdfArtifactLocally(
-  //         pdfBlob,
-  //         `Estudio_Solar_${billData.name || "cliente"}.pdf`,
-  //       );
-  //       function pdfArtifactToBlob(pdfArtifact: PdfArtifact): Blob {
-  //         if (!pdfArtifact) {
-  //           throw new Error("No se pudo generar el PDF");
-  //         }
-
-  //         if (isBlob(pdfArtifact)) {
-  //           return pdfArtifact;
-  //         }
-
-  //         if (isUint8Array(pdfArtifact)) {
-  //           const buffer = uint8ArrayToArrayBuffer(pdfArtifact);
-  //           return new Blob([buffer], { type: "application/pdf" });
-  //         }
-
-  //         if (isArrayBuffer(pdfArtifact)) {
-  //           return new Blob([pdfArtifact], { type: "application/pdf" });
-  //         }
-
-  //         if (
-  //           hasSaveMethod(pdfArtifact) &&
-  //           typeof pdfArtifact.output === "function"
-  //         ) {
-  //           const output = pdfArtifact.output("blob");
-
-  //           if (output instanceof Blob) {
-  //             return output;
-  //           }
-
-  //           if (output instanceof Uint8Array) {
-  //             const buffer = uint8ArrayToArrayBuffer(output);
-  //             return new Blob([buffer], { type: "application/pdf" });
-  //           }
-
-  //           if (output instanceof ArrayBuffer) {
-  //             return new Blob([output], { type: "application/pdf" });
-  //           }
-  //         }
-
-  //         throw new Error("Formato de PDF no soportado");
-  //       }
-
-  //       // Convertir el PDF Blob a Base64
-  //       const pdfBase64 = await blobToBase64DataUrl(pdfBlob);
-  //       console.log("PDF convertido a Base64:", pdfBase64);
-
-  //       // Ahora pasamos este Blob al servicio de envío de email
-  //       await sendStudyEmailWithFallback({
-  //         to: extractedData.email,
-  //         customerName: extractedData.name || "Cliente",
-  //         billData,
-  //         calculationResult,
-  //         pdfArtifact: pdfBlob, // Aquí le pasamos el archivo PDF como un Blob
-  //       });
-  //     })(),
-  //     {
-  //       loading: { title: "Enviando estudio por email..." },
-  //       success: { title: "Estudio enviado por email con éxito" },
-  //       error: { title: "No se pudo enviar el email" },
-  //     },
-  //   );
-  // };
-  // function blobToBase64DataUrl(blob: Blob): Promise<string> {
-  //   return new Promise((resolve, reject) => {
-  //     const reader = new FileReader();
-  //     reader.onloadend = () => {
-  //       const result = reader.result;
-  //       if (typeof result === "string") {
-  //         resolve(result); // Devuelve la cadena Base64
-  //       } else {
-  //         reject(new Error("No se pudo convertir el PDF a Base64"));
-  //       }
-  //     };
-
-  //     reader.onerror = () => reject(new Error("Error leyendo el PDF"));
-  //     reader.readAsDataURL(blob); // Convierte el Blob en Base64
-  //   });
-  // }
   const handleFileSelect = async (file: File) => {
     if (!privacyAccepted) {
       sileo.warning({
@@ -2805,7 +2668,7 @@ function MainAppContent() {
 
                           <div className="mt-4 space-y-1 text-sm font-semibold text-brand-navy">
                             <p>Teléfono: 960 99 27 77</p>
-                            <p>Email: info@sapiensenergia.com</p>
+                            <p>Email: info@sapiensenergia.es</p>
                           </div>
                         </div>
                       ) : (
@@ -3429,8 +3292,8 @@ function MainAppContent() {
                               />
                               Descargar PDF
                             </Button>
-
-                            {/* <Button
+                            {/* 
+                            <Button
                               className="w-full py-5 md:py-7 text-base rounded-[1.2rem] md:rounded-2xl bg-white/10 hover:bg-white/20 border-white/10 text-white"
                               variant="outline"
                               onClick={handleSendEmail}
@@ -3753,27 +3616,38 @@ function MainAppContent() {
 export default function App() {
   return (
     <Routes>
+      <Route path="/contratacion" element={<ContinuarContratacionPage />} />
+
+      <Route
+        path="/continue-contract"
+        element={<ContinuarContratacionPage />}
+      />
+
       <Route
         path="/continuar-contratacion"
         element={<ContinuarContratacionPage />}
       />
 
       <Route
-        path="/continue-contract"
-        element={<ContinuarContratacionPage />}
-      />
-      <Route
         path="/contratacion-desde-propuesta"
         element={<ContratacionDesdePropuestaPage />}
       />
+
       <Route
-        path="/continuar-contratacion/exito"
-        element={<ContinuarContratacionPage />}
+        path="/reserva-confirmada"
+        element={<ReservationConfirmedPage />}
       />
 
       <Route
+        path="/continuar-contratacion/exito"
+        element={<ReservationConfirmedPage />}
+      />
+
+      <Route path="/reserva-cancelada" element={<ReservationCancelledPage />} />
+
+      <Route
         path="/continuar-contratacion/cancelado"
-        element={<ContinuarContratacionPage />}
+        element={<ReservationCancelledPage />}
       />
 
       <Route path="*" element={<MainAppContent />} />
