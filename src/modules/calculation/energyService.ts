@@ -5,18 +5,27 @@ export interface CalculationInput {
   monthlyConsumptionKwh: number;
   billType: BillType;
   effectiveHours: number;
+
+  // Costes base de la instalación
   investmentCostKwh: number;
   serviceCostKwh: number;
+
+  // % autoconsumo de la instalación
   selfConsumptionRatio: number;
 
-  // Opcionales para hacer el cálculo más realista
+  // Datos opcionales de factura
   invoiceConsumptionKwh?: number;
   monthlyChartConsumptions?: number[];
   periodPrices?: Partial<Record<PeriodKey, number>>;
 
-  // Si en el futuro quieres separar completamente la tarifa de ahorro real del coste de inversión/servicio
+  // Campos opcionales avanzados
   savingsRateInvestmentKwh?: number;
   savingsRateServiceKwh?: number;
+
+  // NUEVOS CAMPOS
+  surplusCompensationPriceKwh?: number; // precio excedentes €/kWh
+  maintenanceAnnualPerKwp?: number; // por defecto 36 €/kWp/año
+  vatRate?: number; // por defecto 0.21
 }
 
 export interface ChartBarItem {
@@ -52,6 +61,10 @@ export interface CalculationResult {
   annualSavings25YearsInvestment: number;
   annualSavings25YearsService: number;
 
+  // Alias útiles para no romper otras partes del proyecto
+  totalSavings25YearsInvestment: number;
+  totalSavings25YearsService: number;
+
   estimatedAnnualProductionKwh: number;
   estimatedMonthlyEnergyCost: number;
   estimatedAnnualEnergyCost: number;
@@ -63,6 +76,20 @@ export interface CalculationResult {
   selfConsumptionRatio: number;
   viabilityScore: number;
   paybackYears: number | null;
+
+  // Nuevos campos detallados
+  invoicePriceWithVatKwh: number;
+  surplusCompensationPriceKwh: number;
+
+  annualSelfConsumedEnergyKwh: number;
+  annualSurplusEnergyKwh: number;
+
+  annualSelfConsumptionValue: number;
+  annualSurplusValue: number;
+  annualGrossSolarValue: number;
+
+  annualMaintenanceCost: number;
+  annualServiceFee: number;
 
   periodDistribution: Record<PeriodKey, number>;
   periodPercentages: Record<PeriodKey, number>;
@@ -97,7 +124,13 @@ const PERIOD_PERCENTAGES: Record<BillType, Record<PeriodKey, number>> = {
 
 const ALL_PERIODS: PeriodKey[] = ["P1", "P2", "P3", "P4", "P5", "P6"];
 
+const DEFAULT_WEIGHTED_ENERGY_PRICE_KWH = 0.18;
+const DEFAULT_MAINTENANCE_ANNUAL_PER_KWP = 36;
+const DEFAULT_VAT_RATE = 0.21;
+const DEFAULT_SURPLUS_COMPENSATION_PRICE_KWH = 0;
+
 function round(value: number, decimals = 2): number {
+  if (!Number.isFinite(value)) return 0;
   return Number(value.toFixed(decimals));
 }
 
@@ -111,6 +144,10 @@ function normalizePositive(value: unknown, fallback = 0): number {
 function normalizeRatio(value: number): number {
   if (!Number.isFinite(value) || value <= 0) return 0;
   return value > 1 ? value / 100 : value;
+}
+
+function clampRatio(value: number): number {
+  return Math.min(Math.max(value, 0), 1);
 }
 
 function roundUpToHalf(value: number): number {
@@ -165,32 +202,13 @@ function resolveWeightedEnergyPrice(
   );
 
   if (availablePrices.length) {
-    return availablePrices.reduce((acc, value) => acc + value, 0) / availablePrices.length;
+    return (
+      availablePrices.reduce((acc, value) => acc + value, 0) /
+      availablePrices.length
+    );
   }
 
   return undefined;
-}
-
-function resolveSavingsRate(
-  explicitRate: number | undefined,
-  weightedEnergyPrice: number | undefined,
-  fallbackField: number
-): number {
-  const cleanExplicit = normalizePositive(explicitRate, 0);
-  if (cleanExplicit > 0 && cleanExplicit <= 5) {
-    return cleanExplicit;
-  }
-
-  const fallback = normalizePositive(fallbackField, 0);
-  if (fallback > 0 && fallback <= 5) {
-    return fallback;
-  }
-
-  if (typeof weightedEnergyPrice === "number" && weightedEnergyPrice > 0) {
-    return weightedEnergyPrice;
-  }
-
-  return 0.18;
 }
 
 function buildPeriodDistribution(
@@ -217,12 +235,14 @@ export const calculateEnergyStudy = (
   input: CalculationInput
 ): CalculationResult => {
   const billType = input.billType;
-  const effectiveHours = Math.max(1, normalizePositive(input.effectiveHours, 1));
-  const selfConsumptionRatio = normalizeRatio(input.selfConsumptionRatio);
 
-  // 1. Consumo medio mensual:
-  // Si hay históricos de gráfica, hacemos media; si no, usamos el valor recibido.
+  const effectiveHours = Math.max(1, normalizePositive(input.effectiveHours, 1));
+  const selfConsumptionRatio = clampRatio(
+    normalizeRatio(input.selfConsumptionRatio)
+  );
+
   const graphAverage = averageValid(input.monthlyChartConsumptions);
+
   const averageMonthlyConsumptionKwh = round(
     graphAverage ??
       normalizePositive(input.monthlyConsumptionKwh, 0) ??
@@ -230,73 +250,107 @@ export const calculateEnergyStudy = (
   );
 
   const invoiceConsumptionKwh = round(
-    normalizePositive(
-      input.invoiceConsumptionKwh,
-      averageMonthlyConsumptionKwh
-    )
+    normalizePositive(input.invoiceConsumptionKwh, averageMonthlyConsumptionKwh)
   );
 
-  // 2. Consumo anual
   const annualConsumptionKwh = round(averageMonthlyConsumptionKwh * 12);
 
-  // 3. Potencia recomendada kWp
-  // Consumo anual / horas efectivas
-  // Redondeada siempre hacia arriba en escalones de 0,5
+  // Potencia recomendada = consumo anual / horas efectivas
   const rawPower = annualConsumptionKwh / effectiveHours;
   const recommendedPowerKwp = roundUpToHalf(rawPower);
 
-  // 4. Inversión €
-  const investmentCost = round(
-    recommendedPowerKwp * normalizePositive(input.investmentCostKwh, 0)
-  );
-
-  // 5. Servicio €
-  const serviceCost = round(
-    recommendedPowerKwp * normalizePositive(input.serviceCostKwh, 0)
-  );
-
-  // 6. Precio medio de energía detectado en la factura
+  // Precio medio detectado en factura
   const weightedEnergyPriceKwh = round(
-    resolveWeightedEnergyPrice(billType, input.periodPrices) ?? 0.18,
+    resolveWeightedEnergyPrice(billType, input.periodPrices) ??
+      DEFAULT_WEIGHTED_ENERGY_PRICE_KWH,
     5
   );
 
-  // 7. Tarifa de ahorro real usada para evitar cifras irreales
-  const weightedInvestmentSavingsRateKwh = round(
-    resolveSavingsRate(
-      input.savingsRateInvestmentKwh,
-      weightedEnergyPriceKwh,
-      input.investmentCostKwh
+  // Precio factura con IVA
+  const vatRate = normalizePositive(input.vatRate, DEFAULT_VAT_RATE);
+  const invoicePriceWithVatKwh = round(
+    weightedEnergyPriceKwh * (1 + vatRate),
+    5
+  );
+
+  // Precio excedentes
+  const surplusCompensationPriceKwh = round(
+    normalizePositive(
+      input.surplusCompensationPriceKwh,
+      DEFAULT_SURPLUS_COMPENSATION_PRICE_KWH
     ),
     5
   );
 
-  const weightedServiceSavingsRateKwh = round(
-    resolveSavingsRate(
-      input.savingsRateServiceKwh,
-      weightedEnergyPriceKwh,
-      input.serviceCostKwh
-    ),
-    5
-  );
-
-  // 8. Producción anual estimada
+  // Producción anual estimada
   const estimatedAnnualProductionKwh = round(
     effectiveHours * recommendedPowerKwp
   );
 
-  // 9. Ahorro anual realista
-  // Ahorro = producción anual * % autoconsumo * tarifa de ahorro €/kWh
+  // Reparto entre autoconsumo y excedentes
+  const annualSelfConsumedEnergyKwh = round(
+    estimatedAnnualProductionKwh * selfConsumptionRatio
+  );
+
+  const annualSurplusEnergyKwh = round(
+    estimatedAnnualProductionKwh * (1 - selfConsumptionRatio)
+  );
+
+  // Valor económico bruto
+  const annualSelfConsumptionValue = round(
+    annualSelfConsumedEnergyKwh * invoicePriceWithVatKwh
+  );
+
+  const annualSurplusValue = round(
+    annualSurplusEnergyKwh * surplusCompensationPriceKwh
+  );
+
+  const annualGrossSolarValue = round(
+    annualSelfConsumptionValue + annualSurplusValue
+  );
+
+  // Costes anuales
+  const maintenanceAnnualPerKwp = normalizePositive(
+    input.maintenanceAnnualPerKwp,
+    DEFAULT_MAINTENANCE_ANNUAL_PER_KWP
+  );
+
+  const annualMaintenanceCost = round(
+    maintenanceAnnualPerKwp * recommendedPowerKwp
+  );
+
+  // En servicio tomamos la cuota anual como producción anual * coste servicio €/kWh
+  const annualServiceFee = round(
+    estimatedAnnualProductionKwh * normalizePositive(input.serviceCostKwh, 0)
+  );
+
+  // Costes resumen
+  // Inversión: mantenemos el base cost para referencia
+  const investmentCost = round(
+    recommendedPowerKwp * normalizePositive(input.investmentCostKwh, 0)
+  );
+
+  // Servicio: dejamos el coste anual del servicio
+  const serviceCost = round(annualServiceFee);
+
+  // Ahorro anual inversión
+  // valor anual generado - mantenimiento anual
   const annualSavingsInvestment = round(
-    estimatedAnnualProductionKwh *
-      selfConsumptionRatio *
-      weightedInvestmentSavingsRateKwh
+    Math.max(annualGrossSolarValue - annualMaintenanceCost, 0)
+  );
+
+  // Ahorro anual servicio
+  // Se compara contra lo que hoy paga de factura al año
+  const estimatedMonthlyEnergyCost = round(
+    averageMonthlyConsumptionKwh * invoicePriceWithVatKwh
+  );
+
+  const estimatedAnnualEnergyCost = round(
+    annualConsumptionKwh * invoicePriceWithVatKwh
   );
 
   const annualSavingsService = round(
-    estimatedAnnualProductionKwh *
-      selfConsumptionRatio *
-      weightedServiceSavingsRateKwh
+    Math.max(estimatedAnnualEnergyCost - annualServiceFee, 0)
   );
 
   const monthlySavingsInvestment = round(annualSavingsInvestment / 12);
@@ -308,13 +362,12 @@ export const calculateEnergyStudy = (
   const annualSavings25YearsInvestment = round(annualSavingsInvestment * 25);
   const annualSavings25YearsService = round(annualSavingsService * 25);
 
-  const estimatedMonthlyEnergyCost = round(
-    averageMonthlyConsumptionKwh * weightedEnergyPriceKwh
-  );
+  const totalSavings25YearsInvestment = annualSavings25YearsInvestment;
+  const totalSavings25YearsService = annualSavings25YearsService;
 
-  const estimatedAnnualEnergyCost = round(
-    annualConsumptionKwh * weightedEnergyPriceKwh
-  );
+  // Estas tarifas se dejan para compatibilidad con el resto de la app
+  const weightedInvestmentSavingsRateKwh = invoicePriceWithVatKwh;
+  const weightedServiceSavingsRateKwh = invoicePriceWithVatKwh;
 
   const paybackYears =
     annualSavingsInvestment > 0
@@ -357,6 +410,9 @@ export const calculateEnergyStudy = (
     annualSavings25YearsInvestment,
     annualSavings25YearsService,
 
+    totalSavings25YearsInvestment,
+    totalSavings25YearsService,
+
     estimatedAnnualProductionKwh,
     estimatedMonthlyEnergyCost,
     estimatedAnnualEnergyCost,
@@ -368,6 +424,19 @@ export const calculateEnergyStudy = (
     selfConsumptionRatio,
     viabilityScore,
     paybackYears,
+
+    invoicePriceWithVatKwh,
+    surplusCompensationPriceKwh,
+
+    annualSelfConsumedEnergyKwh,
+    annualSurplusEnergyKwh,
+
+    annualSelfConsumptionValue,
+    annualSurplusValue,
+    annualGrossSolarValue,
+
+    annualMaintenanceCost,
+    annualServiceFee,
 
     periodDistribution: distribution,
     periodPercentages: percentages,
@@ -392,6 +461,6 @@ export const calculateEnergyStudy = (
       })),
     },
 
-    formulaVersion: "2.0.0",
+    formulaVersion: "3.0.0",
   };
 };

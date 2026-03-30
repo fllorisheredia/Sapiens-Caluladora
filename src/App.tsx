@@ -88,6 +88,7 @@ interface ApiInstallation {
   coste_anual_mantenimiento_por_kwp: number;
   coste_kwh_inversion: number;
   coste_kwh_servicio: number;
+  precio_excedentes_eur_kwh?: number;
   porcentaje_autoconsumo: number;
   modalidad: "inversion" | "servicio" | "ambas";
   active: boolean;
@@ -176,6 +177,8 @@ const optionalNumberField = z.preprocess(
     .min(0, { error: "Debe ser un número válido" })
     .optional(),
 );
+
+const INVESTMENT_MAINTENANCE_EUR_PER_KWP_YEAR = 36;
 
 const ValidationBillDataSchema = BillDataSchema.extend({
   cups: z.string().optional(),
@@ -722,24 +725,40 @@ function getInvestmentCostFromFormula(
   return 0.06 * recommendedPowerKwp * effectiveHours * 25;
 }
 
-function getServiceMonthlyFeeFromFormula(
+function getInvestmentRealCostFromFormula(
   installation: ApiInstallation | null,
   recommendedPowerKwp: number,
+): number {
+  const baseInvestmentCost = getInvestmentCostFromFormula(
+    installation,
+    recommendedPowerKwp,
+  );
+
+  if (!Number.isFinite(recommendedPowerKwp) || recommendedPowerKwp <= 0) {
+    return 0;
+  }
+
+  const maintenance25Years =
+    INVESTMENT_MAINTENANCE_EUR_PER_KWP_YEAR * recommendedPowerKwp * 25;
+
+  return Math.max(baseInvestmentCost - maintenance25Years, 0);
+}
+
+function getServiceMonthlyFeeFromResult(
+  result: CalculationResult | null,
 ): number | null {
-  if (!installation) return null;
+  if (!result) return null;
 
-  const effectiveHours = Number(installation.horas_efectivas ?? 0);
+  const annualServiceFee = getFirstNumericField(result, [
+    "annualServiceFee",
+    "serviceCost",
+  ]);
 
-  if (
-    !Number.isFinite(recommendedPowerKwp) ||
-    recommendedPowerKwp <= 0 ||
-    !Number.isFinite(effectiveHours) ||
-    effectiveHours <= 0
-  ) {
+  if (!Number.isFinite(annualServiceFee) || annualServiceFee <= 0) {
     return null;
   }
 
-  return (0.08 * recommendedPowerKwp * effectiveHours) / 12;
+  return annualServiceFee / 12;
 }
 
 function getAnnualMaintenanceFromInstallation(
@@ -789,21 +808,24 @@ function buildProposalCardData(
     "annualConsumptionKwh",
   ]);
 
-  const annualMaintenance = getAnnualMaintenanceFromInstallation(
-    installation,
-    recommendedPowerKwp,
-  );
-
-  const monthlyMaintenance =
-    annualMaintenance > 0 ? annualMaintenance / 12 : null;
-
   if (mode === "investment") {
     const annualSavings = getFirstNumericField(result, [
       "annualSavingsInvestment",
       "annualSavings",
     ]);
 
-    const upfrontCost = getInvestmentCostFromFormula(
+    const annualMaintenance = getFirstNumericField(
+      result,
+      ["annualMaintenanceCost"],
+      recommendedPowerKwp > 0
+        ? INVESTMENT_MAINTENANCE_EUR_PER_KWP_YEAR * recommendedPowerKwp
+        : 0,
+    );
+
+    const monthlyMaintenance =
+      annualMaintenance > 0 ? annualMaintenance / 12 : null;
+
+    const upfrontCost = getInvestmentRealCostFromFormula(
       installation,
       recommendedPowerKwp,
     );
@@ -812,6 +834,7 @@ function buildProposalCardData(
       result,
       [
         "totalSavings25YearsInvestment",
+        "annualSavings25YearsInvestment",
         "investmentSavings25Years",
         "totalSavings25Years",
       ],
@@ -847,23 +870,20 @@ function buildProposalCardData(
     "annualSavingsService",
     "serviceAnnualSavings",
     "annualSavings",
-    "annualSavingsInvestment",
   ]);
 
   const totalSavings25Years = getFirstNumericField(
     result,
     [
       "totalSavings25YearsService",
+      "annualSavings25YearsService",
       "serviceSavings25Years",
       "serviceTotalSavings25Years",
     ],
     annualSavings * 25,
   );
 
-  const monthlyFee = getServiceMonthlyFeeFromFormula(
-    installation,
-    recommendedPowerKwp,
-  );
+  const monthlyFee = getServiceMonthlyFeeFromResult(result);
 
   const paybackYears = getFirstNumericField(result, [
     "servicePaybackYears",
@@ -878,8 +898,8 @@ function buildProposalCardData(
     totalSavings25Years,
     upfrontCost: 0,
     monthlyFee,
-    annualMaintenance,
-    monthlyMaintenance,
+    annualMaintenance: 0,
+    monthlyMaintenance: null,
     paybackYears,
     recommendedPowerKwp,
     annualConsumptionKwh,
@@ -889,7 +909,6 @@ function buildProposalCardData(
       "Sin desembolso inicial",
       "Cuota mensual fija",
       "Ideal si priorizas no desembolsar directamente",
-      // "Entrada más cómoda para el cliente",
     ],
   };
 }
@@ -923,17 +942,12 @@ function buildEconomicChartData(
   serviceProposal: ProposalCardData,
 ) {
   const investmentRecurring = investmentProposal.annualMaintenance || 0;
-  const serviceRecurring =
-    (serviceProposal.monthlyFee ?? 0) * 12 +
-    (serviceProposal.annualMaintenance || 0);
+  const serviceRecurring = (serviceProposal.monthlyFee ?? 0) * 12;
 
   const investmentNet25 =
-    investmentProposal.totalSavings25Years -
-    investmentProposal.upfrontCost -
-    investmentRecurring * 25;
+    investmentProposal.totalSavings25Years - investmentProposal.upfrontCost;
 
-  const serviceNet25 =
-    serviceProposal.totalSavings25Years - serviceRecurring * 25;
+  const serviceNet25 = serviceProposal.totalSavings25Years;
 
   return [
     {
@@ -2026,6 +2040,11 @@ function MainAppContent() {
           validatedData.averageMonthlyConsumptionKwh ??
           validatedData.monthlyConsumption ??
           0,
+        invoiceConsumptionKwh:
+          validatedData.currentInvoiceConsumptionKwh ??
+          validatedData.averageMonthlyConsumptionKwh ??
+          validatedData.monthlyConsumption ??
+          0,
         billType:
           (validatedData.billType as BillData["billType"] | undefined) || "2TD",
         effectiveHours: selectedInstallation.horas_efectivas,
@@ -2034,6 +2053,20 @@ function MainAppContent() {
         selfConsumptionRatio: normalizeSelfConsumption(
           selectedInstallation.porcentaje_autoconsumo,
         ),
+        periodPrices: {
+          P1: validatedData.periodPriceP1,
+          P2: validatedData.periodPriceP2,
+          P3: validatedData.periodPriceP3,
+          P4: validatedData.periodPriceP4,
+          P5: validatedData.periodPriceP5,
+          P6: validatedData.periodPriceP6,
+        },
+        surplusCompensationPriceKwh:
+          selectedInstallation.precio_excedentes_eur_kwh ?? 0,
+        maintenanceAnnualPerKwp:
+          selectedInstallation.coste_anual_mantenimiento_por_kwp ??
+          INVESTMENT_MAINTENANCE_EUR_PER_KWP_YEAR,
+        vatRate: 0.21,
       });
 
       setProposalResults({
