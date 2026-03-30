@@ -149,8 +149,7 @@ function normalizeAndRoundUp(
   return roundUpToDecimals(parsed, decimals);
 }
 
-type ProposalMode = "investment" | "service" | "comparison";
-
+type ProposalMode = "investment" | "service";
 type StudyComparisonResult = {
   investment: CalculationResult;
   service: CalculationResult;
@@ -464,9 +463,9 @@ function uint8ArrayToArrayBuffer(value: Uint8Array): ArrayBuffer {
 const buildPdfArtifact = async (
   billData: BillData,
   calculationResult: CalculationResult,
-  proposal: ProposalPdfSummary,
+  proposals: ProposalPdfSummary[],
 ): Promise<PdfArtifact> => {
-  const result = await generateStudyPDF(billData, calculationResult, proposal);
+  const result = await generateStudyPDF(billData, calculationResult, proposals);
   return result as PdfArtifact;
 };
 
@@ -932,6 +931,23 @@ function buildProposalPdfSummary(
   };
 }
 
+function buildProposalPdfSummariesForInstallation(
+  result: CalculationResult,
+  installation: ApiInstallation | null,
+): ProposalPdfSummary[] {
+  if (!installation) return [];
+
+  const normalizedModalidad = normalizeInstallationModalidad(
+    installation.modalidad,
+  );
+
+  const modes = getAvailableProposalModes(normalizedModalidad);
+
+  return modes.map((mode) =>
+    buildProposalPdfSummary(buildProposalCardData(result, mode, installation)),
+  );
+}
+
 function formatPaybackYears(value: number) {
   if (!Number.isFinite(value) || value <= 0) return "-";
   return `${value.toFixed(1).replace(".", ",")} años`;
@@ -966,6 +982,35 @@ function buildEconomicChartData(
       servicio: Number(serviceNet25.toFixed(2)),
     },
   ];
+}
+
+function getAvailableProposalModes(
+  modalidad: ApiInstallation["modalidad"] | null | undefined,
+): ProposalMode[] {
+  if (modalidad === "inversion") return ["investment"];
+  if (modalidad === "servicio") return ["service"];
+  return ["investment", "service"];
+}
+function normalizeInstallationModalidad(
+  modalidad: string | null | undefined,
+): ApiInstallation["modalidad"] {
+  const value = (modalidad ?? "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
+  if (value === "inversion") return "inversion";
+  if (value === "servicio" || value === "service") return "servicio";
+  if (value === "ambas") return "ambas";
+
+  return "ambas";
+}
+function getDefaultProposalMode(
+  modalidad: ApiInstallation["modalidad"] | null | undefined,
+): ProposalMode {
+  const modes = getAvailableProposalModes(modalidad);
+  return modes[0] ?? "investment";
 }
 
 // function getClientCoords(rawExtraction: ExtractedBillData | null): {
@@ -1061,14 +1106,55 @@ function MainAppContent() {
   const signatureCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const signatureDrawingRef = useRef(false);
 
+  // const investmentResult = proposalResults?.investment ?? null;
+  // const serviceResult =
+  //   proposalResults?.service ?? proposalResults?.investment ?? null;
+
+  // const activeProposalMode: "investment" | "service" =
+  //   selectedProposalView === "service" ? "service" : "investment";
+  // const [selectedInstallation, setSelectedInstallation] =
+  //   useState<ApiInstallation | null>(null);
+
   const investmentResult = proposalResults?.investment ?? null;
   const serviceResult =
     proposalResults?.service ?? proposalResults?.investment ?? null;
 
-  const activeProposalMode: "investment" | "service" =
-    selectedProposalView === "service" ? "service" : "investment";
   const [selectedInstallation, setSelectedInstallation] =
     useState<ApiInstallation | null>(null);
+
+  const normalizedInstallationModalidad = normalizeInstallationModalidad(
+    selectedInstallation?.modalidad,
+  );
+
+  const availableProposalModes = getAvailableProposalModes(
+    normalizedInstallationModalidad,
+  );
+
+  const defaultProposalMode = getDefaultProposalMode(
+    normalizedInstallationModalidad,
+  );
+  console.log(
+    "[DEBUG] modalidad instalación:",
+    selectedInstallation?.modalidad,
+  );
+  console.log("[DEBUG] availableProposalModes:", availableProposalModes);
+  console.log("[DEBUG] instalación seleccionada:", selectedInstallation);
+
+  // const defaultProposalMode = getDefaultProposalMode(
+  //   selectedInstallation?.modalidad,
+  // );
+
+  const hasMultipleProposalModes = availableProposalModes.length > 1;
+
+  const canCompareProposalModes =
+    availableProposalModes.includes("investment") &&
+    availableProposalModes.includes("service");
+
+  const activeProposalMode: ProposalMode = availableProposalModes.includes(
+    selectedProposalView,
+  )
+    ? selectedProposalView
+    : defaultProposalMode;
 
   const activeCalculationResult =
     activeProposalMode === "service"
@@ -1121,6 +1207,77 @@ function MainAppContent() {
   const investmentMetrics = getProposalMetrics(investmentProposal);
   const serviceMetrics = getProposalMetrics(serviceProposal);
   const activeMetrics = getProposalMetrics(activeProposal);
+
+  const proposalByMode: Record<ProposalMode, ProposalCardData> = {
+    investment: investmentProposal,
+    service: serviceProposal,
+  };
+  const getModeVisualName = (mode: ProposalMode) =>
+    mode === "investment" ? "Inversión" : "Servicio";
+  const visibleProposalPanels = availableProposalModes.map(
+    (mode) => proposalByMode[mode],
+  );
+
+  const topPrimaryResumeCard = {
+    label:
+      activeProposal.id === "investment" ? "Inversión total" : "Coste mensual",
+    value:
+      activeProposal.id === "investment"
+        ? formatCurrency(activeProposal.upfrontCost)
+        : activeProposal.monthlyFee && activeProposal.monthlyFee > 0
+          ? `${formatCurrency(activeProposal.monthlyFee)} / mes`
+          : "Sin cuota",
+    icon:
+      activeProposal.id === "investment"
+        ? "solar:wallet-money-bold-duotone"
+        : "solar:card-send-bold-duotone",
+  };
+
+  const topSecondaryResumeCard = {
+    label: "Ahorro total",
+    value: formatCurrency(activeProposal.totalSavings25Years),
+    helper: "Estimado a 25 años",
+    icon: "solar:graph-up-bold-duotone",
+  };
+
+  const topActiveMetrics = [
+    {
+      label:
+        activeProposal.id === "investment"
+          ? "Coste inicial"
+          : "Sin inversión inicial",
+      value:
+        activeProposal.id === "investment"
+          ? formatCurrency(activeProposal.upfrontCost)
+          : "Sin inversión",
+      icon: "solar:calculator-bold-duotone",
+    },
+    {
+      label: activeProposal.id === "investment" ? "Retorno" : "Cuota mensual",
+      value:
+        activeProposal.id === "investment"
+          ? activeProposal.paybackYears > 0
+            ? `${Math.round(activeProposal.paybackYears)} años`
+            : "-"
+          : activeProposal.monthlyFee && activeProposal.monthlyFee > 0
+            ? `${formatCurrency(activeProposal.monthlyFee)} / mes`
+            : "Sin cuota",
+      icon:
+        activeProposal.id === "investment"
+          ? "solar:graph-up-bold-duotone"
+          : "solar:wallet-money-bold-duotone",
+    },
+    {
+      label: "Potencia recomendada",
+      value: `${formatNumber(activeProposal.recommendedPowerKwp)} kWp`,
+      icon: "solar:bolt-bold-duotone",
+    },
+    {
+      label: "Consumo anual",
+      value: `${Math.round(activeProposal.annualConsumptionKwh)} kWh`,
+      icon: "solar:chart-2-bold-duotone",
+    },
+  ];
 
   const activeProposalStats =
     activeProposal.id === "investment"
@@ -1190,6 +1347,12 @@ function MainAppContent() {
     investmentProposal,
     serviceProposal,
   );
+
+  useEffect(() => {
+    if (selectedProposalView !== activeProposalMode) {
+      setSelectedProposalView(activeProposalMode);
+    }
+  }, [selectedProposalView, activeProposalMode]);
 
   const activeSlideIndex = activeProposalMode === "investment" ? 0 : 1;
 
@@ -1268,20 +1431,27 @@ function MainAppContent() {
   // }, [watchedAverageMonthlyConsumption, setValue]);
 
   const handleDownloadPDF = async () => {
-    if (!activeCalculationResult || !extractedData) return;
+    if (!activeCalculationResult || !extractedData || !selectedInstallation)
+      return;
 
     sileo.promise(
       (async () => {
         const billData = toBaseBillData(extractedData);
+
+        const pdfSummaries = buildProposalPdfSummariesForInstallation(
+          activeCalculationResult,
+          selectedInstallation,
+        );
+
         const pdfArtifact = await buildPdfArtifact(
           billData,
           activeCalculationResult,
-          buildProposalPdfSummary(activeProposal),
+          pdfSummaries,
         );
 
         savePdfArtifactLocally(
           pdfArtifact,
-          `Estudio_Solar_${activeProposal.id}_${billData.name || "cliente"}.pdf`,
+          `Estudio_Solar_${billData.name || "cliente"}.pdf`,
         );
       })(),
       {
@@ -1291,7 +1461,6 @@ function MainAppContent() {
       },
     );
   };
-
   const persistStudyAutomatically = async (
     validatedData: ValidationBillData,
     result: CalculationResult,
@@ -1312,14 +1481,17 @@ function MainAppContent() {
     const billData = toBaseBillData(validatedData);
     console.log("[front] billData:", billData);
 
-    const proposalForPdf = buildProposalPdfSummary(
-      buildProposalCardData(result, "investment", installation),
+    const initialProposalMode = getDefaultProposalMode(installation.modalidad);
+
+    const proposalSummariesForPdf = buildProposalPdfSummariesForInstallation(
+      result,
+      installation,
     );
 
     const pdfArtifact = await buildPdfArtifact(
       billData,
       result,
-      proposalForPdf,
+      proposalSummariesForPdf,
     );
     console.log("[front] pdfArtifact generado:", pdfArtifact);
 
@@ -1998,7 +2170,7 @@ function MainAppContent() {
         params: {
           lat: coords.lat,
           lng: coords.lng,
-          radius: 2000,
+          radius: 5000,
         },
       });
 
@@ -2010,7 +2182,12 @@ function MainAppContent() {
           : [];
 
       setInstallations(
-        parsedInstallations.filter((item) => item.active !== false),
+        parsedInstallations
+          .filter((item) => item.active !== false)
+          .map((item) => ({
+            ...item,
+            modalidad: normalizeInstallationModalidad(item.modalidad),
+          })),
       );
     } catch (error) {
       console.error("Error fetching installations:", error);
@@ -2024,7 +2201,13 @@ function MainAppContent() {
     }
   };
   const handleInstallationSelect = (inst: ApiInstallation) => {
-    setSelectedInstallation(inst);
+    const normalizedInst: ApiInstallation = {
+      ...inst,
+      modalidad: normalizeInstallationModalidad(inst.modalidad),
+    };
+
+    setSelectedInstallation(normalizedInst);
+    setSelectedProposalView(getDefaultProposalMode(normalizedInst.modalidad));
     setCurrentStep("calculation");
   };
 
@@ -2073,7 +2256,9 @@ function MainAppContent() {
         investment: result,
         service: result,
       });
-      setSelectedProposalView("investment");
+      setSelectedProposalView(
+        getDefaultProposalMode(selectedInstallation.modalidad),
+      );
       setCurrentStep("result");
       sileo.success({ title: "Estudio generado con éxito" });
       console.log("[front] entrando en persistencia automática");
@@ -2618,7 +2803,7 @@ function MainAppContent() {
 
                           <Circle
                             center={[clientCoords.lat, clientCoords.lng]}
-                            radius={2000}
+                            radius={5000}
                             pathOptions={{
                               color: "#57d9d3",
                               fillColor: "#57d9d3",
@@ -2842,36 +3027,38 @@ function MainAppContent() {
                   animate={{ opacity: 1, y: 0 }}
                   className="space-y-6 md:space-y-8"
                 >
-                  {/* HERO MOBILE FIRST */}
-                  <div className="brand-gradient rounded-[2rem] md:rounded-[3rem] p-5 md:p-8 text-brand-navy shadow-2xl shadow-brand-mint/20 relative overflow-hidden">
-                    <div className="absolute top-0 right-0 w-56 h-56 md:w-80 md:h-80 bg-white/10 blur-3xl rounded-full -mr-24 -mt-24" />
+                  {/* BLOQUE SUPERIOR */}
+                  <div className="rounded-[2rem] md:rounded-[3rem] brand-gradient p-5 md:p-8 shadow-2xl shadow-brand-mint/20 relative overflow-hidden">
+                    <div className="absolute top-0 right-0 w-56 h-56 md:w-80 md:h-80 bg-white/10 blur-3xl rounded-full -mr-20 -mt-20" />
 
-                    <div className="relative z-10 space-y-6">
-                      <div className="flex flex-col gap-4">
-                        <div className="inline-flex w-fit items-center gap-2 px-3 py-1.5 rounded-full bg-white/25 border border-white/20 text-[10px] font-bold uppercase tracking-[0.18em]">
-                          <Icon
-                            icon="solar:check-circle-bold-duotone"
-                            className="h-4 w-4"
-                          />
-                          Estudio finalizado
-                        </div>
-
+                    <div className="relative z-10 grid grid-cols-1 xl:grid-cols-[minmax(0,1.15fr)_430px] gap-6">
+                      {/* IZQUIERDA */}
+                      <div className="space-y-5">
                         <div className="space-y-3">
-                          <h2 className="text-3xl md:text-5xl font-bold leading-tight">
-                            Tu propuesta energética
-                            <br className="hidden md:block" />
-                            ya está lista
-                          </h2>
+                          <div className="inline-flex w-fit items-center gap-2 px-3 py-1.5 rounded-full bg-white/25 border border-white/20 text-[10px] font-bold uppercase tracking-[0.18em] text-brand-navy">
+                            <Icon
+                              icon="solar:check-circle-bold-duotone"
+                              className="h-4 w-4"
+                            />
+                            Estudio finalizado
+                          </div>
 
-                          <p className="text-sm md:text-base text-brand-navy/70 max-w-2xl leading-relaxed">
-                            Elige entre inversión y servicio y revisa de forma
-                            clara cuál encaja mejor contigo.
-                          </p>
+                          <div>
+                            <h2 className="text-3xl md:text-5xl font-bold text-brand-navy leading-tight">
+                              Tu propuesta energética
+                              <br />
+                              ya está lista
+                            </h2>
+
+                            <p className="mt-3 text-sm md:text-base text-brand-navy/70 max-w-2xl leading-relaxed">
+                              {hasMultipleProposalModes
+                                ? "Compara ambas modalidades y revisa cuál encaja mejor contigo."
+                                : `Esta instalación solo está disponible en modalidad de ${activeProposal.title.toLowerCase()}.`}
+                            </p>
+                          </div>
                         </div>
-                      </div>
 
-                      <div className="grid grid-cols-1 gap-4 md:grid-cols-[minmax(0,1fr)_260px] md:items-start">
-                        <div className="space-y-4">
+                        {hasMultipleProposalModes ? (
                           <div className="inline-flex w-full rounded-[1.25rem] bg-white/35 p-1.5 backdrop-blur-xl border border-white/30 shadow-lg shadow-brand-navy/5">
                             <button
                               type="button"
@@ -2909,101 +3096,458 @@ function MainAppContent() {
                               Servicio
                             </button>
                           </div>
+                        ) : (
+                          <div className="rounded-[1.3rem] bg-white/35 backdrop-blur-xl border border-white/25 p-4 shadow-md shadow-brand-navy/5">
+                            <div className="flex items-center gap-3">
+                              <div className="w-11 h-11 rounded-2xl bg-brand-navy text-white flex items-center justify-center">
+                                <Icon
+                                  icon={
+                                    activeProposal.id === "investment"
+                                      ? "solar:wallet-money-bold-duotone"
+                                      : "solar:bolt-bold-duotone"
+                                  }
+                                  className="h-5 w-5"
+                                />
+                              </div>
 
-                          <div className="grid grid-cols-2 gap-3">
-                            {[
-                              {
-                                label:
-                                  activeProposalMode === "investment"
-                                    ? "Coste inicial"
-                                    : "Sin inversión inicial",
-                                value:
-                                  activeProposalMode === "investment"
-                                    ? formatCurrency(activeProposal.upfrontCost)
-                                    : "Sin Inversión",
-                                icon: "solar:calculator-bold-duotone",
-                              },
-                              {
-                                label:
-                                  activeProposalMode === "investment"
-                                    ? "Retorno"
-                                    : "Cuota mensual",
-                                value:
-                                  activeProposalMode === "investment"
-                                    ? activeProposal.paybackYears > 0
-                                      ? `${Math.round(activeProposal.paybackYears)} años`
-                                      : "-"
-                                    : activeProposal.monthlyFee &&
-                                        activeProposal.monthlyFee > 0
-                                      ? `${formatCurrency(activeProposal.monthlyFee)} / mes`
-                                      : "Sin cuota",
-                                icon:
-                                  activeProposalMode === "investment"
-                                    ? "solar:graph-up-bold-duotone"
-                                    : "solar:wallet-money-bold-duotone",
-                              },
-                              {
-                                label: "Potencia",
-                                value: `${formatNumber(activeProposal.recommendedPowerKwp)} kWp`,
-                                icon: "solar:bolt-bold-duotone",
-                              },
-                              {
-                                label: "Consumo anual",
-                                value: `${Math.round(activeProposal.annualConsumptionKwh)} kWh`,
-                                icon: "solar:chart-2-bold-duotone",
-                              },
-                            ].map((stat, i) => (
-                              <div
-                                key={i}
-                                className="rounded-[1.2rem] bg-white/35 backdrop-blur-xl border border-white/25 p-3.5 shadow-md shadow-brand-navy/5"
-                              >
-                                <div className="flex items-center gap-2 mb-2">
-                                  <Icon
-                                    icon={stat.icon}
-                                    className="h-4 w-4 text-brand-navy/70"
-                                  />
-                                  <p className="text-[10px] uppercase tracking-[0.14em] font-bold text-brand-navy/40">
-                                    {stat.label}
-                                  </p>
-                                </div>
-
-                                <p className="text-sm md:text-lg font-bold text-brand-navy leading-tight">
-                                  {stat.value}
+                              <div>
+                                <p className="text-[10px] uppercase tracking-[0.14em] font-bold text-brand-navy/40">
+                                  Modalidad disponible
+                                </p>
+                                <p className="text-base md:text-lg font-bold text-brand-navy">
+                                  {activeProposal.title}
                                 </p>
                               </div>
-                            ))}
+                            </div>
                           </div>
-                        </div>
+                        )}
 
-                        <div className="bg-white/30 backdrop-blur-xl p-4 md:p-6 rounded-[1.5rem] md:rounded-[2rem] border border-white/20 shadow-xl text-center">
-                          <div className="flex items-center justify-center gap-2 mb-2">
+                        <div className="rounded-[1.6rem] bg-white/20 border border-white/20 backdrop-blur-xl p-4 md:p-5 shadow-lg shadow-brand-navy/5">
+                          <div className="flex items-center gap-2 mb-4">
                             <Icon
-                              icon="solar:star-bold-duotone"
+                              icon={
+                                activeProposal.id === "investment"
+                                  ? "solar:wallet-money-bold-duotone"
+                                  : "solar:bolt-bold-duotone"
+                              }
                               className="h-5 w-5 text-brand-navy"
                             />
-                            <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-brand-navy/40">
+                            <p className="text-[10px] uppercase tracking-[0.16em] font-bold text-brand-navy/45">
                               Opción activa
                             </p>
                           </div>
 
-                          <p className="text-2xl md:text-3xl font-bold">
-                            {activeProposal.title}
-                          </p>
+                          <div className="grid grid-cols-1 md:grid-cols-[220px_minmax(0,1fr)] gap-4 md:gap-5">
+                            <div className="rounded-[1.4rem] bg-white/35 border border-white/25 p-4">
+                              <p className="text-[10px] uppercase tracking-[0.16em] font-bold text-brand-navy/40">
+                                Modalidad seleccionada
+                              </p>
+                              <p className="mt-2 text-2xl md:text-3xl font-bold text-brand-navy">
+                                {activeProposal.title}
+                              </p>
+                              <p className="mt-3 text-sm text-brand-navy/65 leading-relaxed">
+                                {activeProposal.description}
+                              </p>
+                            </div>
 
-                          <p className="text-sm text-brand-navy/60 mt-3">
-                            Ahorro estimado anual
-                          </p>
+                            <div className="grid grid-cols-2 gap-3">
+                              {topActiveMetrics.map((item) => (
+                                <div
+                                  key={item.label}
+                                  className="rounded-[1.2rem] bg-white/35 backdrop-blur-xl border border-white/25 p-3.5 shadow-md shadow-brand-navy/5"
+                                >
+                                  <div className="flex items-center gap-2 mb-2">
+                                    <Icon
+                                      icon={item.icon}
+                                      className="h-4 w-4 text-brand-navy/70"
+                                    />
+                                    <p className="text-[10px] uppercase tracking-[0.14em] font-bold text-brand-navy/40">
+                                      {item.label}
+                                    </p>
+                                  </div>
 
-                          <p className="text-xl md:text-2xl font-bold mt-1">
-                            {formatCurrency(activeProposal.annualSavings)}
-                          </p>
+                                  <p className="text-sm md:text-lg font-bold text-brand-navy leading-tight">
+                                    {item.value}
+                                  </p>
+                                </div>
+                              ))}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* DERECHA */}
+                      <div className="space-y-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-2 gap-4">
+                          {[topPrimaryResumeCard, topSecondaryResumeCard].map(
+                            (card) => (
+                              <div
+                                key={card.label}
+                                className="rounded-[1.6rem] bg-white/30 backdrop-blur-xl border border-white/20 p-5 shadow-xl text-brand-navy min-h-[150px] flex flex-col justify-between"
+                              >
+                                <div className="flex items-center gap-2">
+                                  <Icon
+                                    icon={card.icon}
+                                    className="h-5 w-5 text-brand-navy"
+                                  />
+                                  <p className="text-[10px] uppercase tracking-[0.16em] font-bold text-brand-navy/40">
+                                    {card.label}
+                                  </p>
+                                </div>
+
+                                <div>
+                                  <p className="text-2xl md:text-3xl font-bold leading-tight">
+                                    {card.value}
+                                  </p>
+                                  {"helper" in card && card.helper ? (
+                                    <p className="mt-2 text-sm text-brand-navy/60">
+                                      {card.helper}
+                                    </p>
+                                  ) : null}
+                                </div>
+                              </div>
+                            ),
+                          )}
                         </div>
 
-                        {/* <Button
-                          className={cn(
-                            "w-full py-5 md:py-7 text-base rounded-[1.2rem] md:rounded-2xl border-none",
+                        <button
+                          type="button"
+                          onClick={handleGenerateContract}
+                          disabled={
+                            !savedStudy?.study?.id ||
+                            isGeneratingContract ||
+                            isSigningContract ||
                             contractAlreadySigned
-                              ? "bg-white/10 text-white/60 cursor-not-allowed"
+                          }
+                          className={cn(
+                            "w-full min-h-[158px] rounded-[1.8rem] border border-white/20 bg-white/28 backdrop-blur-xl p-6 text-left shadow-xl transition-all",
+                            contractAlreadySigned
+                              ? "opacity-70 cursor-not-allowed"
+                              : "hover:bg-white/35",
+                          )}
+                        >
+                          <div className="h-full flex flex-col justify-center items-center text-center">
+                            <div className="w-14 h-14 rounded-2xl bg-brand-navy text-white flex items-center justify-center shadow-lg mb-4">
+                              {isGeneratingContract ? (
+                                <Loader2 className="h-7 w-7 animate-spin" />
+                              ) : contractAlreadySigned ? (
+                                <Icon
+                                  icon="solar:shield-check-bold-duotone"
+                                  className="h-7 w-7"
+                                />
+                              ) : (
+                                <Icon
+                                  icon="solar:pen-new-square-bold-duotone"
+                                  className="h-7 w-7"
+                                />
+                              )}
+                            </div>
+
+                            <p className="text-xl md:text-2xl font-bold text-brand-navy">
+                              {contractAlreadySigned ? "Reservado" : "Reservar"}
+                            </p>
+
+                            <p className="mt-2 text-sm text-brand-navy/65 max-w-xs leading-relaxed">
+                              {contractAlreadySigned
+                                ? "La reserva ya ha sido iniciada para esta propuesta."
+                                : "Inicia la reserva de esta modalidad y continúa con el pago de la señal."}
+                            </p>
+                          </div>
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* BLOQUE INFERIOR */}
+                  <div
+                    className={cn(
+                      "grid gap-6 md:gap-8",
+                      visibleProposalPanels.length === 2
+                        ? "grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_260px]"
+                        : "grid-cols-1 xl:grid-cols-[minmax(0,1fr)_260px]",
+                    )}
+                  >
+                    {visibleProposalPanels.map((proposal) => {
+                      const isInvestment = proposal.id === "investment";
+
+                      return (
+                        <div
+                          key={proposal.id}
+                          className={cn(
+                            "rounded-[2rem] md:rounded-[2.5rem] p-5 md:p-7 border min-h-[520px] flex flex-col",
+                            isInvestment
+                              ? "bg-brand-navy text-white border-brand-navy shadow-2xl shadow-brand-navy/15"
+                              : "bg-white text-brand-navy border-brand-navy/5 shadow-2xl shadow-brand-navy/5",
+                          )}
+                        >
+                          <div className="space-y-4">
+                            <div
+                              className={cn(
+                                "inline-flex items-center gap-2 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest",
+                                isInvestment
+                                  ? "bg-white/10 text-white"
+                                  : "bg-brand-mint/10 text-brand-navy",
+                              )}
+                            >
+                              <Icon
+                                icon={
+                                  isInvestment
+                                    ? "solar:wallet-money-bold-duotone"
+                                    : "solar:bolt-bold-duotone"
+                                }
+                                className="h-4 w-4"
+                              />
+                              Modalidad {proposal.title.toLowerCase()}
+                            </div>
+
+                            <div>
+                              <h3 className="text-3xl font-bold">
+                                {proposal.title}
+                              </h3>
+                              <p
+                                className={cn(
+                                  "mt-2 text-sm leading-relaxed",
+                                  isInvestment
+                                    ? "text-white/75"
+                                    : "text-brand-gray",
+                                )}
+                              >
+                                {proposal.description}
+                              </p>
+                            </div>
+
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                              <div
+                                className={cn(
+                                  "rounded-[1.2rem] p-4 border",
+                                  isInvestment
+                                    ? "bg-white/10 border-white/10"
+                                    : "bg-brand-navy/[0.03] border-brand-navy/5",
+                                )}
+                              >
+                                <p
+                                  className={cn(
+                                    "text-[10px] uppercase tracking-[0.14em] font-bold",
+                                    isInvestment
+                                      ? "text-white/50"
+                                      : "text-brand-navy/40",
+                                  )}
+                                >
+                                  Ahorro anual
+                                </p>
+                                <p className="mt-2 text-lg font-bold">
+                                  {formatCurrency(proposal.annualSavings)}
+                                </p>
+                              </div>
+
+                              <div
+                                className={cn(
+                                  "rounded-[1.2rem] p-4 border",
+                                  isInvestment
+                                    ? "bg-white/10 border-white/10"
+                                    : "bg-brand-navy/[0.03] border-brand-navy/5",
+                                )}
+                              >
+                                <p
+                                  className={cn(
+                                    "text-[10px] uppercase tracking-[0.14em] font-bold",
+                                    isInvestment
+                                      ? "text-white/50"
+                                      : "text-brand-navy/40",
+                                  )}
+                                >
+                                  {isInvestment
+                                    ? "Coste inicial"
+                                    : "Cuota mensual"}
+                                </p>
+                                <p className="mt-2 text-lg font-bold">
+                                  {isInvestment
+                                    ? formatCurrency(proposal.upfrontCost)
+                                    : proposal.monthlyFee &&
+                                        proposal.monthlyFee > 0
+                                      ? `${formatCurrency(proposal.monthlyFee)} / mes`
+                                      : "Sin cuota"}
+                                </p>
+                              </div>
+
+                              <div
+                                className={cn(
+                                  "rounded-[1.2rem] p-4 border",
+                                  isInvestment
+                                    ? "bg-white/10 border-white/10"
+                                    : "bg-brand-navy/[0.03] border-brand-navy/5",
+                                )}
+                              >
+                                <p
+                                  className={cn(
+                                    "text-[10px] uppercase tracking-[0.14em] font-bold",
+                                    isInvestment
+                                      ? "text-white/50"
+                                      : "text-brand-navy/40",
+                                  )}
+                                >
+                                  Ahorro total
+                                </p>
+                                <p className="mt-2 text-lg font-bold">
+                                  {formatCurrency(proposal.totalSavings25Years)}
+                                </p>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="mt-6 grid grid-cols-1 gap-3">
+                            {proposal.valuePoints.map((point) => (
+                              <div
+                                key={point}
+                                className={cn(
+                                  "rounded-[1.2rem] p-4 border flex items-start gap-3",
+                                  isInvestment
+                                    ? "bg-white/5 border-white/10"
+                                    : "bg-brand-navy/[0.03] border-brand-navy/5",
+                                )}
+                              >
+                                <div
+                                  className={cn(
+                                    "w-10 h-10 rounded-xl flex items-center justify-center shrink-0",
+                                    isInvestment
+                                      ? "bg-white/10"
+                                      : "brand-gradient shadow-md shadow-brand-mint/20",
+                                  )}
+                                >
+                                  <Icon
+                                    icon="solar:check-circle-bold-duotone"
+                                    className={cn(
+                                      "h-5 w-5",
+                                      isInvestment
+                                        ? "text-white"
+                                        : "text-brand-navy",
+                                    )}
+                                  />
+                                </div>
+
+                                <p className="font-semibold text-sm md:text-base leading-snug">
+                                  {point}
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+
+                          <div
+                            className={cn(
+                              "mt-auto pt-6 text-sm",
+                              isInvestment
+                                ? "text-white/70"
+                                : "text-brand-gray",
+                            )}
+                          >
+                            <p>
+                              Potencia recomendada:{" "}
+                              <span className="font-bold">
+                                {formatNumber(proposal.recommendedPowerKwp)} kWp
+                              </span>
+                            </p>
+                            <p className="mt-1">
+                              Consumo anual estimado:{" "}
+                              <span className="font-bold">
+                                {Math.round(proposal.annualConsumptionKwh)} kWh
+                              </span>
+                            </p>
+                          </div>
+                        </div>
+                      );
+                    })}
+
+                    {/* ACCIONES */}
+                    <div className="rounded-[2rem] md:rounded-[2.5rem] bg-white border border-brand-navy/5 shadow-2xl shadow-brand-navy/5 p-5 md:p-6 flex flex-col gap-5 xl:min-h-[520px]">
+                      <div>
+                        <p className="text-[10px] uppercase tracking-[0.16em] font-bold text-brand-navy/40">
+                          Acciones
+                        </p>
+                      </div>
+
+                      <div className="rounded-[1.4rem] bg-brand-navy text-white p-4 border border-brand-navy">
+                        <p className="text-[10px] uppercase tracking-[0.16em] font-bold text-white/50">
+                          Resumen modalidad seleccionada
+                        </p>
+
+                        <p className="mt-3 text-2xl font-bold">
+                          {activeProposal.title}
+                        </p>
+
+                        <div className="mt-4 space-y-2 text-sm text-white/75">
+                          <p>
+                            Ahorro anual:{" "}
+                            <span className="font-bold text-white">
+                              {formatCurrency(activeProposal.annualSavings)}
+                            </span>
+                          </p>
+
+                          <p>
+                            {activeProposal.id === "investment"
+                              ? `Coste inicial: ${formatCurrency(activeProposal.upfrontCost)}`
+                              : activeProposal.monthlyFee &&
+                                  activeProposal.monthlyFee > 0
+                                ? `Cuota mensual: ${formatCurrency(activeProposal.monthlyFee)} / mes`
+                                : "Sin cuota mensual"}
+                          </p>
+
+                          <p>
+                            Potencia:{" "}
+                            <span className="font-bold text-white">
+                              {formatNumber(activeProposal.recommendedPowerKwp)}{" "}
+                              kWp
+                            </span>
+                          </p>
+                        </div>
+                      </div>
+
+                      {signedContractResult?.reservation ? (
+                        <div className="rounded-[1.4rem] bg-brand-mint/10 border border-brand-mint/20 p-4 text-brand-navy">
+                          <p className="text-[10px] uppercase tracking-[0.16em] font-bold text-brand-navy/50">
+                            Reserva iniciada
+                          </p>
+
+                          <div className="mt-3 space-y-2 text-sm leading-relaxed">
+                            <p>
+                              <span className="font-bold">
+                                {signedContractResult.reservation.reservedKwp}{" "}
+                                kWp
+                              </span>{" "}
+                              reservados en{" "}
+                              <span className="font-bold">
+                                {
+                                  signedContractResult.reservation
+                                    .installationName
+                                }
+                              </span>
+                              .
+                            </p>
+
+                            <p>
+                              Estado del pago:{" "}
+                              <span className="font-bold">
+                                {signedContractResult.reservation.paymentStatus}
+                              </span>
+                            </p>
+
+                            <p>
+                              Señal pendiente:{" "}
+                              <span className="font-bold">
+                                {formatCurrency(
+                                  signedContractResult.reservation.signalAmount,
+                                )}
+                              </span>
+                            </p>
+                          </div>
+                        </div>
+                      ) : null}
+
+                      <div className="mt-auto space-y-3">
+                        <Button
+                          className={cn(
+                            "w-full py-5 rounded-[1.2rem] border-none",
+                            contractAlreadySigned
+                              ? "bg-brand-navy/10 text-brand-navy/50 cursor-not-allowed"
                               : "bg-brand-mint text-brand-navy hover:bg-brand-mint/90",
                           )}
                           onClick={handleGenerateContract}
@@ -3013,469 +3557,39 @@ function MainAppContent() {
                             isSigningContract ||
                             contractAlreadySigned
                           }
-                        ></Button> */}
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* CONTENIDO PRINCIPAL */}
-                  <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1.45fr)_minmax(360px,1fr)_340px] gap-6 md:gap-8 items-stretch">
-                    {" "}
-                    {/* COLUMNA 1: CARD PRINCIPAL */}
-                    <div className="space-y-6">
-                      <div className="relative overflow-hidden">
-                        <AnimatePresence mode="wait">
-                          <motion.div
-                            key={activeProposal.id}
-                            initial={{ opacity: 0, y: 18 }}
-                            animate={{ opacity: 1, y: 0 }}
-                            exit={{ opacity: 0, y: -18 }}
-                            transition={{ duration: 0.28 }}
-                            className={cn(
-                              "h-full xl:min-h-[560px] rounded-[2rem] md:rounded-[3rem] p-5 md:p-8 border relative overflow-hidden flex flex-col",
-                              activeProposal.id === "investment"
-                                ? "bg-brand-navy text-white border-brand-navy"
-                                : "bg-gradient-to-br from-white to-brand-sky/10 text-brand-navy border-brand-navy/5 ",
-                            )}
-                          >
-                            <div
-                              className={cn(
-                                "absolute top-0 right-0 w-40 h-40 rounded-full blur-3xl",
-                                activeProposal.id === "investment"
-                                  ? "bg-brand-mint/20"
-                                  : "bg-brand-sky/20",
-                              )}
-                            />
-
-                            <div className="relative z-10 space-y-6">
-                              <div className="flex flex-col gap-4">
-                                <span
-                                  className={cn(
-                                    "inline-flex w-fit items-center gap-2 px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-widest",
-                                    activeProposal.id === "investment"
-                                      ? "bg-white/10 text-white"
-                                      : "bg-brand-mint/10 text-brand-navy",
-                                  )}
-                                >
-                                  <Icon
-                                    icon={
-                                      activeProposal.id === "investment"
-                                        ? "solar:wallet-money-bold-duotone"
-                                        : "solar:bolt-bold-duotone"
-                                    }
-                                    className="h-4 w-4"
-                                  />
-                                  {activeProposal.badge}
-                                </span>
-
-                                <div className="space-y-2">
-                                  <h3 className="text-3xl md:text-4xl font-bold">
-                                    {activeProposal.title}
-                                  </h3>
-
-                                  <p
-                                    className={cn(
-                                      "text-sm md:text-base leading-relaxed max-w-2xl",
-                                      activeProposal.id === "investment"
-                                        ? "text-white/75"
-                                        : "text-brand-gray",
-                                    )}
-                                  >
-                                    {activeProposal.description}
-                                  </p>
-                                </div>
-                              </div>
-
-                              <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-                                {" "}
-                                {activeProposalStats.map((stat, index) => {
-                                  const statIcons =
-                                    activeProposal.id === "investment"
-                                      ? [
-                                          "solar:wallet-money-bold-duotone",
-                                          "solar:calculator-bold-duotone",
-                                          "solar:graph-up-bold-duotone",
-                                        ]
-                                      : [
-                                          "solar:wallet-money-bold-duotone",
-                                          "solar:wallet-money-bold-duotone",
-                                          "solar:chart-2-bold-duotone",
-                                        ];
-
-                                  return (
-                                    <div
-                                      key={stat.label}
-                                      className={cn(
-                                        "rounded-[1.2rem] p-4 border",
-                                        activeProposal.id === "investment"
-                                          ? "bg-white/10 border-white/10"
-                                          : "bg-white border-brand-navy/5",
-                                      )}
-                                    >
-                                      <div className="flex items-center gap-2 mb-2">
-                                        <Icon
-                                          icon={statIcons[index]}
-                                          className={cn(
-                                            "h-4 w-4",
-                                            activeProposal.id === "investment"
-                                              ? "text-white/70"
-                                              : "text-brand-mint",
-                                          )}
-                                        />
-                                        <p
-                                          className={cn(
-                                            "text-[10px] uppercase tracking-[0.14em] font-bold",
-                                            activeProposal.id === "investment"
-                                              ? "text-white/50"
-                                              : "text-brand-navy/40",
-                                          )}
-                                        >
-                                          {stat.label}
-                                        </p>
-                                      </div>
-
-                                      <p className="text-lg md:text-xl font-bold leading-tight">
-                                        {stat.value}
-                                      </p>
-                                    </div>
-                                  );
-                                })}
-                              </div>
-
-                              <div className="grid grid-cols-1 gap-3">
-                                {[
-                                  {
-                                    icon: "solar:check-circle-bold-duotone",
-                                    text: activeProposal.valuePoints[0],
-                                  },
-                                  {
-                                    icon: "solar:shield-check-bold-duotone",
-                                    text: activeProposal.valuePoints[1],
-                                  },
-                                  {
-                                    icon: "solar:leaf-bold-duotone",
-                                    text: activeProposal.valuePoints[2],
-                                  },
-                                ].map((item, i) => (
-                                  <div
-                                    key={i}
-                                    className={cn(
-                                      "rounded-[1.2rem] p-4 border flex items-start gap-3",
-                                      activeProposal.id === "investment"
-                                        ? "bg-white/5 border-white/10"
-                                        : "bg-brand-navy/[0.03] border-brand-navy/5",
-                                    )}
-                                  >
-                                    <div
-                                      className={cn(
-                                        "w-10 h-10 rounded-xl flex items-center justify-center shrink-0",
-                                        activeProposal.id === "investment"
-                                          ? "bg-white/10"
-                                          : "brand-gradient shadow-md shadow-brand-mint/20",
-                                      )}
-                                    >
-                                      <Icon
-                                        icon={item.icon}
-                                        className={cn(
-                                          "h-5 w-5",
-                                          activeProposal.id === "investment"
-                                            ? "text-white"
-                                            : "text-brand-navy",
-                                        )}
-                                      />
-                                    </div>
-
-                                    <p className="font-semibold text-sm md:text-base leading-snug">
-                                      {item.text}
-                                    </p>
-                                  </div>
-                                ))}
-                              </div>
-                            </div>
-                          </motion.div>
-                        </AnimatePresence>
-                      </div>
-                    </div>
-                    {/* COLUMNA 2: GRÁFICA */}
-                    <div className="space-y-6">
-                      <div className="bg-white rounded-[2rem] md:rounded-[3rem] p-5 md:p-6 border border-brand-navy/5 shadow-xl shadow-brand-navy/5 h-full xl:min-h-[560px] flex flex-col">
-                        {" "}
-                        <div className="space-y-3 mb-5">
-                          <div className="inline-flex items-center gap-2 rounded-full bg-brand-navy/[0.04] px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.16em] text-brand-navy/60">
-                            <Icon
-                              icon="solar:chart-2-bold-duotone"
-                              className="h-4 w-4 text-brand-mint"
-                            />
-                            Visual comparativo
-                          </div>
-
-                          <div>
-                            <h3 className="font-bold text-xl text-brand-navy">
-                              Comparativa económica
-                            </h3>
-                            <p className="text-sm text-brand-gray mt-1">
-                              Comparación visual entre inversión y servicio.
-                            </p>
-                          </div>
-                        </div>
-                        <motion.div
-                          initial={{ opacity: 0, y: 16 }}
-                          animate={{ opacity: 1, y: 0 }}
-                          transition={{ duration: 0.45, delay: 0.1 }}
-                          className="mt-auto h-[260px] md:h-[320px] xl:h-[420px] rounded-[1.5rem] bg-gradient-to-b from-white to-brand-sky/5 p-3 md:p-4 border border-brand-navy/5"
                         >
-                          <ResponsiveContainer width="100%" height="100%">
-                            <BarChart data={economicChartData} barGap={10}>
-                              <CartesianGrid
-                                stroke={chartPalette.grid}
-                                vertical={false}
-                              />
-
-                              <XAxis
-                                dataKey="name"
-                                tickLine={false}
-                                axisLine={false}
-                                tick={{
-                                  fill: chartPalette.text,
-                                  fontSize: 11,
-                                  fontWeight: 600,
-                                }}
-                              />
-
-                              <YAxis
-                                tickLine={false}
-                                axisLine={false}
-                                tick={{ fill: chartPalette.text, fontSize: 11 }}
-                                tickFormatter={(value) => {
-                                  const num = Number(value);
-                                  if (num >= 1000)
-                                    return `${Math.round(num / 1000)}k€`;
-                                  return `${Math.round(num)}€`;
-                                }}
-                              />
-
-                              <Tooltip
-                                cursor={{ fill: chartPalette.hover }}
-                                formatter={(value) =>
-                                  formatCurrency(Number(value))
-                                }
-                                contentStyle={{
-                                  borderRadius: 18,
-                                  border: "1px solid rgba(7, 0, 95, 0.08)",
-                                  boxShadow: "0 20px 45px rgba(7, 0, 95, 0.08)",
-                                }}
-                              />
-
-                              <Bar
-                                dataKey="inversion"
-                                name="Inversión"
-                                fill={chartPalette.navy}
-                                radius={[10, 10, 0, 0]}
-                                isAnimationActive
-                                animationDuration={900}
-                              />
-
-                              <Bar
-                                dataKey="servicio"
-                                name="Servicio"
-                                fill={chartPalette.mint}
-                                radius={[10, 10, 0, 0]}
-                                isAnimationActive
-                                animationDuration={1200}
-                              />
-                            </BarChart>
-                          </ResponsiveContainer>
-                        </motion.div>
-                      </div>
-                    </div>
-                    {/* COLUMNA 3: BOTONES */}
-                    <div className="space-y-6">
-                      <div className="bg-brand-navy rounded-[2rem] md:rounded-[3rem] p-5 md:p-7 text-white shadow-2xl shadow-brand-navy/20 h-full xl:min-h-[560px] flex flex-col justify-between">
-                        {" "}
-                        <div className="space-y-4">
-                          <div className="flex items-center gap-3">
-                            <div className="w-11 h-11 rounded-2xl bg-white/10 flex items-center justify-center">
-                              <Icon
-                                icon="solar:document-text-bold-duotone"
-                                className="h-6 w-6 text-brand-mint"
-                              />
-                            </div>
-
-                            <div>
-                              <h3 className="font-bold text-lg md:text-xl">
-                                Acciones disponibles
-                              </h3>
-                              <p className="text-white/60 text-sm">
-                                Modalidad activa:{" "}
-                                <span className="font-semibold text-white">
-                                  {activeProposal.title}
-                                </span>
-                              </p>
-                            </div>
-                          </div>
-
-                          <div className="space-y-3 pt-2">
-                            <Button
-                              className="w-full py-5 md:py-7 text-base rounded-[1.2rem] md:rounded-2xl brand-gradient text-brand-navy border-none"
-                              onClick={handleDownloadPDF}
-                            >
-                              <Icon
-                                icon="solar:download-minimalistic-bold-duotone"
-                                className="mr-3 h-6 w-6"
-                              />
-                              Descargar PDF
-                            </Button>
-                            {/* 
-                            <Button
-                              className="w-full py-5 md:py-7 text-base rounded-[1.2rem] md:rounded-2xl bg-white/10 hover:bg-white/20 border-white/10 text-white"
-                              variant="outline"
-                              onClick={handleSendEmail}
-                            >
-                              <Icon
-                                icon="solar:letter-bold-duotone"
-                                className="mr-3 h-6 w-6"
-                              />
-                              Enviar por Email
-                            </Button> */}
-                            <Button
-                              className={cn(
-                                "w-full py-5 md:py-7 text-base rounded-[1.2rem] md:rounded-2xl border-none",
-                                contractAlreadySigned
-                                  ? "bg-white/10 text-white/60 cursor-not-allowed"
-                                  : "bg-brand-mint text-brand-navy hover:bg-brand-mint/90",
+                          <span className="inline-flex items-center justify-center">
+                            <span className="mr-3 inline-flex h-6 w-6 items-center justify-center">
+                              {isGeneratingContract ? (
+                                <Loader2 className="h-6 w-6 animate-spin" />
+                              ) : contractAlreadySigned ? (
+                                <Icon
+                                  icon="solar:shield-check-bold-duotone"
+                                  className="h-6 w-6"
+                                />
+                              ) : (
+                                <Icon
+                                  icon="solar:pen-new-square-bold-duotone"
+                                  className="h-6 w-6"
+                                />
                               )}
-                              onClick={handleGenerateContract}
-                              disabled={
-                                !savedStudy?.study?.id ||
-                                isGeneratingContract ||
-                                isSigningContract ||
-                                contractAlreadySigned
-                              }
-                            >
-                              <span className="inline-flex items-center justify-center">
-                                <span className="mr-3 inline-flex h-6 w-6 items-center justify-center">
-                                  {isGeneratingContract ? (
-                                    <Loader2 className="h-6 w-6 animate-spin" />
-                                  ) : contractAlreadySigned ? (
-                                    <Icon
-                                      icon="solar:shield-check-bold-duotone"
-                                      className="h-6 w-6"
-                                    />
-                                  ) : (
-                                    <Icon
-                                      icon="solar:pen-new-square-bold-duotone"
-                                      className="h-6 w-6"
-                                    />
-                                  )}
-                                </span>
+                            </span>
+                            <span>
+                              {contractAlreadySigned ? "Reservado" : "Reservar"}
+                            </span>
+                          </span>
+                        </Button>
 
-                                <span>
-                                  {contractAlreadySigned
-                                    ? "Reservado"
-                                    : "Reservar"}
-                                </span>
-                              </span>
-                            </Button>
-                          </div>
-
-                          <div className="mt-5 rounded-[1.4rem] bg-white/10 p-4 border border-white/10 space-y-2.5">
-                            {" "}
-                            <div className="flex items-center gap-2">
-                              <Icon
-                                icon="solar:wallet-money-bold-duotone"
-                                className="h-5 w-5 text-brand-mint"
-                              />
-                              <p className="text-[10px] font-bold uppercase tracking-widest text-white/50">
-                                Resumen
-                              </p>
-                            </div>
-                            {signedContractResult?.reservation ? (
-                              <div className="mt-5 rounded-[1.4rem] bg-brand-mint/15 p-4 border border-brand-mint/20 space-y-3 text-brand-navy">
-                                <div className="flex items-center gap-2">
-                                  <Icon
-                                    icon="solar:shield-check-bold-duotone"
-                                    className="h-5 w-5 text-brand-navy"
-                                  />
-                                  <p className="text-[10px] font-bold uppercase tracking-widest text-brand-navy/60">
-                                    Reserva iniciada
-                                  </p>
-                                </div>
-
-                                <p className="text-sm leading-relaxed">
-                                  Se han reservado{" "}
-                                  <span className="font-bold">
-                                    {
-                                      signedContractResult.reservation
-                                        .reservedKwp
-                                    }{" "}
-                                    kWp
-                                  </span>{" "}
-                                  en la planta{" "}
-                                  <span className="font-bold">
-                                    {
-                                      signedContractResult.reservation
-                                        .installationName
-                                    }
-                                  </span>
-                                  .
-                                </p>
-
-                                <p className="text-sm leading-relaxed">
-                                  Estado actual del pago:{" "}
-                                  <span className="font-bold">
-                                    {
-                                      signedContractResult.reservation
-                                        .paymentStatus
-                                    }
-                                  </span>
-                                  .
-                                </p>
-
-                                <p className="text-sm leading-relaxed">
-                                  Señal pendiente:{" "}
-                                  <span className="font-bold">
-                                    {formatCurrency(
-                                      signedContractResult.reservation
-                                        .signalAmount,
-                                    )}
-                                  </span>
-                                  .
-                                </p>
-                              </div>
-                            ) : null}
-                            <p className="text-2xl font-bold">
-                              {formatCurrency(activeProposal.annualSavings)} /
-                              año
-                            </p>
-                            <div className="space-y-2 text-sm text-white/65">
-                              <div className="flex items-center gap-2">
-                                <Icon
-                                  icon="solar:calculator-bold-duotone"
-                                  className="h-4 w-4 text-brand-mint"
-                                />
-                                <span>
-                                  {activeProposal.id === "investment"
-                                    ? `Coste inicial ${formatCurrency(activeProposal.upfrontCost)}`
-                                    : activeProposal.monthlyFee &&
-                                        activeProposal.monthlyFee > 0
-                                      ? `Cuota estimada ${formatCurrency(activeProposal.monthlyFee)} / mes`
-                                      : "Sin cuota mensual"}
-                                </span>
-                              </div>
-
-                              <div className="flex items-center gap-2">
-                                <Icon
-                                  icon="solar:clock-circle-bold-duotone"
-                                  className="h-4 w-4 text-brand-mint"
-                                />
-                                <span>
-                                  La reserva se confirma tras el pago de la
-                                  señal
-                                </span>{" "}
-                              </div>
-                            </div>
-                          </div>
-                        </div>
+                        <Button
+                          className="w-full py-5 rounded-[1.2rem] brand-gradient text-brand-navy border-none"
+                          onClick={handleDownloadPDF}
+                        >
+                          <Icon
+                            icon="solar:download-minimalistic-bold-duotone"
+                            className="mr-3 h-6 w-6"
+                          />
+                          Descargar PDF
+                        </Button>
                       </div>
                     </div>
                   </div>

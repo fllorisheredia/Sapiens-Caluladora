@@ -700,7 +700,7 @@ async function findEligibleInstallationsForStudy(params: {
   assignedKwp: number;
   radiusMeters?: number;
 }): Promise<FindEligibleInstallationsResult> {
-  const radiusMeters = params.radiusMeters ?? 2000;
+  const radiusMeters = params.radiusMeters ?? 5000;
 
   const { data: study, error: studyError } = await supabase
     .from("studies")
@@ -2750,7 +2750,7 @@ async function startServer() {
       const result = await findEligibleInstallationsForStudy({
         studyId: id,
         assignedKwp,
-        radiusMeters: 2000,
+        radiusMeters: 5000,
       });
 
       if (result.reason === "no_installations_in_range") {
@@ -4480,7 +4480,7 @@ async function startServer() {
     try {
       const lat = req.query.lat ? Number(req.query.lat) : null;
       const lng = req.query.lng ? Number(req.query.lng) : null;
-      const radius = req.query.radius ? Number(req.query.radius) : 2000;
+      const radius = req.query.radius ? Number(req.query.radius) : 5000;
 
       const { data, error } = await supabase
         .from("installations")
