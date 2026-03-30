@@ -1908,7 +1908,7 @@ async function startServer() {
 
   app.use(express.json({ limit: "10mb" }));
 
-  app.use("/assets", express.static(path.join(process.cwd(), "src", "assets")));
+  // app.use("/assets", express.static(path.join(process.cwd(), "src", "assets")));
 
   const upload = multer({
     storage: multer.memoryStorage(),
