@@ -3017,29 +3017,20 @@ function MainAppContent() {
                           <div className="grid grid-cols-2 gap-3">
                             {[
                               {
-                                label: "Potencia",
-                                value: `${formatNumber(activeProposal.recommendedPowerKwp)} kWp`,
-                                icon: "solar:bolt-bold-duotone",
-                              },
-                              {
-                                label: "Consumo anual",
-                                value: `${formatNumber(activeProposal.annualConsumptionKwh)} kWh`,
-                                icon: "solar:chart-2-bold-duotone",
-                              },
-                              {
                                 label:
                                   activeProposalMode === "investment"
                                     ? "Coste inicial"
-                                    : "Entrada inicial",
-                                value: formatCurrency(
-                                  activeProposal.upfrontCost,
-                                ),
+                                    : "Sin inversión inicial",
+                                value:
+                                  activeProposalMode === "investment"
+                                    ? formatCurrency(activeProposal.upfrontCost)
+                                    : "Sin Inversión",
                                 icon: "solar:calculator-bold-duotone",
                               },
                               {
                                 label:
                                   activeProposalMode === "investment"
-                                    ? "Rentabilidad"
+                                    ? "Retorno"
                                     : "Cuota mensual",
                                 value:
                                   activeProposalMode === "investment"
@@ -3054,6 +3045,16 @@ function MainAppContent() {
                                   activeProposalMode === "investment"
                                     ? "solar:graph-up-bold-duotone"
                                     : "solar:wallet-money-bold-duotone",
+                              },
+                              {
+                                label: "Potencia",
+                                value: `${formatNumber(activeProposal.recommendedPowerKwp)} kWp`,
+                                icon: "solar:bolt-bold-duotone",
+                              },
+                              {
+                                label: "Consumo anual",
+                                value: `${Math.round(activeProposal.annualConsumptionKwh)} kWh`,
+                                icon: "solar:chart-2-bold-duotone",
                               },
                             ].map((stat, i) => (
                               <div
@@ -3101,6 +3102,22 @@ function MainAppContent() {
                             {formatCurrency(activeProposal.annualSavings)}
                           </p>
                         </div>
+
+                        {/* <Button
+                          className={cn(
+                            "w-full py-5 md:py-7 text-base rounded-[1.2rem] md:rounded-2xl border-none",
+                            contractAlreadySigned
+                              ? "bg-white/10 text-white/60 cursor-not-allowed"
+                              : "bg-brand-mint text-brand-navy hover:bg-brand-mint/90",
+                          )}
+                          onClick={handleGenerateContract}
+                          disabled={
+                            !savedStudy?.study?.id ||
+                            isGeneratingContract ||
+                            isSigningContract ||
+                            contractAlreadySigned
+                          }
+                        ></Button> */}
                       </div>
                     </div>
                   </div>
@@ -3413,7 +3430,7 @@ function MainAppContent() {
                               Descargar PDF
                             </Button>
 
-                            <Button
+                            {/* <Button
                               className="w-full py-5 md:py-7 text-base rounded-[1.2rem] md:rounded-2xl bg-white/10 hover:bg-white/20 border-white/10 text-white"
                               variant="outline"
                               onClick={handleSendEmail}
@@ -3423,7 +3440,7 @@ function MainAppContent() {
                                 className="mr-3 h-6 w-6"
                               />
                               Enviar por Email
-                            </Button>
+                            </Button> */}
                             <Button
                               className={cn(
                                 "w-full py-5 md:py-7 text-base rounded-[1.2rem] md:rounded-2xl border-none",
