@@ -49,45 +49,46 @@ export default function ContinuarContratacionPage() {
     }
 
     setLoading(true);
+try {
+  const { data } = await axios.post(
+    "/api/contracts/proposal-access/validate",
+    {
+      token,
+      dni: dni.trim().toUpperCase(),
+      nombre: nombre.trim(),
+      apellidos: apellidos.trim(),
+    },
+  );
 
-    try {
-      const { data } = await axios.post(
-        "/api/contracts/proposal-access/validate",
-        {
-          token,
-          dni: dni.trim().toUpperCase(),
-          nombre: nombre.trim(),
-          apellidos: apellidos.trim(),
-        },
-      );
+  if (!data?.success || !data?.resumeToken) {
+    throw new Error("No se pudo validar el acceso");
+  }
 
-      if (!data?.success || !data?.resumeToken) {
-        throw new Error("No se pudo validar el acceso");
-      }
+  sessionStorage.setItem("proposal_resume_token", data.resumeToken);
 
-      sileo.success({
-        title: "Acceso validado",
-        description: "Vamos a continuar con tu contratación.",
-      });
+  sileo.success({
+    title: "Acceso validado",
+    description: "Vamos a continuar con tu contratación.",
+  });
 
-      navigate(
-        `/contratacion-desde-propuesta?resume=${encodeURIComponent(
-          data.resumeToken,
-        )}&mode=${encodeURIComponent(selectedMode)}`,
-      );
-    } catch (error: any) {
-      const message =
-        error?.response?.data?.error ||
-        error?.response?.data?.details ||
-        "No se pudo validar tu acceso.";
+  navigate(
+    `/contratacion-desde-propuesta?resume=${encodeURIComponent(
+      data.resumeToken,
+    )}&mode=${encodeURIComponent(selectedMode)}`,
+  );
+} catch (error: any) {
+  const message =
+    error?.response?.data?.error ||
+    error?.response?.data?.details ||
+    "No se pudo validar tu acceso.";
 
-      sileo.error({
-        title: "No se pudo continuar",
-        description: message,
-      });
-    } finally {
-      setLoading(false);
-    }
+  sileo.error({
+    title: "No se pudo continuar",
+    description: message,
+  });
+} finally {
+  setLoading(false);
+}
   };
 
   const modeCards = [

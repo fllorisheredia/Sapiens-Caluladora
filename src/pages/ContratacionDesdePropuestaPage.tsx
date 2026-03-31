@@ -14,9 +14,10 @@ import {
 import { Icon } from "@iconify/react";
 import { jsPDF } from "jspdf";
 import { sileo } from "sileo";
-import { cn, formatNumber } from "../lib/utils";
+import { formatCurrency, formatNumber } from "../lib/utils";
 
 type ProposalMode = "investment" | "service";
+type PaymentMethodId = "stripe" | "bank_transfer";
 
 type ContractPreviewData = {
   contractId: string;
@@ -53,7 +54,10 @@ type GeneratedContractResponse = {
 type SignedContractResponse = {
   success: boolean;
   message: string;
-  contract: any;
+  contract: {
+    id: string;
+    status: string;
+  };
   reservation: {
     id: string;
     reservationStatus: string;
@@ -67,7 +71,7 @@ type SignedContractResponse = {
   payment?: {
     step: "select_method";
     availableMethods: {
-      id: "stripe" | "bank_transfer";
+      id: PaymentMethodId;
       label: string;
     }[];
   };
@@ -78,8 +82,57 @@ type SignedContractResponse = {
   };
 };
 
+type StripePaymentResponse = {
+  success: boolean;
+  message: string;
+  contract: {
+    id: string;
+    status: string;
+    contractNumber: string;
+  };
+  reservation: {
+    id: string;
+    reservationStatus: string;
+    paymentStatus: string;
+    paymentDeadlineAt: string;
+    signalAmount: number;
+    currency: string;
+    paymentMethod: "stripe";
+  };
+  stripe: {
+    checkoutSessionId: string;
+    checkoutUrl: string;
+  };
+};
+
+type BankTransferPaymentResponse = {
+  success: boolean;
+  message: string;
+  contract: {
+    id: string;
+    status: string;
+    contractNumber: string;
+  };
+  reservation: {
+    id: string;
+    reservationStatus: string;
+    paymentStatus: string;
+    paymentDeadlineAt: string;
+    signalAmount: number;
+    currency: string;
+    paymentMethod: "bank_transfer";
+  };
+  bankTransfer: {
+    iban: string;
+    beneficiary: string;
+    concept: string;
+    paymentDeadlineAt: string;
+    emailSentTo: string;
+  };
+};
+
 export default function ContratacionDesdePropuestaPage() {
-  const [searchParams, setSearchParams] = useSearchParams();
+  const [searchParams] = useSearchParams();
   const navigate = useNavigate();
 
   const resumeToken =
@@ -87,12 +140,8 @@ export default function ContratacionDesdePropuestaPage() {
     sessionStorage.getItem("proposal_resume_token") ||
     "";
 
-  const modeFromUrl = searchParams.get("mode");
-  const initialMode: ProposalMode =
-    modeFromUrl === "service" ? "service" : "investment";
-
-  const [selectedMode, setSelectedMode] =
-    useState<ProposalMode>(initialMode);
+  const selectedMode: ProposalMode =
+    searchParams.get("mode") === "service" ? "service" : "investment";
 
   const [generatedContract, setGeneratedContract] =
     useState<GeneratedContractResponse | null>(null);
@@ -101,100 +150,26 @@ export default function ContratacionDesdePropuestaPage() {
 
   const [loading, setLoading] = useState(true);
   const [isSigningContract, setIsSigningContract] = useState(false);
+  const [isSelectingPaymentMethod, setIsSelectingPaymentMethod] =
+    useState(false);
+  const [isPaymentMethodModalOpen, setIsPaymentMethodModalOpen] =
+    useState(false);
   const [signatureHasContent, setSignatureHasContent] = useState(false);
 
   const signatureCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const signatureDrawingRef = useRef(false);
 
-  useEffect(() => {
-    const nextMode = searchParams.get("mode") === "service" ? "service" : "investment";
-    setSelectedMode(nextMode);
-  }, [searchParams]);
-
-  useEffect(() => {
-    const loadContract = async () => {
-      if (!resumeToken) {
-        sileo.error({
-          title: "Acceso no válido",
-          description: "No se ha encontrado el token de continuación.",
-        });
-        navigate("/");
-        return;
-      }
-
-      setLoading(true);
-      setGeneratedContract(null);
-      setSignedContractResult(null);
-      clearSignature();
-
-      try {
-        const { data } = await axios.post<GeneratedContractResponse>(
-          "/api/contracts/generate-from-access",
-          {
-            resumeToken,
-            proposalMode: selectedMode,
-          },
-        );
-
-        setGeneratedContract(data);
-      } catch (error: any) {
-        console.error("Error cargando contrato desde acceso:", error);
-        console.error("status:", error?.response?.status);
-        console.error("data:", error?.response?.data);
-
-        if (error?.response?.data?.alreadySigned) {
-          const goHome = () => {
-            sessionStorage.removeItem("proposal_resume_token");
-            navigate("/");
-          };
-
-          sileo.action({
-            title: "Pre-contrato ya firmado",
-            description:
-              error?.response?.data?.message ||
-              "Este pre-contrato ya fue firmado anteriormente.",
-            actionLabel: "Volver al inicio",
-            onAction: goHome,
-            duration: 3500,
-            icon: (
-              <Icon
-                icon="solar:check-circle-bold-duotone"
-                className="h-5 w-5 text-emerald-600"
-              />
-            ),
-          } as any);
-
-          window.setTimeout(() => {
-            goHome();
-          }, 2200);
-
-          return;
-        }
-
-        sileo.error({
-          title: "No se pudo abrir el contrato",
-          description:
-            error?.response?.data?.details ||
-            error?.response?.data?.error ||
-            "Error desconocido",
-        });
-
-        navigate("/");
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    void loadContract();
-  }, [resumeToken, selectedMode, navigate]);
-
-  const handleChangeMode = (mode: ProposalMode) => {
-    setSelectedMode(mode);
-
-    const nextParams = new URLSearchParams(searchParams);
-    nextParams.set("mode", mode);
-    setSearchParams(nextParams, { replace: true });
+  const goHome = () => {
+    sessionStorage.removeItem("proposal_resume_token");
+    navigate("/");
   };
+
+  useEffect(() => {
+    const resumeFromUrl = searchParams.get("resume");
+    if (resumeFromUrl) {
+      sessionStorage.setItem("proposal_resume_token", resumeFromUrl);
+    }
+  }, [searchParams]);
 
   const clearSignature = () => {
     const canvas = signatureCanvasRef.current;
@@ -325,7 +300,7 @@ export default function ContratacionDesdePropuestaPage() {
     pdf.setFont("helvetica", "bold");
     pdf.setFontSize(22);
     pdf.setTextColor(7, 0, 95);
-    pdf.text("Contrato de adhesión", margin, y);
+    pdf.text("Precontrato de reserva", margin, y);
     y += 24;
 
     pdf.setFont("helvetica", "normal");
@@ -355,7 +330,7 @@ export default function ContratacionDesdePropuestaPage() {
       "El cliente solicita la reserva de la potencia indicada en la instalación seleccionada, quedando dicha reserva pendiente de confirmación económica.",
     );
     writeParagraph(
-      "Se informa al cliente de un plazo orientativo de 15 días para realizar la transferencia correspondiente.",
+      "La reserva se formalizará mediante el pago de una señal, ya sea por tarjeta o por transferencia bancaria.",
     );
     writeParagraph(
       "Hasta la validación del pago, la reserva tendrá carácter provisional.",
@@ -381,6 +356,82 @@ export default function ContratacionDesdePropuestaPage() {
       type: "application/pdf",
     });
   };
+
+  useEffect(() => {
+    const loadContract = async () => {
+      if (!resumeToken) {
+        sileo.error({
+          title: "Acceso no válido",
+          description: "No se ha encontrado el token de continuación.",
+        });
+        navigate("/");
+        return;
+      }
+
+      setLoading(true);
+      setGeneratedContract(null);
+      setSignedContractResult(null);
+      setIsPaymentMethodModalOpen(false);
+      clearSignature();
+
+      try {
+        const { data } = await axios.post<GeneratedContractResponse>(
+          "/api/contracts/generate-from-access",
+          {
+            resumeToken,
+            proposalMode: selectedMode,
+          },
+        );
+
+        setGeneratedContract(data);
+      } catch (error: any) {
+        console.error("Error cargando contrato desde acceso:", error);
+        console.error("status:", error?.response?.status);
+        console.error("data:", error?.response?.data);
+
+        if (error?.response?.data?.alreadySigned) {
+          sileo.action({
+            title: "Precontrato ya firmado",
+            description:
+              error?.response?.data?.message ||
+              "Este precontrato ya fue firmado anteriormente.",
+            actionLabel: "Volver al inicio",
+            onAction: goHome,
+            duration: 3500,
+            icon: (
+              <Icon
+                icon="solar:check-circle-bold-duotone"
+                className="h-5 w-5 text-emerald-600"
+              />
+            ),
+          } as any);
+
+          window.setTimeout(() => {
+            goHome();
+          }, 2200);
+
+          return;
+        }
+
+        sileo.error({
+          title: "No se pudo abrir el contrato",
+          description:
+            error?.response?.data?.details ||
+            error?.response?.data?.error ||
+            "Error desconocido",
+        });
+
+        navigate("/");
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    void loadContract();
+  }, [resumeToken, selectedMode, navigate]);
+
+  const currentContractId =
+    signedContractResult?.contract?.id ?? generatedContract?.contract?.id ?? null;
 
   const handleSubmitSignedContract = async () => {
     if (!generatedContract?.contract?.id || !generatedContract?.preview) {
@@ -416,57 +467,33 @@ export default function ContratacionDesdePropuestaPage() {
       const response = await axios.post<SignedContractResponse>(
         `/api/contracts/${generatedContract.contract.id}/sign`,
         formData,
+        {
+          headers: {
+            "Content-Type": "multipart/form-data",
+          },
+        },
       );
 
       setSignedContractResult(response.data);
+      clearSignature();
+      setIsPaymentMethodModalOpen(true);
 
-      const goHome = () => {
-        sessionStorage.removeItem("proposal_resume_token");
-        navigate("/");
-      };
-
-sileo.action({
-  title: "Pre-contrato firmado correctamente",
-  description: `Se han reservado ${response.data.reservation.reservedKwp} kWp en ${response.data.reservation.installationName}.`,
-  actionLabel: "Ir al inicio",
-  onAction: goHome,
-  duration: 3500,
-  icon: (
-    <Icon
-      icon="solar:shield-check-bold-duotone"
-      className="h-5 w-5 text-emerald-600"
-    />
-  ),
-} as any);
-
-      // if (response.data.email?.status === "failed") {
-      //   sileo.warning({
-      //     title: "Contrato firmado, pero el email falló",
-      //     description:
-      //       response.data.email.error ??
-      //       "No se pudo enviar la copia del contrato por correo.",
-      //   });
-      // }
-
-      window.setTimeout(() => {
-        goHome();
-      }, 2200);
+      sileo.success({
+        title: "Precontrato firmado correctamente",
+        description:
+          "Ahora debes seleccionar la forma de pago para continuar con la reserva.",
+      });
     } catch (error: any) {
       console.error("Error firmando contrato:", error);
       console.error("status:", error?.response?.status);
       console.error("data:", error?.response?.data);
 
       if (error?.response?.data?.alreadySigned) {
-        const goHome = () => {
-          sessionStorage.removeItem("proposal_resume_token");
-          navigate("/");
-        };
-
         sileo.action({
-          title: "Pre-contrato ya firmado",
+          title: "Precontrato ya firmado",
           description:
             error?.response?.data?.message ||
-            "Este pre-contrato ya fue firmado anteriormente.",
+            "Este precontrato ya fue firmado anteriormente.",
           actionLabel: "Volver al inicio",
           onAction: goHome,
           duration: 3500,
@@ -498,6 +525,92 @@ sileo.action({
     }
   };
 
+  const handleSelectStripePayment = async () => {
+    if (!currentContractId) {
+      sileo.error({
+        title: "Contrato no disponible",
+        description: "No se ha encontrado el contrato para iniciar el pago.",
+      });
+      return;
+    }
+
+    setIsSelectingPaymentMethod(true);
+
+    try {
+      const response = await axios.post<StripePaymentResponse>(
+        `/api/contracts/${currentContractId}/payments/stripe`,
+      );
+
+      const checkoutUrl = response.data?.stripe?.checkoutUrl;
+
+      if (!checkoutUrl) {
+        sileo.error({
+          title: "Pago no disponible",
+          description: "No se pudo obtener la URL de Stripe.",
+        });
+        return;
+      }
+
+      sileo.success({
+        title: "Redirigiendo a Stripe",
+        description: "Te llevamos al pago seguro con tarjeta.",
+      });
+
+      window.location.href = checkoutUrl;
+    } catch (error: any) {
+      console.error("Error iniciando pago con Stripe:", error);
+
+      sileo.error({
+        title: "No se pudo iniciar el pago con tarjeta",
+        description:
+          error?.response?.data?.details ||
+          error?.response?.data?.error ||
+          error?.message ||
+          "Ha ocurrido un error inesperado.",
+      });
+    } finally {
+      setIsSelectingPaymentMethod(false);
+    }
+  };
+
+  const handleSelectBankTransferPayment = async () => {
+    if (!currentContractId) {
+      sileo.error({
+        title: "Contrato no disponible",
+        description: "No se ha encontrado el contrato para iniciar el pago.",
+      });
+      return;
+    }
+
+    setIsSelectingPaymentMethod(true);
+
+    try {
+      const response = await axios.post<BankTransferPaymentResponse>(
+        `/api/contracts/${currentContractId}/payments/bank-transfer`,
+      );
+
+      setIsPaymentMethodModalOpen(false);
+
+      sileo.success({
+        title: "Instrucciones enviadas",
+        description: `Hemos enviado el email con las instrucciones de transferencia a ${response.data.bankTransfer.emailSentTo}.`,
+      });
+    } catch (error: any) {
+      console.error("Error seleccionando transferencia bancaria:", error);
+
+      sileo.error({
+        title: "No se pudo preparar el pago por transferencia",
+        description:
+          error?.response?.data?.details ||
+          error?.response?.data?.error ||
+          error?.message ||
+          "Ha ocurrido un error inesperado.",
+      });
+    } finally {
+      setIsSelectingPaymentMethod(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="min-h-screen bg-slate-50 relative overflow-hidden">
@@ -521,8 +634,7 @@ sileo.action({
     return null;
   }
 
-  const modeLabel =
-    selectedMode === "investment" ? "Inversión" : "Servicio";
+  const modeLabel = selectedMode === "investment" ? "Inversión" : "Servicio";
 
   return (
     <div className="min-h-screen bg-slate-50 relative overflow-hidden">
@@ -530,24 +642,24 @@ sileo.action({
 
       <div className="relative z-10 px-4 py-6 md:px-8 md:py-8">
         <div className="mx-auto max-w-7xl space-y-6">
-   {signedContractResult?.reservation ? (
-  <div className="rounded-[1.6rem] bg-emerald-50 border border-emerald-200 p-5">
-    <p className="text-sm font-bold uppercase tracking-widest text-emerald-700 mb-2">
-      Contrato firmado
-    </p>
-    <p className="text-sm text-emerald-900 leading-relaxed">
-      Se han reservado{" "}
-      <strong>
-        {signedContractResult.reservation.reservedKwp} kWp
-      </strong>{" "}
-      en{" "}
-      <strong>
-        {signedContractResult.reservation.installationName}
-      </strong>
-      .
-    </p>
-  </div>
-) : null}
+          {signedContractResult?.reservation ? (
+            <div className="rounded-[1.6rem] bg-emerald-50 border border-emerald-200 p-5">
+              <p className="text-sm font-bold uppercase tracking-widest text-emerald-700 mb-2">
+                Contrato firmado
+              </p>
+              <p className="text-sm text-emerald-900 leading-relaxed">
+                Se han reservado{" "}
+                <strong>
+                  {signedContractResult.reservation.reservedKwp} kWp
+                </strong>{" "}
+                en{" "}
+                <strong>
+                  {signedContractResult.reservation.installationName}
+                </strong>
+                .
+              </p>
+            </div>
+          ) : null}
 
           <div className="grid grid-cols-1 xl:grid-cols-[380px_minmax(0,1fr)] gap-6">
             <div className="rounded-[2.4rem] bg-brand-navy text-white p-6 md:p-7 shadow-2xl shadow-brand-navy/15 overflow-hidden relative">
@@ -609,7 +721,7 @@ sileo.action({
 
                 <button
                   type="button"
-                  onClick={() => navigate("/")}
+                  onClick={goHome}
                   className="mt-6 inline-flex items-center gap-2 text-sm font-semibold text-white/85 hover:text-white transition"
                 >
                   <ArrowLeft className="h-4 w-4" />
@@ -620,63 +732,23 @@ sileo.action({
 
             <div className="rounded-[2rem] md:rounded-[2.5rem] bg-white border border-brand-navy/5 shadow-2xl shadow-brand-navy/5 overflow-hidden">
               <div className="border-b border-brand-navy/5 px-5 py-5 md:px-8 md:py-6 bg-white/95 backdrop-blur-md">
-                <div className="flex flex-col gap-5">
-                  <div>
-                    <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-brand-navy/40 mb-2">
-                      Modalidad
-                    </p>
-
-                    <div className="inline-flex w-full rounded-[1.25rem] bg-brand-navy/[0.04] p-1.5 border border-brand-navy/5">
-                      <button
-                        type="button"
-                        onClick={() => handleChangeMode("investment")}
-                        disabled={loading || isSigningContract}
-                        className={cn(
-                          "flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-[1rem] text-sm font-semibold transition-all",
-                          selectedMode === "investment"
-                            ? "bg-brand-navy text-white shadow-md"
-                            : "text-brand-navy/70 hover:text-brand-navy",
-                        )}
-                      >
-                        <Wallet className="h-5 w-5" />
-                        Inversión
-                      </button>
-
-                      <button
-                        type="button"
-                        onClick={() => handleChangeMode("service")}
-                        disabled={loading || isSigningContract}
-                        className={cn(
-                          "flex-1 inline-flex items-center justify-center gap-2 px-4 py-3 rounded-[1rem] text-sm font-semibold transition-all",
-                          selectedMode === "service"
-                            ? "bg-brand-navy text-white shadow-md"
-                            : "text-brand-navy/70 hover:text-brand-navy",
-                        )}
-                      >
-                        <Zap className="h-5 w-5" />
-                        Servicio
-                      </button>
-                    </div>
+                <div className="rounded-[1.3rem] bg-brand-mint/10 border border-brand-mint/20 p-4 flex items-start gap-3">
+                  <div className="w-11 h-11 rounded-2xl bg-brand-navy text-white flex items-center justify-center shrink-0">
+                    {selectedMode === "investment" ? (
+                      <Wallet className="h-5 w-5" />
+                    ) : (
+                      <Zap className="h-5 w-5" />
+                    )}
                   </div>
 
-                  <div className="rounded-[1.3rem] bg-brand-mint/10 border border-brand-mint/20 p-4 flex items-start gap-3">
-                    <div className="w-11 h-11 rounded-2xl bg-brand-navy text-white flex items-center justify-center shrink-0">
-                      {selectedMode === "investment" ? (
-                        <Wallet className="h-5 w-5" />
-                      ) : (
-                        <Zap className="h-5 w-5" />
-                      )}
-                    </div>
-
-                    <div>
-                      <p className="text-sm font-bold text-brand-navy">
-                        Modalidad seleccionada: {modeLabel}
-                      </p>
-                      <p className="mt-1 text-sm leading-6 text-brand-gray">
-                        Al cambiar la modalidad se regenera la vista previa del
-                        contrato con la opción elegida.
-                      </p>
-                    </div>
+                  <div>
+                    <p className="text-sm font-bold text-brand-navy">
+                      Modalidad seleccionada: {modeLabel}
+                    </p>
+                    <p className="mt-1 text-sm leading-6 text-brand-gray">
+                      Esta es la modalidad elegida previamente antes de firmar
+                      el contrato.
+                    </p>
                   </div>
                 </div>
               </div>
@@ -740,7 +812,8 @@ sileo.action({
 
                     <p className="text-xs text-brand-gray mt-3 leading-relaxed">
                       Firma dentro del recuadro. Al confirmar, se generará el
-                      PDF firmado y se enviará al backend para crear la reserva.
+                      PDF firmado, se creará la reserva provisional y podrás
+                      elegir la forma de pago.
                     </p>
                   </div>
 
@@ -758,7 +831,10 @@ sileo.action({
                         {formatNumber(generatedContract.preview.assignedKwp)} kWp
                       </span>{" "}
                       en la instalación seleccionada bajo modalidad de{" "}
-                      <span className="font-bold">{modeLabel.toLowerCase()}</span>.
+                      <span className="font-bold">
+                        {modeLabel.toLowerCase()}
+                      </span>
+                      .
                     </p>
                   </div>
 
@@ -766,7 +842,7 @@ sileo.action({
                     <button
                       type="button"
                       onClick={handleSubmitSignedContract}
-                      disabled={isSigningContract}
+                      disabled={isSigningContract || !!signedContractResult}
                       className="w-full rounded-[1.2rem] brand-gradient px-4 py-4 text-sm font-bold text-brand-navy transition hover:opacity-95 disabled:cursor-not-allowed disabled:opacity-60 shadow-lg shadow-brand-mint/15"
                     >
                       {isSigningContract ? (
@@ -777,14 +853,16 @@ sileo.action({
                       ) : (
                         <span className="inline-flex items-center justify-center">
                           <PenLine className="mr-3 h-5 w-5" />
-                          Firmar y reservar
+                          {signedContractResult
+                            ? "Contrato firmado"
+                            : "Firmar y continuar"}
                         </span>
                       )}
                     </button>
 
                     <button
                       type="button"
-                      onClick={() => navigate("/")}
+                      onClick={goHome}
                       className="w-full rounded-[1.2rem] border border-brand-navy/10 bg-white px-4 py-4 text-sm font-bold text-brand-navy transition hover:bg-brand-navy/[0.02]"
                     >
                       Cancelar
@@ -805,6 +883,136 @@ sileo.action({
           </div>
         </div>
       </div>
+
+      {isPaymentMethodModalOpen && signedContractResult?.reservation ? (
+        <div className="fixed inset-0 z-[210] bg-brand-navy/50 backdrop-blur-sm overflow-y-auto">
+          <div className="min-h-full px-4 py-4 md:px-8 md:py-8 flex items-start md:items-center justify-center">
+            <div className="w-full max-w-3xl rounded-[2rem] md:rounded-[2.5rem] bg-white border border-brand-navy/5 shadow-2xl overflow-hidden">
+              <div className="p-5 md:p-8 border-b border-brand-navy/5 flex items-center justify-between gap-4">
+                <div>
+                  <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-brand-navy/40 mb-1">
+                    Contratación
+                  </p>
+                  <h3 className="text-xl md:text-2xl font-bold text-brand-navy">
+                    Selecciona la forma de pago
+                  </h3>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setIsPaymentMethodModalOpen(false)}
+                  className="w-11 h-11 rounded-2xl bg-brand-navy/5 hover:bg-brand-navy/10 text-brand-navy transition shrink-0"
+                  disabled={isSelectingPaymentMethod}
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="p-5 md:p-8 space-y-6 bg-brand-navy/[0.02]">
+                <div className="rounded-[1.4rem] bg-white border border-brand-navy/5 p-5">
+                  <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-brand-navy/40 mb-3">
+                    Resumen de la reserva
+                  </p>
+
+                  <div className="space-y-2 text-sm text-brand-navy/80">
+                    <p>
+                      <span className="font-bold text-brand-navy">
+                        Instalación:
+                      </span>{" "}
+                      {signedContractResult.reservation.installationName}
+                    </p>
+                    <p>
+                      <span className="font-bold text-brand-navy">
+                        Potencia reservada:
+                      </span>{" "}
+                      {signedContractResult.reservation.reservedKwp} kWp
+                    </p>
+                    <p>
+                      <span className="font-bold text-brand-navy">Señal:</span>{" "}
+                      {formatCurrency(
+                        signedContractResult.reservation.signalAmount,
+                      )}
+                    </p>
+                    <p>
+                      <span className="font-bold text-brand-navy">
+                        Fecha límite:
+                      </span>{" "}
+                      {new Date(
+                        signedContractResult.reservation.paymentDeadlineAt,
+                      ).toLocaleDateString("es-ES")}
+                    </p>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <button
+                    type="button"
+                    onClick={handleSelectBankTransferPayment}
+                    disabled={isSelectingPaymentMethod}
+                    className="rounded-[1.5rem] border border-brand-navy/10 bg-white p-6 text-left shadow-sm hover:shadow-md transition disabled:opacity-60"
+                  >
+                    <div className="w-12 h-12 rounded-2xl bg-brand-navy/5 flex items-center justify-center mb-4">
+                      <Icon
+                        icon="solar:card-transfer-bold-duotone"
+                        className="h-6 w-6 text-brand-navy"
+                      />
+                    </div>
+
+                    <p className="text-lg font-bold text-brand-navy">
+                      Transferencia bancaria
+                    </p>
+                    <p className="mt-2 text-sm text-brand-gray leading-relaxed">
+                      Recibirás un correo con el IBAN, el concepto y el PDF del
+                      precontrato firmado. Tendrás 15 días para realizar la
+                      transferencia.
+                    </p>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={handleSelectStripePayment}
+                    disabled={isSelectingPaymentMethod}
+                    className="rounded-[1.5rem] border border-brand-mint/20 bg-brand-mint/10 p-6 text-left shadow-sm hover:shadow-md transition disabled:opacity-60"
+                  >
+                    <div className="w-12 h-12 rounded-2xl bg-brand-navy text-white flex items-center justify-center mb-4">
+                      <Icon
+                        icon="solar:card-send-bold-duotone"
+                        className="h-6 w-6"
+                      />
+                    </div>
+
+                    <p className="text-lg font-bold text-brand-navy">
+                      Tarjeta bancaria
+                    </p>
+                    <p className="mt-2 text-sm text-brand-gray leading-relaxed">
+                      Te redirigiremos a Stripe para completar el pago seguro de
+                      la señal con tarjeta.
+                    </p>
+                  </button>
+                </div>
+
+                <div className="pt-2">
+                  <button
+                    type="button"
+                    className="w-full rounded-[1.2rem] border border-brand-navy/10 bg-white px-4 py-4 text-sm font-bold text-brand-navy transition hover:bg-brand-navy/[0.02] disabled:opacity-60"
+                    onClick={() => setIsPaymentMethodModalOpen(false)}
+                    disabled={isSelectingPaymentMethod}
+                  >
+                    {isSelectingPaymentMethod ? (
+                      <span className="inline-flex items-center justify-center">
+                        <Loader2 className="mr-3 h-5 w-5 animate-spin" />
+                        Procesando...
+                      </span>
+                    ) : (
+                      "Cerrar"
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
