@@ -846,6 +846,8 @@ function getInvestmentCostFromFormula(
   if (!installation) return 0;
 
   const effectiveHours = Number(installation.horas_efectivas ?? 0);
+  const investmentCostPerKwh = Number(installation.coste_kwh_inversion ?? 0);
+
 
   if (
     !Number.isFinite(recommendedPowerKwp) ||
@@ -856,7 +858,7 @@ function getInvestmentCostFromFormula(
     return 0;
   }
 
-  return 0.06 * recommendedPowerKwp * effectiveHours * 25;
+  return investmentCostPerKwh * recommendedPowerKwp * effectiveHours * 25;
 }
 
 function getInvestmentRealCostFromFormula(
