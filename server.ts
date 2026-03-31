@@ -20,7 +20,7 @@ import {
 
 import crypto from "node:crypto";
 import jwt from "jsonwebtoken";
-import jsPDF from "jspdf";
+import {jsPDF} from "jspdf";
 const PORT = Number(process.env.PORT || 3000);
 const SAPIENS_CONTACT_PHONE =
   process.env.SAPIENS_CONTACT_PHONE || "960 99 27 77";
