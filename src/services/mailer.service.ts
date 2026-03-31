@@ -145,6 +145,7 @@ export async function sendProposalEmail({
     ],
   });
 }
+
 export async function sendReservationConfirmedEmail(params: {
   to: string;
   clientName: string;
@@ -226,6 +227,7 @@ export async function sendReservationConfirmedEmail(params: {
     ],
   });
 }
+
 export async function sendSignedContractEmail(params: {
   to: string;
   clientName: string;
@@ -281,8 +283,130 @@ export async function sendSignedContractEmail(params: {
       },
     ],
   });
+}
 
+export async function sendBankTransferReservationEmail(params: {
+  to: string;
+  clientName: string;
+  precontractPdfBuffer: Buffer;
+  precontractPdfFilename: string;
+  contractNumber: string;
+  installationName: string;
+  reservedKwp: number;
+  signalAmount: number;
+  currency: string;
+  paymentDeadlineAt: string;
+  bankAccountIban: string;
+  bankBeneficiary: string;
+  transferConcept: string;
+}) {
+  const {
+    to,
+    clientName,
+    precontractPdfBuffer,
+    precontractPdfFilename,
+    contractNumber,
+    installationName,
+    reservedKwp,
+    signalAmount,
+    currency,
+    paymentDeadlineAt,
+    bankAccountIban,
+    bankBeneficiary,
+    transferConcept,
+  } = params;
 
+  const formattedDeadline = new Date(paymentDeadlineAt).toLocaleDateString(
+    "es-ES",
+    {
+      day: "2-digit",
+      month: "2-digit",
+      year: "numeric",
+    },
+  );
 
-  
+  const formattedAmount = new Intl.NumberFormat("es-ES", {
+    style: "currency",
+    currency: currency.toUpperCase(),
+  }).format(signalAmount);
+
+  const text = [
+    `Hola ${clientName},`,
+    ``,
+    `Tu precontrato de reserva ya ha sido firmado correctamente.`,
+    `Para completar la reserva, debes realizar la transferencia bancaria de la señal en un plazo máximo de 15 días, hasta el ${formattedDeadline}.`,
+    ``,
+    `Resumen de la operación:`,
+    `- Precontrato: ${contractNumber}`,
+    `- Instalación: ${installationName}`,
+    `- Potencia reservada: ${reservedKwp} kWp`,
+    `- Importe de la señal: ${formattedAmount}`,
+    ``,
+    `Datos bancarios para la transferencia:`,
+    `- Beneficiario: ${bankBeneficiary}`,
+    `- IBAN: ${bankAccountIban}`,
+    `- Concepto: ${transferConcept}`,
+    ``,
+    `Te adjuntamos el PDF del precontrato firmado.`,
+    ``,
+    `${SMTP_FROM_NAME}`,
+  ].join("\n");
+
+  await transporter.sendMail({
+    from: `"${SMTP_FROM_NAME}" <${SMTP_FROM}>`,
+    to,
+    subject: `Instrucciones de transferencia para tu reserva - ${contractNumber}`,
+    text,
+    html: `
+      <div style="font-family: Arial, sans-serif; color: #1f2937; line-height: 1.6;">
+        <h2 style="color:#07005f; margin-bottom: 16px;">
+          Reserva iniciada correctamente
+        </h2>
+
+        <p>Hola <strong>${clientName}</strong>,</p>
+
+        <p>
+          Tu precontrato de reserva ha sido firmado correctamente.
+        </p>
+
+        <p>
+          Para completar la reserva, debes realizar la transferencia bancaria de la señal
+          en un plazo máximo de <strong>15 días</strong>, hasta el
+          <strong>${formattedDeadline}</strong>.
+        </p>
+
+        <div style="margin: 20px 0; padding: 16px; border: 1px solid #e5e7eb; border-radius: 12px; background: #f9fafb;">
+          <p style="margin: 0 0 8px 0;"><strong>Precontrato:</strong> ${contractNumber}</p>
+          <p style="margin: 0 0 8px 0;"><strong>Instalación:</strong> ${installationName}</p>
+          <p style="margin: 0 0 8px 0;"><strong>Potencia reservada:</strong> ${reservedKwp} kWp</p>
+          <p style="margin: 0;"><strong>Importe de la señal:</strong> ${formattedAmount}</p>
+        </div>
+
+        <div style="margin: 20px 0; padding: 16px; border: 1px solid #dbeafe; border-radius: 12px; background: #eff6ff;">
+          <p style="margin: 0 0 8px 0;"><strong>Beneficiario:</strong> ${bankBeneficiary}</p>
+          <p style="margin: 0 0 8px 0;"><strong>IBAN:</strong> ${bankAccountIban}</p>
+          <p style="margin: 0;"><strong>Concepto:</strong> ${transferConcept}</p>
+        </div>
+
+        <p>
+          Te adjuntamos una copia del precontrato firmado en PDF.
+        </p>
+
+        <p>
+          Una vez recibida y validada la transferencia, confirmaremos tu reserva.
+        </p>
+
+        <p style="margin-top: 24px;">
+          Gracias por confiar en <strong>${SMTP_FROM_NAME}</strong>.
+        </p>
+      </div>
+    `,
+    attachments: [
+      {
+        filename: precontractPdfFilename,
+        content: precontractPdfBuffer,
+        contentType: "application/pdf",
+      },
+    ],
+  });
 }

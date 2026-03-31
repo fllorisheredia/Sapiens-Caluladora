@@ -51,6 +51,7 @@ import markerIcon2x from "leaflet/dist/images/marker-icon-2x.png";
 import markerIcon from "leaflet/dist/images/marker-icon.png";
 import markerShadow from "leaflet/dist/images/marker-shadow.png";
 import { Icon } from "@iconify/react";
+
 import {
   ResponsiveContainer,
   BarChart,
@@ -625,6 +626,12 @@ type GeneratedContractResponse = {
   previewHtml: string;
   preview: ContractPreviewData;
 };
+type PaymentMethodId = "stripe" | "bank_transfer";
+
+type PaymentMethodOption = {
+  id: PaymentMethodId;
+  label: string;
+};
 
 type SignedContractResponse = {
   success: boolean;
@@ -640,9 +647,9 @@ type SignedContractResponse = {
     installationName: string;
     reservedKwp: number;
   };
-  stripe: {
-    checkoutSessionId: string;
-    checkoutUrl: string;
+  payment: {
+    step: "select_method";
+    availableMethods: PaymentMethodOption[];
   };
   drive: {
     contractsRootFolderUrl: string;
@@ -650,6 +657,80 @@ type SignedContractResponse = {
     contractFileUrl: string;
   };
 };
+
+type StripePaymentResponse = {
+  success: boolean;
+  message: string;
+  contract: {
+    id: string;
+    status: string;
+    contractNumber: string;
+  };
+  reservation: {
+    id: string;
+    reservationStatus: string;
+    paymentStatus: string;
+    paymentDeadlineAt: string;
+    signalAmount: number;
+    currency: string;
+    paymentMethod: "stripe";
+  };
+  stripe: {
+    checkoutSessionId: string;
+    checkoutUrl: string;
+  };
+};
+
+type BankTransferPaymentResponse = {
+  success: boolean;
+  message: string;
+  contract: {
+    id: string;
+    status: string;
+    contractNumber: string;
+  };
+  reservation: {
+    id: string;
+    reservationStatus: string;
+    paymentStatus: string;
+    paymentDeadlineAt: string;
+    signalAmount: number;
+    currency: string;
+    paymentMethod: "bank_transfer";
+  };
+  bankTransfer: {
+    iban: string;
+    beneficiary: string;
+    concept: string;
+    paymentDeadlineAt: string;
+    emailSentTo: string;
+  };
+};
+
+// type SignedContractResponse = {
+//   success: boolean;
+//   message: string;
+//   contract: any;
+//   reservation: {
+//     id: string;
+//     reservationStatus: string;
+//     paymentStatus: string;
+//     paymentDeadlineAt: string;
+//     signalAmount: number;
+//     currency: string;
+//     installationName: string;
+//     reservedKwp: number;
+//   };
+//   stripe: {
+//     checkoutSessionId: string;
+//     checkoutUrl: string;
+//   };
+//   drive: {
+//     contractsRootFolderUrl: string;
+//     contractFolderUrl: string;
+//     contractFileUrl: string;
+//   };
+// };
 
 function getFirstNumericField(
   source: unknown,
@@ -902,8 +983,7 @@ function buildProposalCardData(
     paybackYears,
     recommendedPowerKwp,
     annualConsumptionKwh,
-    description:
-      "Modelo pensado para reducir la barrera de entrada y facilitar la contratación.",
+    description: "Modelo que reduce la barrera de entrada.",
     valuePoints: [
       "Sin desembolso inicial",
       "Cuota mensual fija",
@@ -951,6 +1031,18 @@ function buildProposalPdfSummariesForInstallation(
 function formatPaybackYears(value: number) {
   if (!Number.isFinite(value) || value <= 0) return "-";
   return `${value.toFixed(1).replace(".", ",")} años`;
+}
+const getMonthlySavings = (proposal: ProposalCardData) => {
+  return proposal.annualSavings > 0 ? proposal.annualSavings / 12 : 0;
+};
+function normalizeFeatureList(items: string[], total = 4) {
+  const normalized = [...items];
+
+  while (normalized.length < total) {
+    normalized.push("");
+  }
+
+  return normalized;
 }
 
 function buildEconomicChartData(
@@ -1097,6 +1189,10 @@ function MainAppContent() {
 
   const [signedContractResult, setSignedContractResult] =
     useState<SignedContractResponse | null>(null);
+  const [isPaymentMethodModalOpen, setIsPaymentMethodModalOpen] =
+    useState(false);
+  const [isSelectingPaymentMethod, setIsSelectingPaymentMethod] =
+    useState(false);
 
   const [isContractModalOpen, setIsContractModalOpen] = useState(false);
   const [isGeneratingContract, setIsGeneratingContract] = useState(false);
@@ -1234,18 +1330,15 @@ function MainAppContent() {
   };
 
   const topSecondaryResumeCard = {
-    label: "Ahorro total",
-    value: formatCurrency(activeProposal.totalSavings25Years),
-    helper: "Estimado a 25 años",
+    label: "Ahorro anual",
+    value: formatCurrency(activeProposal.annualSavings),
+    helper: `Ahorro mensual: ${formatCurrency(activeProposal.annualSavings / 12)}`,
     icon: "solar:graph-up-bold-duotone",
   };
 
   const topActiveMetrics = [
     {
-      label:
-        activeProposal.id === "investment"
-          ? "Coste inicial"
-          : "Sin inversión inicial",
+      label: activeProposal.id === "investment" ? "Inversión" : "Inversión",
       value:
         activeProposal.id === "investment"
           ? formatCurrency(activeProposal.upfrontCost)
@@ -1315,6 +1408,14 @@ function MainAppContent() {
         ];
 
   const proposalSlides = [investmentProposal, serviceProposal];
+
+  const featuredResumeCard = topSecondaryResumeCard;
+  // const featuredResumeCard =
+  //   [topPrimaryResumeCard, topSecondaryResumeCard].find((card) =>
+  //     /ahorro total/i.test(card.label),
+  //   ) ??
+  //   topSecondaryResumeCard ??
+  //   topPrimaryResumeCard;
   const comparisonRows = [
     {
       label: "Ahorro anual",
@@ -1900,100 +2001,161 @@ function MainAppContent() {
       setIsGeneratingContract(false);
     }
   };
+const currentContractId =
+  signedContractResult?.contract?.id ?? generatedContract?.contract?.id ?? null;
+const handleSubmitSignedContract = async () => {
+  if (!generatedContract?.contract?.id || !generatedContract?.preview) {
+    sileo.error({
+      title: "Precontrato no disponible",
+      description: "No se ha podido preparar el precontrato para firmar.",
+    });
+    return;
+  }
 
-  const handleSubmitSignedContract = async () => {
-    if (!generatedContract?.contract?.id || !generatedContract?.preview) {
-      sileo.error({
-        title: "Precontrato no disponible",
-        description: "No se ha podido preparar el precontrato para firmar.",
-      });
-      return;
-    }
+  if (!signatureHasContent || !signatureCanvasRef.current) {
+    sileo.warning({
+      title: "Falta la firma",
+      description: "Debes firmar en el recuadro antes de continuar.",
+    });
+    return;
+  }
 
-    if (!signatureHasContent || !signatureCanvasRef.current) {
-      sileo.warning({
-        title: "Falta la firma",
-        description: "Debes firmar en el recuadro antes de continuar.",
-      });
-      return;
-    }
+  setIsSigningContract(true);
 
-    setIsSigningContract(true);
+  try {
+    const signatureDataUrl = signatureCanvasRef.current.toDataURL("image/png");
 
-    try {
-      const signatureDataUrl =
-        signatureCanvasRef.current.toDataURL("image/png");
+    const signedPdfFile = await buildSignedContractPdfFile(
+      generatedContract.preview,
+      signatureDataUrl,
+    );
 
-      const signedPdfFile = await buildSignedContractPdfFile(
-        generatedContract.preview,
-        signatureDataUrl,
-      );
+    const formData = new FormData();
+    formData.append("signed_contract", signedPdfFile);
 
-      const formData = new FormData();
-      formData.append("signed_contract", signedPdfFile);
-
-      const response = await axios.post<SignedContractResponse>(
-        `/api/contracts/${generatedContract.contract.id}/sign`,
-        formData,
-        {
-          headers: {
-            "Content-Type": "multipart/form-data",
-          },
+    const response = await axios.post<SignedContractResponse>(
+      `/api/contracts/${generatedContract.contract.id}/sign`,
+      formData,
+      {
+        headers: {
+          "Content-Type": "multipart/form-data",
         },
-      );
-      console.log("RESPUESTA /sign:", response.data);
+      },
+    );
 
-      setSignedContractResult(response.data);
-      setIsContractModalOpen(false);
+    console.log("RESPUESTA /sign:", response.data);
 
-      // if (response.data.email?.status === "sent") {
-      //   sileo.success({
-      //     title: "Precontrato enviado al cliente",
-      //     description: `Se ha enviado una copia a ${response.data.email.to ?? "su correo"}.`,
-      //   });
-      // } else if (response.data.email?.status === "failed") {
-      //   sileo.warning({
-      //     title: "Precontrato firmado, pero el email falló",
-      //     description:
-      //       response.data.email.error ??
-      //       "No se pudo enviar la copia del precontrato por correo.",
-      //   });
-      // }
+    setSignedContractResult(response.data);
+    setIsContractModalOpen(false);
+    setIsPaymentMethodModalOpen(true);
 
-      sileo.success({
-        title: "Precontrato firmado correctamente",
-        description: `Se han reservado ${response.data.reservation.reservedKwp} kWp en ${response.data.reservation.installationName}. Ahora te redirigiremos al pago de la señal. Tras confirmarse el pago, recibirás el precontrato y el justificante por email.`,
-      });
+    sileo.success({
+      title: "Precontrato firmado correctamente",
+      description: `Se han reservado ${response.data.reservation.reservedKwp} kWp en ${response.data.reservation.installationName}. Ahora debes seleccionar la forma de pago para continuar.`,
+    });
+  } catch (error: any) {
+    console.error("Error firmando precontrato:", error);
+    console.error("status:", error?.response?.status);
+    console.error("data:", error?.response?.data);
 
-      const checkoutUrl = response.data.stripe?.checkoutUrl;
+    sileo.error({
+      title: "No se pudo iniciar la reserva",
+      description:
+        error?.response?.data?.details ||
+        error?.response?.data?.error ||
+        error?.message ||
+        "Ha ocurrido un error inesperado.",
+    });
+  } finally {
+    setIsSigningContract(false);
+  }
+};
 
-      if (!checkoutUrl) {
-        sileo.error({
-          title: "Pago no disponible",
-          description:
-            "La reserva se creó, pero no se pudo obtener la URL de pago.",
-        });
-        return;
-      }
+const handleSelectStripePayment = async () => {
+  if (!currentContractId) {
+    sileo.error({
+      title: "Contrato no disponible",
+      description: "No se ha encontrado el contrato para iniciar el pago.",
+    });
+    return;
+  }
 
-      window.location.href = checkoutUrl;
-    } catch (error: any) {
-      console.error("Error firmando precontrato:", error);
-      console.error("status:", error?.response?.status);
-      console.error("data:", error?.response?.data);
+  setIsSelectingPaymentMethod(true);
 
+  try {
+    const response = await axios.post<StripePaymentResponse>(
+      `/api/contracts/${currentContractId}/payments/stripe`,
+    );
+
+    const checkoutUrl = response.data?.stripe?.checkoutUrl;
+
+    if (!checkoutUrl) {
       sileo.error({
-        title: "No se pudo iniciar la reserva",
-        description:
-          error?.response?.data?.details ||
-          error?.response?.data?.error ||
-          error?.message ||
-          "Ha ocurrido un error inesperado.",
+        title: "Pago no disponible",
+        description: "No se pudo obtener la URL de Stripe.",
       });
-    } finally {
-      setIsSigningContract(false);
+      return;
     }
-  };
+
+    sileo.success({
+      title: "Redirigiendo a Stripe",
+      description: "Te llevamos al pago seguro con tarjeta.",
+    });
+
+    window.location.href = checkoutUrl;
+  } catch (error: any) {
+    console.error("Error iniciando pago con Stripe:", error);
+
+    sileo.error({
+      title: "No se pudo iniciar el pago con tarjeta",
+      description:
+        error?.response?.data?.details ||
+        error?.response?.data?.error ||
+        error?.message ||
+        "Ha ocurrido un error inesperado.",
+    });
+  } finally {
+    setIsSelectingPaymentMethod(false);
+  }
+};
+
+const handleSelectBankTransferPayment = async () => {
+  if (!currentContractId) {
+    sileo.error({
+      title: "Contrato no disponible",
+      description: "No se ha encontrado el contrato para iniciar el pago.",
+    });
+    return;
+  }
+
+  setIsSelectingPaymentMethod(true);
+
+  try {
+    const response = await axios.post<BankTransferPaymentResponse>(
+      `/api/contracts/${currentContractId}/payments/bank-transfer`,
+    );
+
+    setIsPaymentMethodModalOpen(false);
+
+    sileo.success({
+      title: "Instrucciones enviadas",
+      description: `Hemos enviado el email con las instrucciones de transferencia a ${response.data.bankTransfer.emailSentTo}.`,
+    });
+  } catch (error: any) {
+    console.error("Error seleccionando transferencia bancaria:", error);
+
+    sileo.error({
+      title: "No se pudo preparar el pago por transferencia",
+      description:
+        error?.response?.data?.details ||
+        error?.response?.data?.error ||
+        error?.message ||
+        "Ha ocurrido un error inesperado.",
+    });
+  } finally {
+    setIsSelectingPaymentMethod(false);
+  }
+};
 
   const handleFileSelect = async (file: File) => {
     if (!privacyAccepted) {
@@ -3178,39 +3340,78 @@ function MainAppContent() {
 
                       {/* DERECHA */}
                       <div className="space-y-4">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 xl:grid-cols-2 gap-4">
-                          {[topPrimaryResumeCard, topSecondaryResumeCard].map(
-                            (card) => (
-                              <div
-                                key={card.label}
-                                className="rounded-[1.6rem] bg-white/30 backdrop-blur-xl border border-white/20 p-5 shadow-xl text-brand-navy min-h-[150px] flex flex-col justify-between"
-                              >
-                                <div className="flex items-center gap-2">
-                                  <Icon
-                                    icon={card.icon}
-                                    className="h-5 w-5 text-brand-navy"
-                                  />
-                                  <p className="text-[10px] uppercase tracking-[0.16em] font-bold text-brand-navy/40">
-                                    {card.label}
-                                  </p>
-                                </div>
+                        <motion.div
+                          initial={{ opacity: 0, y: 12 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{ duration: 0.45, ease: "easeOut" }}
+                          className="relative overflow-hidden rounded-[1.9rem] border border-white/30 bg-white/26 p-6 text-[#000054] shadow-xl backdrop-blur-xl min-h-[210px]"
+                        >
+                          {/* brillo muy suave */}
+                          <motion.div
+                            className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_right,rgba(148,194,255,0.18),transparent_28%),radial-gradient(circle_at_bottom_left,rgba(84,217,199,0.14),transparent_30%)]"
+                            animate={{ opacity: [0.75, 0.92, 0.75] }}
+                            transition={{
+                              duration: 4.5,
+                              repeat: Infinity,
+                              ease: "easeInOut",
+                            }}
+                          />
 
-                                <div>
-                                  <p className="text-2xl md:text-3xl font-bold leading-tight">
-                                    {card.value}
-                                  </p>
-                                  {"helper" in card && card.helper ? (
-                                    <p className="mt-2 text-sm text-brand-navy/60">
-                                      {card.helper}
-                                    </p>
-                                  ) : null}
-                                </div>
+                          {/* reflejo suave */}
+                          <motion.div
+                            className="pointer-events-none absolute -top-10 left-[-30%] h-[160%] w-16 rotate-[18deg] bg-gradient-to-r from-transparent via-white/20 to-transparent"
+                            animate={{ left: ["-30%", "115%"] }}
+                            transition={{
+                              duration: 4.8,
+                              repeat: Infinity,
+                              repeatDelay: 3.2,
+                              ease: "easeInOut",
+                            }}
+                          />
+
+                          <div className="relative z-10 h-full flex flex-col justify-between">
+                            <div className="flex items-center gap-2">
+                              <div className="flex h-9 w-9 items-center justify-center rounded-2xl bg-[#94C2FF]/20">
+                                <Icon
+                                  icon={featuredResumeCard.icon}
+                                  className="h-5 w-5 text-[#000054]"
+                                />
                               </div>
-                            ),
-                          )}
-                        </div>
 
-                        <button
+                              <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-[#706F6F]">
+                                {featuredResumeCard.label}
+                              </p>
+                            </div>
+
+                            <div className="mt-6">
+                              <motion.p
+                                animate={{ y: [0, -1.5, 0] }}
+                                transition={{
+                                  duration: 4,
+                                  repeat: Infinity,
+                                  ease: "easeInOut",
+                                }}
+                                className="text-4xl md:text-5xl font-bold leading-tight text-[#000054]"
+                              >
+                                {featuredResumeCard.value}
+                              </motion.p>
+
+                              {"helper" in featuredResumeCard &&
+                              featuredResumeCard.helper ? (
+                                <p className="mt-3 text-base text-[#706F6F]">
+                                  {featuredResumeCard.helper}
+                                </p>
+                              ) : (
+                                <p className="mt-3 text-base text-[#706F6F]">
+                                  Estimado a largo plazo según la modalidad
+                                  seleccionada.
+                                </p>
+                              )}
+                            </div>
+                          </div>
+                        </motion.div>
+
+                        <motion.button
                           type="button"
                           onClick={handleGenerateContract}
                           disabled={
@@ -3219,41 +3420,113 @@ function MainAppContent() {
                             isSigningContract ||
                             contractAlreadySigned
                           }
-                          className={cn(
-                            "w-full min-h-[158px] rounded-[1.8rem] border border-white/20 bg-white/28 backdrop-blur-xl p-6 text-left shadow-xl transition-all",
+                          initial={{ opacity: 0, y: 12 }}
+                          animate={{ opacity: 1, y: 0 }}
+                          transition={{
+                            duration: 0.45,
+                            delay: 0.05,
+                            ease: "easeOut",
+                          }}
+                          whileHover={
                             contractAlreadySigned
-                              ? "opacity-70 cursor-not-allowed"
-                              : "hover:bg-white/35",
+                              ? undefined
+                              : { y: -1.5, scale: 1.008 }
+                          }
+                          whileTap={
+                            contractAlreadySigned ? undefined : { scale: 0.992 }
+                          }
+                          className={cn(
+                            "group relative w-full min-h-[210px] overflow-hidden rounded-[1.9rem] border p-6 text-left shadow-xl transition-all backdrop-blur-xl",
+                            contractAlreadySigned
+                              ? "cursor-not-allowed border-white/20 bg-white/20 opacity-70"
+                              : "border-white/30 bg-[linear-gradient(135deg,rgba(84,217,199,0.88),rgba(148,194,255,0.88))] hover:shadow-[0_18px_45px_rgba(0,0,84,0.12)]",
                           )}
                         >
-                          <div className="h-full flex flex-col justify-center items-center text-center">
-                            <div className="w-14 h-14 rounded-2xl bg-brand-navy text-white flex items-center justify-center shadow-lg mb-4">
+                          {!contractAlreadySigned ? (
+                            <>
+                              {/* respiración suave */}
+                              <motion.div
+                                className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_top_left,rgba(255,255,255,0.20),transparent_35%),radial-gradient(circle_at_bottom_right,rgba(255,255,255,0.12),transparent_35%)]"
+                                animate={{ opacity: [0.82, 0.96, 0.82] }}
+                                transition={{
+                                  duration: 4.2,
+                                  repeat: Infinity,
+                                  ease: "easeInOut",
+                                }}
+                              />
+
+                              {/* efecto espejo muy sutil */}
+                              <motion.div
+                                className="pointer-events-none absolute -top-10 left-[-32%] h-[180%] w-16 rotate-[18deg] bg-gradient-to-r from-transparent via-white/22 to-transparent"
+                                animate={{ left: ["-32%", "118%"] }}
+                                transition={{
+                                  duration: 5.2,
+                                  repeat: Infinity,
+                                  repeatDelay: 3.5,
+                                  ease: "easeInOut",
+                                }}
+                              />
+                            </>
+                          ) : null}
+
+                          <div className="relative z-10 h-full flex flex-col justify-center items-center text-center">
+                            <motion.div
+                              animate={
+                                contractAlreadySigned
+                                  ? {}
+                                  : {
+                                      y: [0, -1.5, 0],
+                                    }
+                              }
+                              transition={{
+                                duration: 3.5,
+                                repeat: Infinity,
+                                ease: "easeInOut",
+                              }}
+                              className="mb-5 flex h-16 w-16 items-center justify-center rounded-[1.3rem] bg-[#000054] text-white shadow-[0_10px_28px_rgba(0,0,84,0.18)]"
+                            >
                               {isGeneratingContract ? (
-                                <Loader2 className="h-7 w-7 animate-spin" />
+                                <Loader2 className="h-8 w-8 animate-spin" />
                               ) : contractAlreadySigned ? (
                                 <Icon
                                   icon="solar:shield-check-bold-duotone"
-                                  className="h-7 w-7"
+                                  className="h-8 w-8"
                                 />
                               ) : (
                                 <Icon
                                   icon="solar:pen-new-square-bold-duotone"
-                                  className="h-7 w-7"
+                                  className="h-8 w-8"
                                 />
                               )}
-                            </div>
+                            </motion.div>
 
-                            <p className="text-xl md:text-2xl font-bold text-brand-navy">
+                            <p className="text-3xl md:text-[2rem] font-bold text-[#000054]">
                               {contractAlreadySigned ? "Reservado" : "Reservar"}
                             </p>
 
-                            <p className="mt-2 text-sm text-brand-navy/65 max-w-xs leading-relaxed">
+                            <p className="mt-3 max-w-sm text-base leading-relaxed text-[#000054]/78">
                               {contractAlreadySigned
                                 ? "La reserva ya ha sido iniciada para esta propuesta."
                                 : "Inicia la reserva de esta modalidad y continúa con el pago de la señal."}
                             </p>
+
+                            {!contractAlreadySigned ? (
+                              <div className="mt-12  inline-flex items-center gap-2 rounded-full border border-[#000054]/10 bg-white/28 px-5 py-2 text-sm font-semibold text-[#000054]">
+                                Continuar
+                                <motion.span
+                                  animate={{ x: [0, 2, 0] }}
+                                  transition={{
+                                    duration: 2,
+                                    repeat: Infinity,
+                                    ease: "easeInOut",
+                                  }}
+                                >
+                                  →
+                                </motion.span>
+                              </div>
+                            ) : null}
                           </div>
-                        </button>
+                        </motion.button>
                       </div>
                     </div>
                   </div>
@@ -3261,7 +3534,7 @@ function MainAppContent() {
                   {/* BLOQUE INFERIOR */}
                   <div
                     className={cn(
-                      "grid gap-6 md:gap-8",
+                      "grid gap-6 md:gap-8 items-stretch",
                       visibleProposalPanels.length === 2
                         ? "grid-cols-1 xl:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_260px]"
                         : "grid-cols-1 xl:grid-cols-[minmax(0,1fr)_260px]",
@@ -3269,12 +3542,16 @@ function MainAppContent() {
                   >
                     {visibleProposalPanels.map((proposal) => {
                       const isInvestment = proposal.id === "investment";
+                      const normalizedValuePoints = normalizeFeatureList(
+                        proposal.valuePoints,
+                        4,
+                      );
 
                       return (
                         <div
                           key={proposal.id}
                           className={cn(
-                            "rounded-[2rem] md:rounded-[2.5rem] p-5 md:p-7 border min-h-[520px] flex flex-col",
+                            "rounded-[2rem] md:rounded-[2.5rem] p-5 md:p-7 border min-h-[760px] h-full flex flex-col",
                             isInvestment
                               ? "bg-brand-navy text-white border-brand-navy shadow-2xl shadow-brand-navy/15"
                               : "bg-white text-brand-navy border-brand-navy/5 shadow-2xl shadow-brand-navy/5",
@@ -3316,10 +3593,10 @@ function MainAppContent() {
                               </p>
                             </div>
 
-                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+                            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 min-h-[132px]">
                               <div
                                 className={cn(
-                                  "rounded-[1.2rem] p-4 border",
+                                  "rounded-[1.2rem] p-4 border h-[132px] flex flex-col justify-between",
                                   isInvestment
                                     ? "bg-white/10 border-white/10"
                                     : "bg-brand-navy/[0.03] border-brand-navy/5",
@@ -3342,7 +3619,7 @@ function MainAppContent() {
 
                               <div
                                 className={cn(
-                                  "rounded-[1.2rem] p-4 border",
+                                  "rounded-[1.2rem] p-4 border h-[132px] flex flex-col justify-between",
                                   isInvestment
                                     ? "bg-white/10 border-white/10"
                                     : "bg-brand-navy/[0.03] border-brand-navy/5",
@@ -3372,7 +3649,7 @@ function MainAppContent() {
 
                               <div
                                 className={cn(
-                                  "rounded-[1.2rem] p-4 border",
+                                  "rounded-[1.2rem] p-4 border h-[132px] flex flex-col justify-between",
                                   isInvestment
                                     ? "bg-white/10 border-white/10"
                                     : "bg-brand-navy/[0.03] border-brand-navy/5",
@@ -3386,24 +3663,26 @@ function MainAppContent() {
                                       : "text-brand-navy/40",
                                   )}
                                 >
-                                  Ahorro total
+                                  Ahorro mensual
                                 </p>
                                 <p className="mt-2 text-lg font-bold">
-                                  {formatCurrency(proposal.totalSavings25Years)}
+                                  {formatCurrency(proposal.annualSavings / 12)}
                                 </p>
                               </div>
                             </div>
                           </div>
 
-                          <div className="mt-6 grid grid-cols-1 gap-3">
-                            {proposal.valuePoints.map((point) => (
+                          <div className="mt-6 grid grid-rows-4 gap-3 min-h-[380px]">
+                            {normalizedValuePoints.map((point, index) => (
                               <div
-                                key={point}
+                                key={`${proposal.id}-${index}`}
                                 className={cn(
-                                  "rounded-[1.2rem] p-4 border flex items-start gap-3",
-                                  isInvestment
-                                    ? "bg-white/5 border-white/10"
-                                    : "bg-brand-navy/[0.03] border-brand-navy/5",
+                                  "rounded-[1.2rem] p-4 border h-[86px] flex items-center gap-3",
+                                  point
+                                    ? isInvestment
+                                      ? "bg-white/5 border-white/10"
+                                      : "bg-brand-navy/[0.03] border-brand-navy/5"
+                                    : "bg-transparent border-transparent opacity-0 pointer-events-none",
                                 )}
                               >
                                 <div
@@ -3693,9 +3972,9 @@ function MainAppContent() {
                         />
 
                         <p className="text-xs text-brand-gray mt-3 leading-relaxed">
-                          Firma dentro del recuadro. Al confirmar, se generará
-                          el PDF firmado, se creará tu reserva provisional y
-                          serás redirigido al pago de la señal.
+                         Firma dentro del recuadro. Al confirmar, se generará
+el PDF firmado, se creará tu reserva provisional y
+podrás elegir la forma de pago.
                         </p>
                       </div>
 
@@ -3736,8 +4015,7 @@ function MainAppContent() {
                                 className="mr-3 h-5 w-5"
                               />
                             )}
-                            Firmar y pagar señal
-                          </Button>
+Firmar y continuar                          </Button>
 
                           <Button
                             variant="outline"
@@ -3756,6 +4034,139 @@ function MainAppContent() {
           </motion.div>
         ) : null}
       </AnimatePresence>
+      <AnimatePresence>
+  {isPaymentMethodModalOpen && signedContractResult ? (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[210] bg-brand-navy/50 backdrop-blur-sm overflow-y-auto"
+    >
+      <div className="min-h-full px-4 py-4 md:px-8 md:py-8 flex items-start md:items-center justify-center">
+        <motion.div
+          initial={{ opacity: 0, y: 24, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: 12, scale: 0.98 }}
+          className="w-full max-w-3xl rounded-[2rem] md:rounded-[2.5rem] bg-white border border-brand-navy/5 shadow-2xl overflow-hidden"
+        >
+          <div className="p-5 md:p-8 border-b border-brand-navy/5 flex items-center justify-between gap-4">
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-brand-navy/40 mb-1">
+                Contratación
+              </p>
+              <h3 className="text-xl md:text-2xl font-bold text-brand-navy">
+                Selecciona la forma de pago
+              </h3>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setIsPaymentMethodModalOpen(false)}
+              className="w-11 h-11 rounded-2xl bg-brand-navy/5 hover:bg-brand-navy/10 text-brand-navy transition shrink-0"
+              disabled={isSelectingPaymentMethod}
+            >
+              ✕
+            </button>
+          </div>
+
+          <div className="p-5 md:p-8 space-y-6 bg-brand-navy/[0.02]">
+            <div className="rounded-[1.4rem] bg-white border border-brand-navy/5 p-5">
+              <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-brand-navy/40 mb-3">
+                Resumen de la reserva
+              </p>
+
+              <div className="space-y-2 text-sm text-brand-navy/80">
+                <p>
+                  <span className="font-bold text-brand-navy">Instalación:</span>{" "}
+                  {signedContractResult.reservation.installationName}
+                </p>
+                <p>
+                  <span className="font-bold text-brand-navy">Potencia reservada:</span>{" "}
+                  {signedContractResult.reservation.reservedKwp} kWp
+                </p>
+                <p>
+                  <span className="font-bold text-brand-navy">Señal:</span>{" "}
+                  {formatCurrency(signedContractResult.reservation.signalAmount)}
+                </p>
+                <p>
+                  <span className="font-bold text-brand-navy">Fecha límite:</span>{" "}
+                  {new Date(
+                    signedContractResult.reservation.paymentDeadlineAt,
+                  ).toLocaleDateString("es-ES")}
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <button
+                type="button"
+                onClick={handleSelectBankTransferPayment}
+                disabled={isSelectingPaymentMethod}
+                className="rounded-[1.5rem] border border-brand-navy/10 bg-white p-6 text-left shadow-sm hover:shadow-md transition disabled:opacity-60"
+              >
+                <div className="w-12 h-12 rounded-2xl bg-brand-navy/5 flex items-center justify-center mb-4">
+                  <Icon
+                    icon="solar:card-transfer-bold-duotone"
+                    className="h-6 w-6 text-brand-navy"
+                  />
+                </div>
+
+                <p className="text-lg font-bold text-brand-navy">
+                  Transferencia bancaria
+                </p>
+                <p className="mt-2 text-sm text-brand-gray leading-relaxed">
+                  Recibirás un correo con el IBAN, el concepto y el PDF del
+                  precontrato firmado. Tendrás 15 días para realizar la
+                  transferencia.
+                </p>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSelectStripePayment}
+                disabled={isSelectingPaymentMethod}
+                className="rounded-[1.5rem] border border-brand-mint/20 bg-brand-mint/10 p-6 text-left shadow-sm hover:shadow-md transition disabled:opacity-60"
+              >
+                <div className="w-12 h-12 rounded-2xl bg-brand-navy text-white flex items-center justify-center mb-4">
+                  <Icon
+                    icon="solar:card-send-bold-duotone"
+                    className="h-6 w-6"
+                  />
+                </div>
+
+                <p className="text-lg font-bold text-brand-navy">
+                  Tarjeta bancaria
+                </p>
+                <p className="mt-2 text-sm text-brand-gray leading-relaxed">
+                  Te redirigiremos a Stripe para completar el pago seguro de la
+                  señal con tarjeta.
+                </p>
+              </button>
+            </div>
+
+            <div className="pt-2">
+              <Button
+                variant="outline"
+                className="w-full py-5 rounded-[1.2rem] border-brand-navy/10 text-brand-navy"
+                onClick={() => setIsPaymentMethodModalOpen(false)}
+                disabled={isSelectingPaymentMethod}
+              >
+                {isSelectingPaymentMethod ? (
+                  <>
+                    <Loader2 className="mr-3 h-5 w-5 animate-spin" />
+                    Procesando...
+                  </>
+                ) : (
+                  "Cerrar"
+                )}
+              </Button>
+            </div>
+          </div>
+        </motion.div>
+      </div>
+    </motion.div>
+  ) : null}
+</AnimatePresence>
     </Layout>
   );
 }

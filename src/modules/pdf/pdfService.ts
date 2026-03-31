@@ -35,9 +35,12 @@ const COLORS = {
   text: [28, 28, 48] as [number, number, number],
   muted: [115, 113, 113] as [number, number, number],
   success: [84, 217, 199] as [number, number, number],
+  warning: [255, 214, 102] as [number, number, number],
   shadow: [220, 228, 240] as [number, number, number],
   heroText: [220, 235, 250] as [number, number, number],
 } as const;
+
+type AnyRecord = Record<string, unknown>;
 
 function formatCurrency(value: number): string {
   return new Intl.NumberFormat("es-ES", {
@@ -63,6 +66,41 @@ function setDraw(doc: jsPDF, color: readonly [number, number, number]) {
 }
 function setText(doc: jsPDF, color: readonly [number, number, number]) {
   doc.setTextColor(color[0], color[1], color[2]);
+}
+
+function toRecord(value: unknown): AnyRecord {
+  if (value && typeof value === "object") {
+    return value as AnyRecord;
+  }
+  return {};
+}
+
+function readNumber(source: AnyRecord, keys: string[]): number | null {
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === "number" && Number.isFinite(value)) {
+      return value;
+    }
+    if (typeof value === "string") {
+      const normalized = Number(
+        value.replace(/\./g, "").replace(",", ".").replace(/[^\d.-]/g, ""),
+      );
+      if (Number.isFinite(normalized)) {
+        return normalized;
+      }
+    }
+  }
+  return null;
+}
+
+function readString(source: AnyRecord, keys: string[]): string | null {
+  for (const key of keys) {
+    const value = source[key];
+    if (typeof value === "string" && value.trim()) {
+      return value.trim();
+    }
+  }
+  return null;
 }
 
 function drawShadow(
@@ -185,14 +223,14 @@ function drawMetricCard(
   doc.roundedRect(x + 3.5, y + 4, 2.2, h - 8, 1.1, 1.1, "F");
 
   writeText(doc, label, x + 8.5, y + 6.5, {
-    size: 5.8,
+    size: 5.6,
     color: COLORS.muted,
     fontStyle: "bold",
     maxWidth: w - 12,
   });
 
-  writeText(doc, value, x + 8.5, y + 13.5, {
-    size: 9,
+  writeText(doc, value, x + 8.5, y + 13.2, {
+    size: 8.3,
     color: COLORS.navy,
     fontStyle: "bold",
     maxWidth: w - 12,
@@ -206,26 +244,51 @@ function drawInfoRows(
   rows: Array<[string, string]>,
   labelWidth: number,
   valueWidth: number,
+  options?: {
+    labelSize?: number;
+    valueSize?: number;
+    minValueSize?: number;
+    lineHeight?: number;
+    minRowHeight?: number;
+  },
 ) {
+  const {
+    labelSize = 6.1,
+    valueSize = 6.1,
+    minValueSize = 5.4,
+    lineHeight = 3.1,
+    minRowHeight = 6.5,
+  } = options || {};
+
   let cy = y;
+
   rows.forEach(([label, value]) => {
-    const lLines = getLines(doc, label, labelWidth, 6.5, "bold");
-    const vSize = (value || "").length > 60 ? 5.9 : 6.5;
-    const vLines = getLines(doc, value || "-", valueWidth, vSize);
+    const safeValue = value || "-";
+    const currentValueSize =
+      safeValue.length > 75
+        ? Math.max(minValueSize, valueSize - 1)
+        : safeValue.length > 50
+          ? Math.max(minValueSize, valueSize - 0.5)
+          : valueSize;
+
+    const lLines = getLines(doc, label, labelWidth, labelSize, "bold");
+    const vLines = getLines(doc, safeValue, valueWidth, currentValueSize);
     const lineCount = Math.max(lLines.length, vLines.length);
-    const rowH = Math.max(9, lineCount * 3.8 + 2.5);
+    const rowH = Math.max(minRowHeight, lineCount * lineHeight + 1.8);
 
     writeText(doc, label, x, cy, {
-      size: 6.5,
+      size: labelSize,
       color: COLORS.muted,
       fontStyle: "bold",
       maxWidth: labelWidth,
     });
-    writeText(doc, value || "-", x + labelWidth + 2, cy, {
-      size: vSize,
+
+    writeText(doc, safeValue, x + labelWidth + 2, cy, {
+      size: currentValueSize,
       color: COLORS.navy,
       maxWidth: valueWidth,
     });
+
     cy += rowH;
   });
 }
@@ -238,26 +301,27 @@ function drawRecommendationItem(
   title: string,
   description: string,
   index: number,
+  h = 20,
 ) {
-  drawCard(doc, x, y, w, 23, COLORS.soft, COLORS.border, 5);
+  drawCard(doc, x, y, w, h, COLORS.soft, COLORS.border, 5);
 
-  drawCard(doc, x + 3, y + 3.5, 9, 9, COLORS.navy, COLORS.navy, 4.5);
-  writeText(doc, String(index), x + 7.5, y + 9.3, {
+  drawCard(doc, x + 3, y + 3.2, 9, 9, COLORS.navy, COLORS.navy, 4.5);
+  writeText(doc, String(index), x + 7.5, y + 9.1, {
     size: 7,
     color: COLORS.white,
     fontStyle: "bold",
     align: "center",
   });
 
-  writeText(doc, title, x + 14.5, y + 7, {
-    size: 6.8,
+  writeText(doc, title, x + 14.5, y + 6.6, {
+    size: 6.4,
     color: COLORS.navy,
     fontStyle: "bold",
     maxWidth: w - 18,
   });
 
-  writeText(doc, description, x + 14.5, y + 12.5, {
-    size: 5.8,
+  writeText(doc, description, x + 14.5, y + 11.8, {
+    size: 5.4,
     color: COLORS.text,
     maxWidth: w - 18,
   });
@@ -269,40 +333,46 @@ function drawPeriodDistribution(
   y: number,
   w: number,
   items: PeriodChartItem[],
+  options?: {
+    maxItems?: number;
+    barHeight?: number;
+    rowGap?: number;
+  },
 ) {
+  const { maxItems = 3, barHeight = 4.2, rowGap = 7.2 } = options || {};
   let cy = y;
-  const validItems = items.filter((i) => Number(i.percentage) > 0).slice(0, 6);
+  const validItems = items.filter((i) => Number(i.percentage) > 0).slice(0, maxItems);
 
   validItems.forEach((item) => {
-    writeText(doc, item.label, x, cy + 3.4, {
-      size: 6.2,
+    writeText(doc, item.label, x, cy + 3.2, {
+      size: 5.8,
       color: COLORS.navy,
       fontStyle: "bold",
     });
 
-    const barArea = w - 28;
+    const barArea = w - 24;
     drawCard(
       doc,
-      x + 13,
+      x + 11,
       cy,
       barArea,
-      4.6,
+      barHeight,
       [235, 240, 248],
       [235, 240, 248],
       2,
     );
 
-    const barW = Math.max(3, (barArea * item.percentage) / 100);
+    const barW = Math.max(2.5, (barArea * item.percentage) / 100);
     setFill(doc, COLORS.cyan);
-    doc.roundedRect(x + 13, cy, barW, 4.6, 2, 2, "F");
+    doc.roundedRect(x + 11, cy, barW, barHeight, 2, 2, "F");
 
-    writeText(doc, `${formatNumber(item.percentage, 1)}%`, x + w - 1, cy + 3.4, {
-      size: 5.6,
+    writeText(doc, `${formatNumber(item.percentage, 1)}%`, x + w, cy + 3.2, {
+      size: 5.1,
       color: COLORS.muted,
       align: "right",
     });
 
-    cy += 8.5;
+    cy += rowGap;
   });
 }
 
@@ -318,20 +388,44 @@ function drawEconomicMiniCard(
 ) {
   drawCard(doc, x, y, w, h, fill, COLORS.border, 5);
 
-  writeText(doc, label, x + w / 2, y + 7, {
-    size: 6,
+  writeText(doc, label, x + w / 2, y + 6.5, {
+    size: 5.6,
     color: COLORS.muted,
     fontStyle: "bold",
     align: "center",
-    maxWidth: w - 6,
+    maxWidth: w - 5,
   });
 
-  writeText(doc, value, x + w / 2, y + 16, {
-    size: 8.5,
+  writeText(doc, value, x + w / 2, y + 14.7, {
+    size: 7.8,
     color: COLORS.navy,
     fontStyle: "bold",
     align: "center",
-    maxWidth: w - 6,
+    maxWidth: w - 5,
+  });
+}
+
+function drawHighlightPill(
+  doc: jsPDF,
+  x: number,
+  y: number,
+  w: number,
+  text: string,
+  accent: readonly [number, number, number],
+) {
+  drawCard(doc, x, y, w, 10, COLORS.soft, COLORS.border, 4.5);
+  drawCard(doc, x + 3, y + 2.1, 5.8, 5.8, accent, accent, 2.9);
+  writeText(doc, "•", x + 5.9, y + 5.8, {
+    size: 8,
+    color: COLORS.navy,
+    fontStyle: "bold",
+    align: "center",
+  });
+  writeText(doc, text, x + 11.3, y + 6.4, {
+    size: 5.8,
+    color: COLORS.navy,
+    fontStyle: "bold",
+    maxWidth: w - 14,
   });
 }
 
@@ -349,14 +443,14 @@ function getRecommendationItems(mode: ProposalPdfMode) {
   if (mode === "service") {
     return [
       {
-        title: "Empezar a ahorrar con menor entrada",
+        title: "Reducir la barrera de entrada",
         description:
-          "La modalidad de servicio reduce la barrera inicial y facilita una adopción más cómoda del autoconsumo.",
+          "La modalidad de servicio permite empezar sin un desembolso inicial elevado y con una cuota más previsible.",
       },
       {
-        title: "Comparar cuota y ahorro estimado",
+        title: "Equilibrar cuota y ahorro",
         description:
-          "Conviene validar la cuota mensual frente al ahorro anual esperado para medir el equilibrio económico.",
+          "Conviene revisar la relación entre cuota mensual, ahorro anual y horizonte esperado para validar la propuesta.",
       },
     ];
   }
@@ -368,9 +462,9 @@ function getRecommendationItems(mode: ProposalPdfMode) {
         "El nivel de consumo detectado hace atractiva una solución fotovoltaica orientada a capturar más ahorro acumulado.",
     },
     {
-      title: "Revisar amortización y horizonte",
+      title: "Priorizar rentabilidad a largo plazo",
       description:
-        "La inversión directa gana atractivo cuando el cliente prioriza rentabilidad, control del activo y ahorro sostenido.",
+        "La inversión directa gana valor cuando se busca mayor ahorro total, control del activo y amortización sostenida.",
     },
   ];
 }
@@ -379,98 +473,6 @@ function getConclusionText(proposal: ProposalPdfSummary) {
   return proposal.mode === "service"
     ? "La modalidad de servicio encaja bien cuando se busca una entrada más cómoda, una cuota mensual clara y una decisión de contratación más flexible."
     : "La modalidad de inversión encaja mejor cuando se prioriza el ahorro acumulado, la amortización de la instalación y la rentabilidad a medio y largo plazo.";
-}
-
-function drawEconomicSummary(
-  doc: jsPDF,
-  x: number,
-  y: number,
-  w: number,
-  proposal: ProposalPdfSummary,
-) {
-  const gap = 3.5;
-  const cardW = (w - gap * 2) / 3;
-  const cardH = 26;
-
-  if (proposal.mode === "service") {
-    drawEconomicMiniCard(
-      doc,
-      x,
-      y,
-      cardW,
-      cardH,
-      "Cuota mensual",
-      proposal.monthlyFee && proposal.monthlyFee > 0
-        ? `${formatCurrency(proposal.monthlyFee)} / mes`
-        : "Consultar",
-      COLORS.mintSoft,
-    );
-    drawEconomicMiniCard(
-      doc,
-      x + cardW + gap,
-      y,
-      cardW,
-      cardH,
-      "Ahorro anual",
-      formatCurrency(proposal.annualSavings),
-    );
-    drawEconomicMiniCard(
-      doc,
-      x + (cardW + gap) * 2,
-      y,
-      cardW,
-      cardH,
-      "Ahorro 25 años",
-      formatCurrency(proposal.totalSavings25Years),
-    );
-
-    writeText(
-      doc,
-      "Modalidad pensada para una incorporación más suave al autoconsumo, manteniendo visibilidad económica desde el primer momento.",
-      x,
-      y + cardH + 7,
-      { size: 6, color: COLORS.muted, maxWidth: w },
-    );
-  } else {
-    drawEconomicMiniCard(
-      doc,
-      x,
-      y,
-      cardW,
-      cardH,
-      "Inversión inicial",
-      formatCurrency(proposal.upfrontCost),
-      COLORS.mintSoft,
-    );
-    drawEconomicMiniCard(
-      doc,
-      x + cardW + gap,
-      y,
-      cardW,
-      cardH,
-      "Ahorro anual",
-      formatCurrency(proposal.annualSavings),
-    );
-    drawEconomicMiniCard(
-      doc,
-      x + (cardW + gap) * 2,
-      y,
-      cardW,
-      cardH,
-      "Payback",
-      proposal.paybackYears > 0
-        ? `${formatNumber(proposal.paybackYears, 1)} años`
-        : "N/D",
-    );
-
-    writeText(
-      doc,
-      "Modalidad enfocada en consolidar un mayor ahorro acumulado y aprovechar mejor el retorno económico de la instalación.",
-      x,
-      y + cardH + 7,
-      { size: 6, color: COLORS.muted, maxWidth: w },
-    );
-  }
 }
 
 function normalizeProposalInput(
@@ -483,32 +485,254 @@ function normalizeProposalInput(
   return proposalInput ? [proposalInput] : [];
 }
 
-function renderStudyPdfPage(
-  doc: jsPDF,
+function getCustomerFullName(data: BillData): string {
+  const raw = toRecord(data);
+
+  const fullName =
+    readString(raw, ["fullName", "customerFullName"]) ||
+    [
+      readString(raw, ["name", "firstName", "nombre"]) || "",
+      readString(raw, ["lastName", "lastname", "surname", "apellidos"]) || "",
+      readString(raw, ["lastname2", "secondSurname", "apellido2"]) || "",
+    ]
+      .join(" ")
+      .replace(/\s+/g, " ")
+      .trim();
+
+  const finalName = fullName || "Cliente";
+  return finalName.length > 42 ? `${finalName.slice(0, 40)}…` : finalName;
+}
+
+function getAnnualConsumptionFromInvoice(
   data: BillData,
   result: CalculationResult,
   proposal: ProposalPdfSummary,
+): number {
+  const raw = toRecord(data);
+
+  const explicitAnnual = readNumber(raw, [
+    "annualConsumptionKwh",
+    "consumptionAnnualKwh",
+    "estimatedAnnualConsumptionKwh",
+    "extractedAnnualConsumptionKwh",
+  ]);
+  if (explicitAnnual && explicitAnnual > 0) {
+    return explicitAnnual;
+  }
+
+  const monthly = readNumber(raw, [
+    "averageMonthlyConsumptionKwh",
+    "monthlyConsumptionKwh",
+  ]);
+  if (monthly && monthly > 0) {
+    return monthly * 12;
+  }
+
+  if (proposal.annualConsumptionKwh > 0) {
+    return proposal.annualConsumptionKwh;
+  }
+
+  if (Number.isFinite(result.averageMonthlyConsumptionKwh)) {
+    return result.averageMonthlyConsumptionKwh * 12;
+  }
+
+  return 0;
+}
+
+function getContractedPowerText(data: BillData): string {
+  const raw = toRecord(data);
+
+  const single = readNumber(raw, [
+    "contractedPowerKw",
+    "contractedPower",
+    "powerKw",
+    "power",
+    "potenciaContratada",
+    "potenciaContratadaKw",
+  ]);
+
+  if (single && single > 0) {
+    return `${formatNumber(single, 2)} kW`;
+  }
+
+  const p1 = readNumber(raw, [
+    "contractedPowerP1",
+    "contractedPowerP1Kw",
+    "powerP1",
+    "powerP1Kw",
+    "potenciaContratadaP1",
+    "potenciaP1",
+  ]);
+
+  const p2 = readNumber(raw, [
+    "contractedPowerP2",
+    "contractedPowerP2Kw",
+    "powerP2",
+    "powerP2Kw",
+    "potenciaContratadaP2",
+    "potenciaP2",
+  ]);
+
+  if (p1 && p2) {
+    return `P1: ${formatNumber(p1, 2)} kW · P2: ${formatNumber(p2, 2)} kW`;
+  }
+
+  if (p1) {
+    return `P1: ${formatNumber(p1, 2)} kW`;
+  }
+
+  if (p2) {
+    return `P2: ${formatNumber(p2, 2)} kW`;
+  }
+
+  return "-";
+}
+
+function getSupplyRows(
+  data: BillData,
+  result: CalculationResult,
+  proposal: ProposalPdfSummary,
+): Array<[string, string]> {
+  const annualConsumptionFromInvoice = getAnnualConsumptionFromInvoice(
+    data,
+    result,
+    proposal,
+  );
+
+  return [
+    ["Titular", getCustomerFullName(data)],
+    ["CUPS", data.cups || "-"],
+    ["Tarifa", data.billType || "-"],
+    ["Dirección", data.address || "-"],
+    ["Email", data.email || "-"],
+    ["IBAN", data.iban || "-"],
+    [
+      "Consumo anual factura",
+      annualConsumptionFromInvoice > 0
+        ? `${formatNumber(annualConsumptionFromInvoice, 0)} kWh`
+        : "-",
+    ],
+    ["Potencia contratada", getContractedPowerText(data)],
+  ];
+}
+
+function drawEconomicSummary(
+  doc: jsPDF,
+  x: number,
+  y: number,
+  w: number,
+  proposal: ProposalPdfSummary,
+) {
+  const gap = 3;
+  const cardW = (w - gap * 2) / 3;
+  const cardH = 20;
+
+  if (proposal.mode === "service") {
+    drawEconomicMiniCard(
+      doc,
+      x,
+      y,
+      cardW,
+      cardH,
+      "Ahorro anual",
+      formatCurrency(proposal.annualSavings),
+      COLORS.mintSoft,
+    );
+    drawEconomicMiniCard(
+      doc,
+      x + cardW + gap,
+      y,
+      cardW,
+      cardH,
+      "Cuota mensual",
+      proposal.monthlyFee && proposal.monthlyFee > 0
+        ? `${formatCurrency(proposal.monthlyFee)} / mes`
+        : "Consultar",
+    );
+    drawEconomicMiniCard(
+      doc,
+      x + (cardW + gap) * 2,
+      y,
+      cardW,
+      cardH,
+      "Ahorro total",
+      formatCurrency(proposal.totalSavings25Years),
+    );
+
+    drawHighlightPill(
+      doc,
+      x,
+      y + 24,
+      w,
+      "Sin desembolso inicial elevado",
+      COLORS.cyan,
+    );
+    drawHighlightPill(
+      doc,
+      x,
+      y + 36,
+      w,
+      "Cuota mensual fija y predecible",
+      COLORS.sky,
+    );
+  } else {
+    drawEconomicMiniCard(
+      doc,
+      x,
+      y,
+      cardW,
+      cardH,
+      "Ahorro anual",
+      formatCurrency(proposal.annualSavings),
+      COLORS.mintSoft,
+    );
+    drawEconomicMiniCard(
+      doc,
+      x + cardW + gap,
+      y,
+      cardW,
+      cardH,
+      "Coste inicial",
+      formatCurrency(proposal.upfrontCost),
+    );
+    drawEconomicMiniCard(
+      doc,
+      x + (cardW + gap) * 2,
+      y,
+      cardW,
+      cardH,
+      "Ahorro total",
+      formatCurrency(proposal.totalSavings25Years),
+    );
+
+    drawHighlightPill(
+      doc,
+      x,
+      y + 24,
+      w,
+      "Mayor ahorro acumulado a largo plazo",
+      COLORS.cyan,
+    );
+    drawHighlightPill(
+      doc,
+      x,
+      y + 36,
+      w,
+      "Más control sobre la rentabilidad del proyecto",
+      COLORS.sky,
+    );
+  }
+}
+
+function renderPageChrome(
+  doc: jsPDF,
+  title: string,
   pageIndex: number,
   totalPages: number,
 ) {
   const PW = doc.internal.pageSize.getWidth();
   const PH = doc.internal.pageSize.getHeight();
   const margin = 10;
-  const innerW = PW - margin * 2;
-
-  const rawName =
-    `${data.name || ""} ${data.lastName || ""}`.trim() || "Cliente";
-  const safeName =
-    rawName.length > 38 ? `${rawName.slice(0, 36)}…` : rawName;
-
-  const viabilityLabel =
-    result.viabilityScore >= 75
-      ? "Alta"
-      : result.viabilityScore >= 50
-        ? "Media"
-        : "Baja";
-
-  const modeAccent = getModeAccent(proposal.mode);
 
   setFill(doc, COLORS.bg);
   doc.rect(0, 0, PW, PH, "F");
@@ -522,7 +746,7 @@ function renderStudyPdfPage(
     fontStyle: "bold",
   });
 
-  writeText(doc, "PROPUESTA ENERGÉTICA", margin, 18, {
+  writeText(doc, title, margin, 18, {
     size: 12,
     color: COLORS.navy,
     fontStyle: "bold",
@@ -544,23 +768,61 @@ function renderStudyPdfPage(
 
   if (totalPages > 1) {
     drawCard(doc, 136, 8, 23, 12, COLORS.mintSoft, COLORS.border, 4);
-    writeText(
-      doc,
-      `${pageIndex + 1}/${totalPages}`,
-      147.5,
-      15.5,
-      {
-        size: 7,
-        color: COLORS.navy,
-        fontStyle: "bold",
-        align: "center",
-      },
-    );
+    writeText(doc, `${pageIndex + 1}/${totalPages}`, 147.5, 15.5, {
+      size: 7,
+      color: COLORS.navy,
+      fontStyle: "bold",
+      align: "center",
+    });
   }
 
   setDraw(doc, COLORS.border);
   doc.setLineWidth(0.3);
   doc.line(margin, 23, PW - margin, 23);
+
+  setFill(doc, COLORS.navy);
+  doc.rect(0, PH - 2.5, PW, 2.5, "F");
+
+  setDraw(doc, COLORS.border);
+  doc.setLineWidth(0.3);
+  doc.line(margin, PH - 14, PW - margin, PH - 14);
+
+  writeText(
+    doc,
+    "Propuesta generada automáticamente por Sapiens Energía a partir del análisis documental de la factura del cliente.",
+    PW / 2,
+    PH - 9,
+    {
+      size: 5.6,
+      color: COLORS.muted,
+      align: "center",
+      maxWidth: 160,
+    },
+  );
+}
+
+function renderStudyPdfPage(
+  doc: jsPDF,
+  data: BillData,
+  result: CalculationResult,
+  proposal: ProposalPdfSummary,
+  pageIndex: number,
+  totalPages: number,
+) {
+  const PW = doc.internal.pageSize.getWidth();
+  const margin = 10;
+  const innerW = PW - margin * 2;
+
+  const viabilityLabel =
+    result.viabilityScore >= 75
+      ? "Alta"
+      : result.viabilityScore >= 50
+        ? "Media"
+        : "Baja";
+
+  const modeAccent = getModeAccent(proposal.mode);
+
+  renderPageChrome(doc, "PROPUESTA ENERGÉTICA", pageIndex, totalPages);
 
   const heroY = 26;
   const heroH = 34;
@@ -632,173 +894,266 @@ function renderStudyPdfPage(
   const kpiW = 45;
   const kpiGap = (innerW - kpiW * 4) / 3;
 
-  drawMetricCard(
-    doc,
-    margin,
-    kpiY,
-    kpiW,
-    kpiH,
-    "CONSUMO MENSUAL",
-    `${formatNumber(result.averageMonthlyConsumptionKwh)} kWh`,
-    modeAccent,
-  );
+  if (proposal.mode === "investment") {
+    drawMetricCard(
+      doc,
+      margin,
+      kpiY,
+      kpiW,
+      kpiH,
+      "COSTE INICIAL",
+      formatCurrency(proposal.upfrontCost),
+      modeAccent,
+    );
 
-  drawMetricCard(
-    doc,
-    margin + kpiW + kpiGap,
-    kpiY,
-    kpiW,
-    kpiH,
-    proposal.mode === "service" ? "CUOTA MENSUAL" : "COSTE ANUAL",
-    proposal.mode === "service"
-      ? proposal.monthlyFee && proposal.monthlyFee > 0
-        ? `${formatCurrency(proposal.monthlyFee)} / mes`
-        : "Consultar"
-      : formatCurrency(result.estimatedAnnualEnergyCost),
-    modeAccent,
-  );
-
-  drawMetricCard(
-    doc,
-    margin + (kpiW + kpiGap) * 2,
-    kpiY,
-    kpiW,
-    kpiH,
-    "AHORRO ANUAL",
-    formatCurrency(proposal.annualSavings),
-    modeAccent,
-  );
-
-  drawMetricCard(
-    doc,
-    margin + (kpiW + kpiGap) * 3,
-    kpiY,
-    kpiW,
-    kpiH,
-    proposal.mode === "service" ? "AHORRO 25 AÑOS" : "PAYBACK",
-    proposal.mode === "service"
-      ? formatCurrency(proposal.totalSavings25Years)
-      : proposal.paybackYears > 0
+    drawMetricCard(
+      doc,
+      margin + kpiW + kpiGap,
+      kpiY,
+      kpiW,
+      kpiH,
+      "RETORNO",
+      proposal.paybackYears > 0
         ? `${formatNumber(proposal.paybackYears, 1)} años`
         : "N/D",
-    COLORS.sky,
+      modeAccent,
+    );
+
+    drawMetricCard(
+      doc,
+      margin + (kpiW + kpiGap) * 2,
+      kpiY,
+      kpiW,
+      kpiH,
+      "POTENCIA RECOM.",
+      `${formatNumber(proposal.recommendedPowerKwp, 1)} kWp`,
+      modeAccent,
+    );
+
+    drawMetricCard(
+      doc,
+      margin + (kpiW + kpiGap) * 3,
+      kpiY,
+      kpiW,
+      kpiH,
+      "CONSUMO ANUAL",
+      `${formatNumber(proposal.annualConsumptionKwh, 0)} kWh`,
+      COLORS.sky,
+    );
+  } else {
+    drawMetricCard(
+      doc,
+      margin,
+      kpiY,
+      kpiW,
+      kpiH,
+      "CUOTA MENSUAL",
+      proposal.monthlyFee && proposal.monthlyFee > 0
+        ? `${formatCurrency(proposal.monthlyFee)} / mes`
+        : "Consultar",
+      modeAccent,
+    );
+
+    drawMetricCard(
+      doc,
+      margin + kpiW + kpiGap,
+      kpiY,
+      kpiW,
+      kpiH,
+      "AHORRO ANUAL",
+      formatCurrency(proposal.annualSavings),
+      modeAccent,
+    );
+
+    drawMetricCard(
+      doc,
+      margin + (kpiW + kpiGap) * 2,
+      kpiY,
+      kpiW,
+      kpiH,
+      "POTENCIA RECOM.",
+      `${formatNumber(proposal.recommendedPowerKwp, 1)} kWp`,
+      modeAccent,
+    );
+
+    drawMetricCard(
+      doc,
+      margin + (kpiW + kpiGap) * 3,
+      kpiY,
+      kpiW,
+      kpiH,
+      "CONSUMO ANUAL",
+      `${formatNumber(proposal.annualConsumptionKwh, 0)} kWh`,
+      COLORS.sky,
+    );
+  }
+
+  const gridY = kpiY + kpiH + 5;
+  const gridGap = 4;
+  const gridCardW = (innerW - gridGap) / 2;
+  const gridCardH = 65;
+
+  // DATOS DEL SUMINISTRO
+  drawShadow(doc, margin, gridY, gridCardW, gridCardH);
+  drawCard(
+    doc,
+    margin,
+    gridY,
+    gridCardW,
+    gridCardH,
+    COLORS.white,
+    COLORS.border,
+    6,
   );
-
-  const midY = kpiY + kpiH + 5;
-  const midH = 70;
-  const leftW = 84;
-  const rightW = innerW - leftW - 4;
-
-  drawShadow(doc, margin, midY, leftW, midH);
-  drawCard(doc, margin, midY, leftW, midH, COLORS.white, COLORS.border, 6);
-  drawSectionTitle(doc, margin + 4, midY + 8, "DATOS DEL SUMINISTRO");
+  drawSectionTitle(doc, margin + 4, gridY + 8, "DATOS DEL SUMINISTRO");
 
   drawInfoRows(
     doc,
     margin + 4,
-    midY + 16,
-    [
-      ["Titular", safeName],
-      ["CUPS", data.cups || "-"],
-      ["Tarifa", data.billType || "-"],
-      ["Dirección", data.address || "-"],
-      ["Email", data.email || "-"],
-      ["IBAN", data.iban || "-"],
-    ],
-    19,
-    47,
+    gridY + 16,
+    getSupplyRows(data, result, proposal),
+    22,
+    gridCardW - 32,
+    {
+      labelSize: 5.8,
+      valueSize: 5.8,
+      minValueSize: 5.2,
+      lineHeight: 2.9,
+      minRowHeight: 6.2,
+    },
   );
 
-  const recX = margin + leftW + 4;
-  drawShadow(doc, recX, midY, rightW, midH);
-  drawCard(doc, recX, midY, rightW, midH, COLORS.white, COLORS.border, 6);
-  drawSectionTitle(doc, recX + 4, midY + 8, "RECOMENDACIONES PRIORITARIAS");
+  // RECOMENDACIONES PRIORITARIAS
+  const rightX = margin + gridCardW + gridGap;
+  drawShadow(doc, rightX, gridY, gridCardW, gridCardH);
+  drawCard(
+    doc,
+    rightX,
+    gridY,
+    gridCardW,
+    gridCardH,
+    COLORS.white,
+    COLORS.border,
+    6,
+  );
+  drawSectionTitle(doc, rightX + 4, gridY + 8, "RECOMENDACIONES PRIORITARIAS");
 
   const recs = getRecommendationItems(proposal.mode);
   drawRecommendationItem(
     doc,
-    recX + 4,
-    midY + 16,
-    rightW - 8,
+    rightX + 4,
+    gridY + 16,
+    gridCardW - 8,
     recs[0].title,
     recs[0].description,
     1,
+    20,
   );
   drawRecommendationItem(
     doc,
-    recX + 4,
-    midY + 42,
-    rightW - 8,
+    rightX + 4,
+    gridY + 39,
+    gridCardW - 8,
     recs[1].title,
     recs[1].description,
     2,
+    20,
   );
 
-  const botY = midY + midH + 5;
-  const botH = 54;
-  const econW = 95;
-  const techW = innerW - econW - 4;
+  // RESUMEN ECONÓMICO
+  const bottomY = gridY + gridCardH + gridGap;
+  drawShadow(doc, margin, bottomY, gridCardW, gridCardH);
+  drawCard(
+    doc,
+    margin,
+    bottomY,
+    gridCardW,
+    gridCardH,
+    COLORS.white,
+    COLORS.border,
+    6,
+  );
+  drawSectionTitle(doc, margin + 4, bottomY + 8, "RESUMEN ECONÓMICO");
+  drawEconomicSummary(doc, margin + 4, bottomY + 16, gridCardW - 8, proposal);
 
-  drawShadow(doc, margin, botY, econW, botH);
-  drawCard(doc, margin, botY, econW, botH, COLORS.white, COLORS.border, 6);
-  drawSectionTitle(doc, margin + 4, botY + 8, "RESUMEN ECONÓMICO");
-  drawEconomicSummary(doc, margin + 4, botY + 16, econW - 8, proposal);
+  // PERFIL TÉCNICO
+  drawShadow(doc, rightX, bottomY, gridCardW, gridCardH);
+  drawCard(
+    doc,
+    rightX,
+    bottomY,
+    gridCardW,
+    gridCardH,
+    COLORS.white,
+    COLORS.border,
+    6,
+  );
+  drawSectionTitle(doc, rightX + 4, bottomY + 8, "PERFIL TÉCNICO");
 
-  const techX = margin + econW + 4;
-  drawShadow(doc, techX, botY, techW, botH);
-  drawCard(doc, techX, botY, techW, botH, COLORS.white, COLORS.border, 6);
-  drawSectionTitle(doc, techX + 4, botY + 8, "PERFIL TÉCNICO");
-
-  writeText(doc, "Distribución del consumo", techX + 4, botY + 16, {
-    size: 6,
+  writeText(doc, "Distribución del consumo", rightX + 4, bottomY + 16, {
+    size: 5.8,
     color: COLORS.muted,
     fontStyle: "bold",
   });
+
   drawPeriodDistribution(
     doc,
-    techX + 4,
-    botY + 21,
+    rightX + 4,
+    bottomY + 20,
     38,
     result.charts.periodDistribution,
+    {
+      maxItems: 3,
+      barHeight: 4,
+      rowGap: 7.1,
+    },
   );
 
-  writeText(doc, "Potencia y producción", techX + 48, botY + 16, {
-    size: 6,
+  writeText(doc, "Potencia y producción", rightX + 48, bottomY + 16, {
+    size: 5.8,
     color: COLORS.muted,
     fontStyle: "bold",
   });
+
   drawInfoRows(
     doc,
-    techX + 48,
-    botY + 22,
+    rightX + 48,
+    bottomY + 22,
     [
       ["Potencia", `${formatNumber(proposal.recommendedPowerKwp, 1)} kWp`],
-      ["Cons. anual", `${formatNumber(proposal.annualConsumptionKwh)} kWh`],
+      ["Cons. anual", `${formatNumber(proposal.annualConsumptionKwh, 0)} kWh`],
       [
         "Prod. anual",
-        `${formatNumber(result.estimatedAnnualProductionKwh)} kWh`,
+        `${formatNumber(result.estimatedAnnualProductionKwh, 0)} kWh`,
       ],
       ["Autocons.", `${formatNumber(result.selfConsumptionRatio * 100, 0)} %`],
     ],
     17,
-    20,
+    22,
+    {
+      labelSize: 5.8,
+      valueSize: 5.8,
+      minValueSize: 5.2,
+      lineHeight: 2.9,
+      minRowHeight: 6.5,
+    },
   );
 
-  const concY = botY + botH + 5;
-  const concH = 46;
+  const concY = bottomY + gridCardH + 5;
+  const concH = 42;
 
   drawShadow(doc, margin, concY, innerW, concH, 7);
   drawCard(doc, margin, concY, innerW, concH, COLORS.white, COLORS.border, 7);
   drawSectionTitle(doc, margin + 4, concY + 8, "CONCLUSIÓN EJECUTIVA");
 
-  drawCard(doc, margin + 4, concY + 14, 85, 25, COLORS.soft, COLORS.border, 5);
-  writeText(doc, "Resumen", margin + 8, concY + 20.5, {
+  drawCard(doc, margin + 4, concY + 14, 85, 22, COLORS.soft, COLORS.border, 5);
+  writeText(doc, "Resumen", margin + 8, concY + 19.5, {
     size: 7,
     color: COLORS.navy,
     fontStyle: "bold",
   });
-  writeText(doc, getConclusionText(proposal), margin + 8, concY + 27, {
-    size: 5.9,
+  writeText(doc, getConclusionText(proposal), margin + 8, concY + 25.2, {
+    size: 5.8,
     color: COLORS.text,
     maxWidth: 75,
   });
@@ -808,18 +1163,18 @@ function renderStudyPdfPage(
     margin + 94,
     concY + 14,
     45,
-    25,
+    22,
     COLORS.mintSoft,
     COLORS.border,
     5,
   );
   writeText(
     doc,
-    proposal.mode === "service" ? "Cuota estimada" : "Ahorro anual",
+    proposal.mode === "service" ? "Cuota mensual" : "Ahorro anual",
     margin + 116.5,
-    concY + 21,
+    concY + 20,
     {
-      size: 6,
+      size: 5.8,
       color: COLORS.muted,
       fontStyle: "bold",
       align: "center",
@@ -830,27 +1185,36 @@ function renderStudyPdfPage(
     proposal.mode === "service"
       ? proposal.monthlyFee && proposal.monthlyFee > 0
         ? `${formatCurrency(proposal.monthlyFee)} / mes`
-        : formatCurrency(proposal.annualSavings)
+        : "Consultar"
       : formatCurrency(proposal.annualSavings),
     margin + 116.5,
-    concY + 30,
+    concY + 28.2,
     {
-      size: 9.5,
+      size: 8.7,
       color: COLORS.navy,
       fontStyle: "bold",
       align: "center",
       maxWidth: 39,
     },
   );
-  writeText(doc, "estimado", margin + 116.5, concY + 35, {
-    size: 5.7,
+  writeText(doc, "estimado", margin + 116.5, concY + 32.8, {
+    size: 5.5,
     color: COLORS.muted,
     align: "center",
   });
 
-  drawCard(doc, margin + 143, concY + 14, 47, 25, COLORS.white, COLORS.border, 5);
-  writeText(doc, "Modalidad", margin + 166.5, concY + 21, {
-    size: 6,
+  drawCard(
+    doc,
+    margin + 143,
+    concY + 14,
+    47,
+    22,
+    COLORS.white,
+    COLORS.border,
+    5,
+  );
+  writeText(doc, "Modalidad", margin + 166.5, concY + 20, {
+    size: 5.8,
     color: COLORS.muted,
     fontStyle: "bold",
     align: "center",
@@ -859,38 +1223,338 @@ function renderStudyPdfPage(
     doc,
     proposal.mode === "service" ? "Servicio" : "Inversión",
     margin + 166.5,
-    concY + 30,
+    concY + 28.2,
     {
-      size: 9.5,
+      size: 8.7,
       color: COLORS.navy,
       fontStyle: "bold",
       align: "center",
     },
   );
-  writeText(doc, proposal.badge || viabilityLabel, margin + 166.5, concY + 35, {
+  writeText(doc, proposal.badge || viabilityLabel, margin + 166.5, concY + 32.8, {
+    size: 5.8,
+    color: COLORS.success,
+    fontStyle: "bold",
+    align: "center",
+  });
+}
+
+function getRecommendedProposal(proposals: ProposalPdfSummary[]): ProposalPdfSummary | null {
+  const investment = proposals.find((p) => p.mode === "investment");
+  const service = proposals.find((p) => p.mode === "service");
+
+  if (investment && service) {
+    if (investment.totalSavings25Years >= service.totalSavings25Years) {
+      return investment;
+    }
+    return service;
+  }
+
+  return proposals[0] || null;
+}
+
+function getRecommendationReason(
+  recommended: ProposalPdfSummary | null,
+  allProposals: ProposalPdfSummary[],
+): { title: string; description: string } {
+  if (!recommended) {
+    return {
+      title: "Recomendación pendiente",
+      description:
+        "No se ha podido determinar una recomendación final con la información disponible.",
+    };
+  }
+
+  const hasInvestment = allProposals.some((p) => p.mode === "investment");
+  const hasService = allProposals.some((p) => p.mode === "service");
+
+  if (recommended.mode === "investment" && hasInvestment && hasService) {
+    return {
+      title: "Recomendamos la modalidad de inversión",
+      description:
+        "Es la alternativa con mayor ahorro acumulado a largo plazo y mejor rentabilidad global sobre el consumo detectado. Resulta especialmente adecuada cuando se prioriza maximizar el retorno económico del proyecto.",
+    };
+  }
+
+  if (recommended.mode === "service" && hasInvestment && hasService) {
+    return {
+      title: "Recomendamos la modalidad de servicio",
+      description:
+        "Es la alternativa más adecuada cuando se prioriza una entrada inicial más cómoda, una cuota mensual clara y una contratación más flexible, manteniendo un ahorro energético relevante.",
+    };
+  }
+
+  return {
+    title:
+      recommended.mode === "investment"
+        ? "Recomendación: modalidad de inversión"
+        : "Recomendación: modalidad de servicio",
+    description: getConclusionText(recommended),
+  };
+}
+
+function drawRecommendationSummaryCard(
+  doc: jsPDF,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  proposal: ProposalPdfSummary,
+) {
+  const accent = getModeAccent(proposal.mode);
+  drawShadow(doc, x, y, w, h, 6);
+  drawCard(doc, x, y, w, h, COLORS.white, COLORS.border, 6);
+
+  setFill(doc, accent);
+  doc.roundedRect(x, y, w, 12, 6, 6, "F");
+  doc.rect(x, y + 6, w, 6, "F");
+
+  writeText(
+    doc,
+    proposal.mode === "service" ? "MODALIDAD SERVICIO" : "MODALIDAD INVERSIÓN",
+    x + 4,
+    y + 7.5,
+    {
+      size: 7,
+      color: COLORS.navy,
+      fontStyle: "bold",
+    },
+  );
+
+  const leftX = x + 4;
+  const topY = y + 18;
+  const gap = 3;
+  const miniW = (w - 8 - gap) / 2;
+
+  drawEconomicMiniCard(
+    doc,
+    leftX,
+    topY,
+    miniW,
+    18,
+    proposal.mode === "service" ? "Cuota mensual" : "Coste inicial",
+    proposal.mode === "service"
+      ? proposal.monthlyFee && proposal.monthlyFee > 0
+        ? `${formatCurrency(proposal.monthlyFee)} / mes`
+        : "Consultar"
+      : formatCurrency(proposal.upfrontCost),
+    COLORS.mintSoft,
+  );
+
+  drawEconomicMiniCard(
+    doc,
+    leftX + miniW + gap,
+    topY,
+    miniW,
+    18,
+    "Ahorro anual",
+    formatCurrency(proposal.annualSavings),
+  );
+
+  drawEconomicMiniCard(
+    doc,
+    leftX,
+    topY + 21,
+    miniW,
+    18,
+    "Ahorro total",
+    formatCurrency(proposal.totalSavings25Years),
+  );
+
+  drawEconomicMiniCard(
+    doc,
+    leftX + miniW + gap,
+    topY + 21,
+    miniW,
+    18,
+    proposal.mode === "service" ? "Potencia" : "Retorno",
+    proposal.mode === "service"
+      ? `${formatNumber(proposal.recommendedPowerKwp, 1)} kWp`
+      : proposal.paybackYears > 0
+        ? `${formatNumber(proposal.paybackYears, 1)} años`
+        : "N/D",
+  );
+
+  writeText(doc, "Observación", x + 4, y + h - 12, {
+    size: 6,
+    color: COLORS.muted,
+    fontStyle: "bold",
+  });
+
+  writeText(
+    doc,
+    proposal.mode === "service"
+      ? "Pensada para facilitar la entrada y mantener una cuota estable."
+      : "Pensada para maximizar el ahorro acumulado y la rentabilidad a largo plazo.",
+    x + 4,
+    y + h - 7.5,
+    {
+      size: 5.8,
+      color: COLORS.text,
+      maxWidth: w - 8,
+    },
+  );
+}
+
+function renderRecommendationPage(
+  doc: jsPDF,
+  proposals: ProposalPdfSummary[],
+  pageIndex: number,
+  totalPages: number,
+) {
+  const PW = doc.internal.pageSize.getWidth();
+  const margin = 10;
+  const innerW = PW - margin * 2;
+
+  renderPageChrome(doc, "RECOMENDACIÓN FINAL", pageIndex, totalPages);
+
+  const recommended = getRecommendedProposal(proposals);
+  const reason = getRecommendationReason(recommended, proposals);
+
+  const heroY = 28;
+  drawShadow(doc, margin, heroY, innerW, 48, 8);
+  drawCard(doc, margin, heroY, innerW, 48, COLORS.white, COLORS.border, 8);
+
+  setFill(doc, COLORS.navy);
+  doc.roundedRect(margin, heroY, innerW, 17, 8, 8, "F");
+  doc.rect(margin, heroY + 9, innerW, 8, "F");
+
+  writeText(doc, "RECOMENDACIÓN SAPIENS", margin + 6, heroY + 9, {
+    size: 8,
+    color: COLORS.sky,
+    fontStyle: "bold",
+  });
+
+  writeText(doc, reason.title, margin + 6, heroY + 23, {
+    size: 16,
+    color: COLORS.navy,
+    fontStyle: "bold",
+    maxWidth: 120,
+  });
+
+  writeText(doc, reason.description, margin + 6, heroY + 33, {
+    size: 7,
+    color: COLORS.text,
+    maxWidth: 120,
+  });
+
+  drawCard(doc, 150, heroY + 8, 40, 26, COLORS.mintSoft, COLORS.border, 6);
+  writeText(doc, "MODALIDAD", 170, heroY + 15, {
+    size: 6,
+    color: COLORS.muted,
+    fontStyle: "bold",
+    align: "center",
+  });
+  writeText(
+    doc,
+    recommended
+      ? recommended.mode === "service"
+        ? "Servicio"
+        : "Inversión"
+      : "N/D",
+    170,
+    heroY + 24.5,
+    {
+      size: 11,
+      color: COLORS.navy,
+      fontStyle: "bold",
+      align: "center",
+    },
+  );
+  writeText(doc, recommended?.badge || "Recomendación", 170, heroY + 29.8, {
     size: 6,
     color: COLORS.success,
     fontStyle: "bold",
     align: "center",
   });
 
-  setFill(doc, COLORS.navy);
-  doc.rect(0, PH - 2.5, PW, 2.5, "F");
+  const cardsY = 84;
+  const gap = 4;
+  const cardW = (innerW - gap) / 2;
+  const cardH = 78;
 
-  setDraw(doc, COLORS.border);
-  doc.setLineWidth(0.3);
-  doc.line(margin, PH - 14, PW - margin, PH - 14);
+  const investment = proposals.find((p) => p.mode === "investment");
+  const service = proposals.find((p) => p.mode === "service");
 
+  if (investment) {
+    drawRecommendationSummaryCard(doc, margin, cardsY, cardW, cardH, investment);
+  }
+
+  if (service) {
+    drawRecommendationSummaryCard(
+      doc,
+      margin + cardW + gap,
+      cardsY,
+      cardW,
+      cardH,
+      service,
+    );
+  }
+
+  if (!investment && recommended) {
+    drawRecommendationSummaryCard(doc, margin, cardsY, innerW, cardH, recommended);
+  }
+
+  const conclusionY = cardsY + cardH + 6;
+  drawShadow(doc, margin, conclusionY, innerW, 72, 7);
+  drawCard(doc, margin, conclusionY, innerW, 72, COLORS.white, COLORS.border, 7);
+  drawSectionTitle(doc, margin + 4, conclusionY + 8, "CONCLUSIÓN Y SIGUIENTE PASO");
+
+  drawCard(
+    doc,
+    margin + 4,
+    conclusionY + 14,
+    innerW - 8,
+    24,
+    COLORS.soft,
+    COLORS.border,
+    5,
+  );
+  writeText(doc, "Conclusión ejecutiva", margin + 8, conclusionY + 20, {
+    size: 7,
+    color: COLORS.navy,
+    fontStyle: "bold",
+  });
   writeText(
     doc,
-    "Propuesta generada automáticamente por Sapiens Energía a partir del análisis documental de la factura del cliente.",
-    PW / 2,
-    PH - 9,
+    recommended
+      ? recommended.mode === "investment"
+        ? "Por perfil económico y ahorro acumulado, recomendamos avanzar con la modalidad de inversión. Es la opción que mejor capitaliza el consumo detectado y ofrece una rentabilidad más sólida en el horizonte analizado."
+        : "Por flexibilidad de entrada y equilibrio entre ahorro y facilidad de contratación, recomendamos valorar la modalidad de servicio como la vía más cómoda para iniciar el proyecto."
+      : "No se ha podido establecer una recomendación final automática.",
+    margin + 8,
+    conclusionY + 27,
     {
-      size: 5.6,
-      color: COLORS.muted,
-      align: "center",
-      maxWidth: 160,
+      size: 6.2,
+      color: COLORS.text,
+      maxWidth: innerW - 16,
+    },
+  );
+
+  drawCard(
+    doc,
+    margin + 4,
+    conclusionY + 42,
+    innerW - 8,
+    22,
+    COLORS.mintSoft,
+    COLORS.border,
+    5,
+  );
+  writeText(doc, "Siguiente paso recomendado", margin + 8, conclusionY + 48, {
+    size: 7,
+    color: COLORS.navy,
+    fontStyle: "bold",
+  });
+  writeText(
+    doc,
+    "Validar la propuesta seleccionada, revisar los datos del suministro y continuar con la reserva o contratación según la modalidad elegida.",
+    margin + 8,
+    conclusionY + 55,
+    {
+      size: 6.2,
+      color: COLORS.text,
+      maxWidth: innerW - 16,
     },
   );
 }
@@ -908,20 +1572,18 @@ export const generateStudyPDF = (
     return doc;
   }
 
+  const totalPages = proposalList.length + 1;
+
   proposalList.forEach((proposal, index) => {
     if (index > 0) {
       doc.addPage();
     }
 
-    renderStudyPdfPage(
-      doc,
-      data,
-      result,
-      proposal,
-      index,
-      proposalList.length,
-    );
+    renderStudyPdfPage(doc, data, result, proposal, index, totalPages);
   });
+
+  doc.addPage();
+  renderRecommendationPage(doc, proposalList, proposalList.length, totalPages);
 
   return doc;
 };
