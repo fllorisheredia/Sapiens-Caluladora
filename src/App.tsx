@@ -220,9 +220,61 @@ function buildLastName(
   return [lastname1, lastname2].filter(Boolean).join(" ").trim();
 }
 
-function normalizeSelfConsumption(value: number | null | undefined): number {
-  if (typeof value !== "number" || Number.isNaN(value)) return 0.7;
-  return value > 1 ? value / 100 : value;
+function getPositiveFiniteNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? value
+    : undefined;
+}
+
+function buildPeriodPricesFromValidatedData(validatedData: ValidationBillData) {
+  return {
+    P1: validatedData.periodPriceP1,
+    P2: validatedData.periodPriceP2,
+    P3: validatedData.periodPriceP3,
+    P4: validatedData.periodPriceP4,
+    P5: validatedData.periodPriceP5,
+    P6: validatedData.periodPriceP6,
+  };
+}
+
+function buildPeriodConsumptionsFromValidatedData(
+  validatedData: ValidationBillData,
+) {
+  return {
+    P1: validatedData.periodConsumptionP1,
+    P2: validatedData.periodConsumptionP2,
+    P3: validatedData.periodConsumptionP3,
+    P4: validatedData.periodConsumptionP4,
+    P5: validatedData.periodConsumptionP5,
+    P6: validatedData.periodConsumptionP6,
+  };
+}
+
+function getInvoiceVariableEnergyAmountFromExtraction(
+  extraction: ExtractedBillData | null,
+): number | undefined {
+  const invoiceData = extraction?.invoice_data as Record<string, unknown> | undefined;
+
+  if (!invoiceData) return undefined;
+
+  const candidateKeys = [
+    "invoiceVariableEnergyAmountEur",
+    "variableEnergyAmountEur",
+    "energyTermAmountEur",
+    "variableTermAmountEur",
+    "totalVariableEnergyAmountEur",
+    "importeEnergiaConsumidaEur",
+    "costeEnergiaEur",
+    "costOfEnergyEur",
+    "energyCostEur",
+  ];
+
+  for (const key of candidateKeys) {
+    const value = getPositiveFiniteNumber(invoiceData[key]);
+    if (value !== undefined) return value;
+  }
+
+  return undefined;
 }
 
 function displayPercentage(value: number | null | undefined): number {
@@ -1034,6 +1086,8 @@ function formatPaybackYears(value: number) {
   if (!Number.isFinite(value) || value <= 0) return "-";
   return `${value.toFixed(1).replace(".", ",")} años`;
 }
+
+
 const getMonthlySavings = (proposal: ProposalCardData) => {
   return proposal.annualSavings > 0 ? proposal.annualSavings / 12 : 0;
 };
@@ -1162,40 +1216,65 @@ async function geocodeAddress(address: string): Promise<{
   };
 }
 
+function normalizeSelfConsumption(value: number | null | undefined): number {
+  if (typeof value !== "number" || Number.isNaN(value)) return 0.7;
+  return value > 1 ? value / 100 : value;
+}
+
 function calculateRequiredKwpForInstallation(
   validatedData: ValidationBillData,
   installation: ApiInstallation,
+  rawExtraction: ExtractedBillData | null,
 ): number {
+  const periodPrices = buildPeriodPricesFromValidatedData(validatedData);
+
+  const periodConsumptions =
+    buildPeriodConsumptionsFromValidatedData(validatedData);
+
+  const invoiceVariableEnergyAmountEur =
+    getInvoiceVariableEnergyAmountFromExtraction(rawExtraction);
+
+  console.log("[calc] periodPrices:", periodPrices);
+  console.log("[calc] periodConsumptions:", periodConsumptions);
+  console.log(
+    "[calc] invoiceVariableEnergyAmountEur:",
+    invoiceVariableEnergyAmountEur,
+  );
+
   const result = calculateEnergyStudy({
     monthlyConsumptionKwh:
       validatedData.averageMonthlyConsumptionKwh ??
       validatedData.monthlyConsumption ??
       0,
+
     invoiceConsumptionKwh:
       validatedData.currentInvoiceConsumptionKwh ??
       validatedData.averageMonthlyConsumptionKwh ??
       validatedData.monthlyConsumption ??
       0,
+
     billType:
       (validatedData.billType as BillData["billType"] | undefined) || "2TD",
+
     effectiveHours: installation.horas_efectivas,
     investmentCostKwh: installation.coste_kwh_inversion,
     serviceCostKwh: installation.coste_kwh_servicio,
+
     selfConsumptionRatio: normalizeSelfConsumption(
       installation.porcentaje_autoconsumo,
     ),
-    periodPrices: {
-      P1: validatedData.periodPriceP1,
-      P2: validatedData.periodPriceP2,
-      P3: validatedData.periodPriceP3,
-      P4: validatedData.periodPriceP4,
-      P5: validatedData.periodPriceP5,
-      P6: validatedData.periodPriceP6,
-    },
-    surplusCompensationPriceKwh: installation.precio_excedentes_eur_kwh ?? 0,
+
+    periodPrices,
+    periodConsumptions,
+    invoiceVariableEnergyAmountEur,
+
+    surplusCompensationPriceKwh:
+      installation.precio_excedentes_eur_kwh ?? 0,
+
     maintenanceAnnualPerKwp:
       installation.coste_anual_mantenimiento_por_kwp ??
       INVESTMENT_MAINTENANCE_EUR_PER_KWP_YEAR,
+
     vatRate: 0.21,
   });
 
@@ -2423,10 +2502,11 @@ function MainAppContent() {
 
       const eligibleInstallations = installationsInRadius
         .map((item) => {
-          const requiredKwp = calculateRequiredKwpForInstallation(
-            validatedData,
-            item,
-          );
+const requiredKwp = calculateRequiredKwpForInstallation(
+  validatedData,
+  item,
+  rawExtraction,
+);
 
           return {
             ...item,

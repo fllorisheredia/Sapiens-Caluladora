@@ -6,26 +6,23 @@ export interface CalculationInput {
   billType: BillType;
   effectiveHours: number;
 
-  // Costes base de la instalación
   investmentCostKwh: number;
   serviceCostKwh: number;
-
-  // % autoconsumo de la instalación
   selfConsumptionRatio: number;
 
-  // Datos opcionales de factura
   invoiceConsumptionKwh?: number;
   monthlyChartConsumptions?: number[];
   periodPrices?: Partial<Record<PeriodKey, number>>;
+  periodConsumptions?: Partial<Record<PeriodKey, number>>;
 
-  // Campos opcionales avanzados
   savingsRateInvestmentKwh?: number;
   savingsRateServiceKwh?: number;
 
-  // NUEVOS CAMPOS
-  surplusCompensationPriceKwh?: number; // precio excedentes €/kWh
-  maintenanceAnnualPerKwp?: number; // por defecto 36 €/kWp/año
-  vatRate?: number; // por defecto 0.21
+  surplusCompensationPriceKwh?: number;
+  maintenanceAnnualPerKwp?: number;
+  vatRate?: number;
+
+  invoiceVariableEnergyAmountEur?: number;
 }
 
 export interface ChartBarItem {
@@ -169,43 +166,89 @@ function averageValid(values?: number[]): number | undefined {
 
 function resolveWeightedEnergyPrice(
   billType: BillType,
-  periodPrices?: Partial<Record<PeriodKey, number>>
+  periodPrices?: Partial<Record<PeriodKey, number>>,
+  periodConsumptions?: Partial<Record<PeriodKey, number>>,
+  invoiceVariableEnergyAmountEur?: number,
+  invoiceConsumptionKwh?: number
 ): number | undefined {
-  if (!periodPrices) return undefined;
+  const validInvoiceConsumption =
+    typeof invoiceConsumptionKwh === "number" &&
+    Number.isFinite(invoiceConsumptionKwh) &&
+    invoiceConsumptionKwh > 0;
 
-  const weights = PERIOD_PERCENTAGES[billType];
-  let weightedSum = 0;
-  let usedWeight = 0;
+  const validVariableAmount =
+    typeof invoiceVariableEnergyAmountEur === "number" &&
+    Number.isFinite(invoiceVariableEnergyAmountEur) &&
+    invoiceVariableEnergyAmountEur > 0;
 
-  for (const period of ALL_PERIODS) {
-    const price = periodPrices[period];
-    const weight = weights[period];
+  // 1) Mejor opción: precio real medio de la factura
+  if (validVariableAmount && validInvoiceConsumption) {
+    return invoiceVariableEnergyAmountEur / invoiceConsumptionKwh;
+  }
 
-    if (
-      typeof price === "number" &&
-      Number.isFinite(price) &&
-      price > 0 &&
-      weight > 0
-    ) {
-      weightedSum += price * weight;
-      usedWeight += weight;
+  // 2) Segunda mejor opción: ponderar con consumos reales por periodo
+  if (periodPrices && periodConsumptions) {
+    let totalCost = 0;
+    let totalKwh = 0;
+
+    for (const period of ALL_PERIODS) {
+      const price = periodPrices[period];
+      const kwh = periodConsumptions[period];
+
+      if (
+        typeof price === "number" &&
+        Number.isFinite(price) &&
+        price > 0 &&
+        typeof kwh === "number" &&
+        Number.isFinite(kwh) &&
+        kwh > 0
+      ) {
+        totalCost += price * kwh;
+        totalKwh += kwh;
+      }
+    }
+
+    if (totalKwh > 0) {
+      return totalCost / totalKwh;
     }
   }
 
-  if (usedWeight > 0) {
-    return weightedSum / usedWeight;
-  }
+  // 3) Fallback antiguo
+  if (periodPrices) {
+    const weights = PERIOD_PERCENTAGES[billType];
+    let weightedSum = 0;
+    let usedWeight = 0;
 
-  const availablePrices = Object.values(periodPrices).filter(
-    (value): value is number =>
-      typeof value === "number" && Number.isFinite(value) && value > 0
-  );
+    for (const period of ALL_PERIODS) {
+      const price = periodPrices[period];
+      const weight = weights[period];
 
-  if (availablePrices.length) {
-    return (
-      availablePrices.reduce((acc, value) => acc + value, 0) /
-      availablePrices.length
+      if (
+        typeof price === "number" &&
+        Number.isFinite(price) &&
+        price > 0 &&
+        weight > 0
+      ) {
+        weightedSum += price * weight;
+        usedWeight += weight;
+      }
+    }
+
+    if (usedWeight > 0) {
+      return weightedSum / usedWeight;
+    }
+
+    const availablePrices = Object.values(periodPrices).filter(
+      (value): value is number =>
+        typeof value === "number" && Number.isFinite(value) && value > 0
     );
+
+    if (availablePrices.length) {
+      return (
+        availablePrices.reduce((acc, value) => acc + value, 0) /
+        availablePrices.length
+      );
+    }
   }
 
   return undefined;
@@ -260,11 +303,16 @@ export const calculateEnergyStudy = (
   const recommendedPowerKwp = roundUpToHalf(rawPower);
 
   // Precio medio detectado en factura
-  const weightedEnergyPriceKwh = round(
-    resolveWeightedEnergyPrice(billType, input.periodPrices) ??
-      DEFAULT_WEIGHTED_ENERGY_PRICE_KWH,
-    5
-  );
+const weightedEnergyPriceKwh = round(
+  resolveWeightedEnergyPrice(
+    billType,
+    input.periodPrices,
+    input.periodConsumptions,
+    input.invoiceVariableEnergyAmountEur,
+    invoiceConsumptionKwh
+  ) ?? DEFAULT_WEIGHTED_ENERGY_PRICE_KWH,
+  5
+);
 
   // Precio factura con IVA
   const vatRate = normalizePositive(input.vatRate, DEFAULT_VAT_RATE);
@@ -287,14 +335,16 @@ export const calculateEnergyStudy = (
     effectiveHours * recommendedPowerKwp
   );
 
-  // Reparto entre autoconsumo y excedentes
-  const annualSelfConsumedEnergyKwh = round(
-    estimatedAnnualProductionKwh * selfConsumptionRatio
-  );
+const annualSelfConsumedEnergyKwh = round(
+  Math.min(
+    estimatedAnnualProductionKwh * selfConsumptionRatio,
+    annualConsumptionKwh
+  )
+);
 
-  const annualSurplusEnergyKwh = round(
-    estimatedAnnualProductionKwh * (1 - selfConsumptionRatio)
-  );
+const annualSurplusEnergyKwh = round(
+  Math.max(estimatedAnnualProductionKwh - annualSelfConsumedEnergyKwh, 0)
+);
 
   // Valor económico bruto
   const annualSelfConsumptionValue = round(
