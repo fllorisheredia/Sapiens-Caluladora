@@ -39,12 +39,13 @@ export interface ExtractedBillData {
   invoice_data: {
     type: BillType;
     billedDays: number | null;
-    consumptionKwh: number | null; // compatibilidad: consumo total de esta factura
+    consumptionKwh: number | null;
     currentInvoiceConsumptionKwh: number | null;
     averageMonthlyConsumptionKwh: number | null;
-    periods: PeriodValues; // consumo kWh por periodo
-    periodPricesEurPerKwh: PeriodValues; // €/kWh por periodo si aparecen explícitos
-    postcodeAverageConsumptionKwh: number | null; // para detectar falsos positivos
+    periods: PeriodValues;
+    periodPricesEurPerKwh: PeriodValues;
+    postcodeAverageConsumptionKwh: number | null;
+    invoiceVariableEnergyAmountEur: number | null;
   };
   extraction: {
     confidenceScore: number | null;
@@ -98,8 +99,17 @@ const extractionResponseSchema = {
         phone: { type: "string", nullable: true },
       },
       required: [
-        "fullName", "name", "lastname1", "lastname2", "surnames", 
-        "dni", "cups", "iban", "ibanNeedsCompletion", "email", "phone"
+        "fullName",
+        "name",
+        "lastname1",
+        "lastname2",
+        "surnames",
+        "dni",
+        "cups",
+        "iban",
+        "ibanNeedsCompletion",
+        "email",
+        "phone",
       ],
     },
     location: {
@@ -113,17 +123,27 @@ const extractionResponseSchema = {
         province: { type: "string", nullable: true },
         country: { type: "string", nullable: true },
       },
-      required: ["address", "street", "postalCode", "city", "province", "country"],
+      required: [
+        "address",
+        "street",
+        "postalCode",
+        "city",
+        "province",
+        "country",
+      ],
     },
     invoice_data: {
       type: "object",
       additionalProperties: false,
       properties: {
-        type: { anyOf: [{ type: "string", enum: ["2TD", "3TD"] }, { type: "null" }] },
+        type: {
+          anyOf: [{ type: "string", enum: ["2TD", "3TD"] }, { type: "null" }],
+        },
         billedDays: { type: "number", nullable: true },
         consumptionKwh: { type: "number", nullable: true },
         currentInvoiceConsumptionKwh: { type: "number", nullable: true },
         averageMonthlyConsumptionKwh: { type: "number", nullable: true },
+        invoiceVariableEnergyAmountEur: { type: "number", nullable: true },
         postcodeAverageConsumptionKwh: { type: "number", nullable: true },
         periods: {
           type: "object",
@@ -153,9 +173,15 @@ const extractionResponseSchema = {
         },
       },
       required: [
-        "type", "billedDays", "consumptionKwh", "currentInvoiceConsumptionKwh",
-        "averageMonthlyConsumptionKwh", "postcodeAverageConsumptionKwh",
-        "periods", "periodPricesEurPerKwh"
+        "type",
+        "billedDays",
+        "consumptionKwh",
+        "currentInvoiceConsumptionKwh",
+        "averageMonthlyConsumptionKwh",
+        "postcodeAverageConsumptionKwh",
+        "periods",
+        "periodPricesEurPerKwh",
+        "invoiceVariableEnergyAmountEur",
       ],
     },
     extraction: {
@@ -167,7 +193,12 @@ const extractionResponseSchema = {
         warnings: { type: "array", items: { type: "string" } },
         manualReviewFields: { type: "array", items: { type: "string" } },
       },
-      required: ["confidenceScore", "missingFields", "warnings", "manualReviewFields"],
+      required: [
+        "confidenceScore",
+        "missingFields",
+        "warnings",
+        "manualReviewFields",
+      ],
     },
   },
   required: ["customer", "location", "invoice_data", "extraction"],
@@ -184,7 +215,82 @@ function isQuotaError(error: any): boolean {
     error?.status === 429 ||
     error?.error?.code === 429 ||
     String(error?.message || "").includes("RESOURCE_EXHAUSTED") ||
-    String(error?.message || "").toLowerCase().includes("quota")
+    String(error?.message || "")
+      .toLowerCase()
+      .includes("quota")
+  );
+}
+
+function extractBillTypeFromText(text: string): BillType {
+  const raw =
+    extractRegexValue(
+      text,
+      /Peaje de (?:transporte y distribución|acceso a la red \(ATR\)):\s*(2(?:\.0)?TD|3(?:\.0)?TD)\b/i,
+    ) ??
+    extractRegexValue(text, /\bPVPC\s+(2(?:\.0)?TD|3(?:\.0)?TD)\b/i);
+
+  return normalizeBillType(raw);
+}
+
+function extractInvoiceConsumption(text: string): number | null {
+  return (
+    parseSpanishNumber(
+      extractRegexValue(
+        text,
+        /Su consumo en el periodo facturado ha sido\s*([\d.,]+)\s*kWh/i,
+      ),
+    ) ??
+    parseSpanishNumber(
+      extractRegexValue(
+        text,
+        /Consumo total de\s+esta factura\.?\s*([\d.,]+)\s*kWh/i,
+      ),
+    )
+  );
+}
+
+function extractBilledDays(text: string): number | null {
+  return (
+    parseSpanishNumber(
+      extractRegexValue(text, /(\d{1,3})\s*días\s*\*\s*[\d.,]+\s*€\/día/i),
+    ) ??
+    parseSpanishNumber(
+      extractRegexValue(text, /D[ií]AS FACTURADOS:\s*(\d{1,3})\b/i),
+    )
+  );
+}
+
+function extractPostcodeAverageConsumption(text: string): number | null {
+  return (
+    parseSpanishNumber(
+      extractRegexValue(
+        text,
+        /La media de los consumidores con el mismo código postal ha sido de\s*([\d.,]+)\s*kWh/i,
+      ),
+    ) ??
+    parseSpanishNumber(
+      extractRegexValue(
+        text,
+        /consumo medio de electricidad de los suministros en su mismo código postal ha sido de\s*([\d.,]+)\s*kWh/i,
+      ),
+    )
+  );
+}
+
+function extractInvoiceVariableEnergyAmount(text: string): number | null {
+  return (
+    parseSpanishNumber(
+      extractRegexValue(
+        text,
+        /Facturación por energía consumida\s*\("TÉRMINO VARIABLE"\)\s*([\d.,]+)\s*€/i,
+      ),
+    ) ??
+    parseSpanishNumber(
+      extractRegexValue(
+        text,
+        /Por energía consumida\s*([\d.,]+)\s*€/i,
+      ),
+    )
   );
 }
 
@@ -268,12 +374,16 @@ function normalizePhone(value: unknown): string | null {
 
 function extractResponseText(response: any): string {
   if (!response?.text) return "";
-  return typeof response.text === "function" ? response.text().trim() : String(response.text).trim();
+  return typeof response.text === "function"
+    ? response.text().trim()
+    : String(response.text).trim();
 }
 
 function compactInvoiceText(rawText?: string): string {
   if (!rawText) return "";
-  const lines = rawText.replace(/\r/g, "\n").split("\n")
+  const lines = rawText
+    .replace(/\r/g, "\n")
+    .split("\n")
     .map((line) => line.replace(/\s+/g, " ").trim())
     .filter(Boolean);
 
@@ -282,15 +392,23 @@ function compactInvoiceText(rawText?: string): string {
 
   for (let i = 0; i < lines.length; i++) {
     if (RELEVANT_INVOICE_REGEX.test(String(lines[i]))) {
-      for (let j = Math.max(0, i - 2); j <= Math.min(lines.length - 1, i + 2); j++) {
+      for (
+        let j = Math.max(0, i - 2);
+        j <= Math.min(lines.length - 1, i + 2);
+        j++
+      ) {
         selected.add(j);
       }
     }
   }
 
-  return (selected.size > 0
-    ? [...selected].sort((a, b) => a - b).map((i) => lines[i]).join("\n")
-    : lines.join("\n")
+  return (
+    selected.size > 0
+      ? [...selected]
+          .sort((a, b) => a - b)
+          .map((i) => lines[i])
+          .join("\n")
+      : lines.join("\n")
   ).slice(0, MAX_TEXT_CHARS);
 }
 
@@ -301,7 +419,10 @@ function buildPrompt(fileName: string, sourceMode: "text" | "pdf"): string {
     "- location.address: dirección completa de suministro.",
     "- customer.iban: conserva asteriscos. Marca 'ibanNeedsCompletion'=true si hay asteriscos.",
     "- invoice_data.type: '2TD' o '3TD'.",
-    "- Consumos: 'consumptionKwh' y 'currentInvoiceConsumptionKwh' = consumo total de esta factura.",
+    "- consumptionKwh y currentInvoiceConsumptionKwh: consumo total de esta factura.",
+    "- averageMonthlyConsumptionKwh: estima el consumo medio mensual del titular a partir del consumo facturado y los días facturados. No uses el consumo medio del código postal.",
+    "- postcodeAverageConsumptionKwh: extrae la media del código postal solo si aparece explícitamente.",
+    "- invoiceVariableEnergyAmountEur: extrae el importe total de 'Por energía consumida' o 'Facturación por energía consumida (TÉRMINO VARIABLE)'.",
     "- Para 2TD: punta=P1, llano=P2, valle=P3. P4-P6 en null.",
     "- periodPricesEurPerKwh: solo si hay €/kWh explícitos por periodo.",
     sourceMode === "text" ? "Ignora ruido de OCR." : "PDF original.",
@@ -316,12 +437,26 @@ function splitFullName(fullName: string | null): {
   lastname2: string | null;
   surnames: string | null;
 } {
-  if (!fullName) return { fullName: null, name: null, lastname1: null, lastname2: null, surnames: null };
+  if (!fullName)
+    return {
+      fullName: null,
+      name: null,
+      lastname1: null,
+      lastname2: null,
+      surnames: null,
+    };
 
   const clean = normalizeWhitespace(fullName);
   const parts = clean.split(" ").filter(Boolean);
 
-  if (parts.length === 1) return { fullName: clean, name: parts[0], lastname1: null, lastname2: null, surnames: null };
+  if (parts.length === 1)
+    return {
+      fullName: clean,
+      name: parts[0],
+      lastname1: null,
+      lastname2: null,
+      surnames: null,
+    };
 
   const name = parts[0];
   const surnameParts = parts.slice(1);
@@ -338,15 +473,29 @@ function splitFullName(fullName: string | null): {
 function isUtilityEmail(value: string | null): boolean {
   if (!value) return false;
   const v = value.toLowerCase().trim();
-  return v.includes("iberdrola.es") || v.includes("tuiberdrola.es") || v.includes("i-de.es");
+  return (
+    v.includes("iberdrola.es") ||
+    v.includes("tuiberdrola.es") ||
+    v.includes("i-de.es")
+  );
 }
 
 function isUtilityPhone(value: string | null): boolean {
   if (!value) return false;
-  return ["900225235", "960882467", "900171171", "900224522", "960882468", "963866000"].includes(value.replace(/\s+/g, ""));
+  return [
+    "900225235",
+    "960882467",
+    "900171171",
+    "900224522",
+    "960882468",
+    "963866000",
+  ].includes(value.replace(/\s+/g, ""));
 }
 
-function estimateMonthlyConsumption(totalKwh: number | null, billedDays: number | null): number | null {
+function estimateMonthlyConsumption(
+  totalKwh: number | null,
+  billedDays: number | null,
+): number | null {
   if (totalKwh == null || billedDays == null || billedDays <= 0) return null;
   return Number(((totalKwh / billedDays) * 30.4375).toFixed(2));
 }
@@ -360,7 +509,15 @@ function parseAddressParts(fullAddress: string | null): {
   country: string | null;
 } {
   const address = safeString(fullAddress);
-  if (!address) return { address: null, street: null, postalCode: null, city: null, province: null, country: "España" };
+  if (!address)
+    return {
+      address: null,
+      street: null,
+      postalCode: null,
+      city: null,
+      province: null,
+      country: "España",
+    };
 
   const normalized = normalizeWhitespace(address);
   const postalCode = normalized.match(/\b(\d{5})\b/)?.[1] ?? null;
@@ -369,14 +526,24 @@ function parseAddressParts(fullAddress: string | null): {
   let city: string | null = null;
   if (postalCode) {
     const afterPostal = normalized.split(postalCode)[1] ?? "";
-    const beforeProvince = province ? afterPostal.replace(new RegExp(`\\(${province}\\)\\s*$`), "") : afterPostal;
+    const beforeProvince = province
+      ? afterPostal.replace(new RegExp(`\\(${province}\\)\\s*$`), "")
+      : afterPostal;
     city = safeString(beforeProvince.replace(/^[,\s-]+/, ""));
   }
 
   let street = normalized;
-  if (postalCode) street = normalized.split(postalCode)[0]?.trim() ?? normalized;
+  if (postalCode)
+    street = normalized.split(postalCode)[0]?.trim() ?? normalized;
 
-  return { address: normalized, street: street || null, postalCode, city, province, country: "España" };
+  return {
+    address: normalized,
+    street: street || null,
+    postalCode,
+    city,
+    province,
+    country: "España",
+  };
 }
 
 function listMissingFields(data: ExtractedBillData): string[] {
@@ -387,7 +554,8 @@ function listMissingFields(data: ExtractedBillData): string[] {
   if (!data.customer.iban) missing.push("customer.iban");
   if (!data.location.address) missing.push("location.address");
   if (!data.invoice_data.type) missing.push("invoice_data.type");
-  if (data.invoice_data.currentInvoiceConsumptionKwh == null) missing.push("invoice_data.currentInvoiceConsumptionKwh");
+  if (data.invoice_data.currentInvoiceConsumptionKwh == null)
+    missing.push("invoice_data.currentInvoiceConsumptionKwh");
 
   const { P1, P2, P3, P4, P5, P6 } = data.invoice_data.periods;
   if (P1 == null) missing.push("invoice_data.periods.P1");
@@ -408,17 +576,27 @@ function extractRegexValue(text: string, regex: RegExp): string | null {
 }
 
 function extractFullNameFromText(text: string): string | null {
-  return extractRegexValue(text, /Titular(?:\s+Potencia)?:\s*([A-ZÁÉÍÓÚÜÑ][A-ZÁÉÍÓÚÜÑ\s.'-]{3,}?)(?:\s+Potencia punta:|\n)/i);
+  return extractRegexValue(
+    text,
+    /Titular(?:\s+Potencia)?:\s*([A-ZÁÉÍÓÚÜÑ][A-ZÁÉÍÓÚÜÑ\s.'-]{3,}?)(?:\s+Potencia punta:|\n)/i,
+  );
 }
 
 function extractSupplyAddress(text: string): string | null {
-  const block = text.match(/Dirección de suministro:\s*([\s\S]{0,180}?)(?:Nº DE CONTRATO|RESUMEN DE FACTURA|NIF titular del contrato|Número de contrato de acceso|Forma de pago)/i);
+  const block = text.match(
+    /Dirección de suministro:\s*([\s\S]{0,180}?)(?:Nº DE CONTRATO|RESUMEN DE FACTURA|NIF titular del contrato|Número de contrato de acceso|Forma de pago)/i,
+  );
   return block?.[1] ? normalizeWhitespace(block[1]) : null;
 }
 
-function extractPeriodConsumptions(text: string, billType: BillType): PeriodValues {
+function extractPeriodConsumptions(
+  text: string,
+  billType: BillType,
+): PeriodValues {
   const periods = emptyPeriods();
-  const puntaLlanoValle = text.match(/Sus consumos desagregados han sido\s+punta:\s*([\d.,]+)\s*kWh;\s*llano:\s*([\d.,]+)\s*kWh;\s*valle\s*:?\s*([\d.,]+)\s*kWh/i);
+  const puntaLlanoValle = text.match(
+    /Sus consumos desagregados han sido\s+punta:\s*([\d.,]+)\s*kWh;\s*llano:\s*([\d.,]+)\s*kWh;\s*valle\s*:?\s*([\d.,]+)\s*kWh/i,
+  );
 
   if (puntaLlanoValle) {
     periods.P1 = parseSpanishNumber(puntaLlanoValle[1]);
@@ -427,9 +605,13 @@ function extractPeriodConsumptions(text: string, billType: BillType): PeriodValu
     return periods;
   }
 
-  const explicitPeriods = [...text.matchAll(/\bP([1-6])\b[\s:=-]*([\d.,]+)\s*kWh/gi)];
+  const explicitPeriods = [
+    ...text.matchAll(/\bP([1-6])\b[\s:=-]*([\d.,]+)\s*kWh/gi),
+  ];
   for (const match of explicitPeriods) {
-    periods[`P${match[1]}` as keyof PeriodValues] = parseSpanishNumber(match[2]);
+    periods[`P${match[1]}` as keyof PeriodValues] = parseSpanishNumber(
+      match[2],
+    );
   }
   return periods;
 }
@@ -437,8 +619,11 @@ function extractPeriodConsumptions(text: string, billType: BillType): PeriodValu
 function extractPeriodPrices(text: string): PeriodValues {
   const prices = emptyPeriods();
   for (let i = 1; i <= 6; i++) {
-    const match = text.match(new RegExp(`\\bP${i}\\b[\\s\\S]{0,40}?([\\d.,]+)\\s*€\\/kWh`, "i"));
-    if (match?.[1]) prices[`P${i}` as keyof PeriodValues] = parseSpanishNumber(match[1]);
+    const match = text.match(
+      new RegExp(`\\bP${i}\\b[\\s\\S]{0,40}?([\\d.,]+)\\s*€\\/kWh`, "i"),
+    );
+    if (match?.[1])
+      prices[`P${i}` as keyof PeriodValues] = parseSpanishNumber(match[1]);
   }
   return prices;
 }
@@ -451,37 +636,72 @@ function extractLocalDataFromText(text?: string): PartialExtraction {
   const splitName = splitFullName(fullName);
   const addressParts = parseAddressParts(extractSupplyAddress(source));
 
-  const dni = extractRegexValue(source, /NIF titular del contrato:\s*([A-Z0-9]+)\b/i);
-  const cups = extractRegexValue(source, /Identificación punto de suministro \(CUPS\):\s*([A-Z0-9\s]+)\b/i);
-  const iban = extractRegexValue(source, /IBAN:\s*([A-Z]{2}\s*\d{2}(?:\s*[\d*]{4}){4,5})/i);
-  const type = extractRegexValue(source, /Peaje de acceso a la red \(ATR\):\s*(2(?:\.0)?TD|3(?:\.0)?TD)\b/i);
-  const billedDays = parseSpanishNumber(extractRegexValue(source, /DIAS FACTURADOS:\s*(\d{1,3})\b/i));
-  const totalConsumption = parseSpanishNumber(extractRegexValue(source, /Consumo total de\s+esta factura\.\s*([\d.,]+)\s*kWh/i));
-  const postcodeAverage = parseSpanishNumber(extractRegexValue(source, /consumo medio de electricidad de los suministros en su mismo código postal ha sido de\s*([\d.,]+)\s*kWh/i));
+  const dni =
+    extractRegexValue(source, /NIF:\s*([A-Z0-9]+)\b/i) ??
+    extractRegexValue(source, /NIF titular del contrato:\s*([A-Z0-9]+)\b/i);
 
-  const normalizedType = normalizeBillType(type);
-  const estimatedMonthly = estimateMonthlyConsumption(totalConsumption, billedDays);
+  const cups =
+    extractRegexValue(
+      source,
+      /Código unificado de punto de suministro CUPS:\s*([A-Z0-9\s]+)\b/i,
+    ) ??
+    extractRegexValue(
+      source,
+      /Identificación punto de suministro \(CUPS\):\s*([A-Z0-9\s]+)\b/i,
+    );
+
+  const iban = extractRegexValue(
+    source,
+    /IBAN:\s*([A-Z]{2}\s*\d{2}(?:\s*[\d*]{4}){4,5})/i,
+  );
+
+  const normalizedType = extractBillTypeFromText(source);
+  const billedDays = extractBilledDays(source);
+  const totalConsumption = extractInvoiceConsumption(source);
+  const postcodeAverage = extractPostcodeAverageConsumption(source);
+  const invoiceVariableEnergyAmountEur =
+    extractInvoiceVariableEnergyAmount(source);
+
+  const estimatedMonthly = estimateMonthlyConsumption(
+    totalConsumption,
+    billedDays,
+  );
 
   return {
     customer: {
-      fullName: splitName.fullName, name: splitName.name, lastname1: splitName.lastname1,
-      lastname2: splitName.lastname2, surnames: splitName.surnames, dni: normalizeDni(dni),
-      cups: normalizeCups(cups), iban: normalizeIbanPreservingMask(iban),
-      ibanNeedsCompletion: ibanNeedsCompletion(normalizeIbanPreservingMask(iban)),
-      email: null, phone: null,
+      fullName: splitName.fullName,
+      name: splitName.name,
+      lastname1: splitName.lastname1,
+      lastname2: splitName.lastname2,
+      surnames: splitName.surnames,
+      dni: normalizeDni(dni),
+      cups: normalizeCups(cups),
+      iban: normalizeIbanPreservingMask(iban),
+      ibanNeedsCompletion: ibanNeedsCompletion(
+        normalizeIbanPreservingMask(iban),
+      ),
+      email: null,
+      phone: null,
     },
     location: { ...addressParts },
     invoice_data: {
-      type: normalizedType, billedDays, consumptionKwh: totalConsumption,
-      currentInvoiceConsumptionKwh: totalConsumption, averageMonthlyConsumptionKwh: estimatedMonthly,
+      type: normalizedType,
+      billedDays,
+      consumptionKwh: totalConsumption,
+      currentInvoiceConsumptionKwh: totalConsumption,
+      averageMonthlyConsumptionKwh: estimatedMonthly,
       postcodeAverageConsumptionKwh: postcodeAverage,
+      invoiceVariableEnergyAmountEur,
       periods: extractPeriodConsumptions(source, normalizedType),
       periodPricesEurPerKwh: extractPeriodPrices(source),
     },
   };
 }
 
-function mergePeriods(primary?: PeriodValues, secondary?: PeriodValues): PeriodValues {
+function mergePeriods(
+  primary?: PeriodValues,
+  secondary?: PeriodValues,
+): PeriodValues {
   const result = emptyPeriods();
   for (const key of ["P1", "P2", "P3", "P4", "P5", "P6"] as const) {
     result[key] = primary?.[key] ?? secondary?.[key] ?? null;
@@ -511,59 +731,101 @@ function normalizeExtraction(data: any): ExtractedBillData {
       lastname1: safeString(data?.customer?.lastname1) ?? splitName.lastname1,
       lastname2: safeString(data?.customer?.lastname2) ?? splitName.lastname2,
       surnames: safeString(data?.customer?.surnames) ?? splitName.surnames,
-      dni: normalizeDni(data?.customer?.dni), cups: normalizeCups(data?.customer?.cups), iban,
-      ibanNeedsCompletion: typeof data?.customer?.ibanNeedsCompletion === "boolean"
-        ? data.customer.ibanNeedsCompletion || ibanNeedsCompletion(iban) : ibanNeedsCompletion(iban),
-      email, phone,
+      dni: normalizeDni(data?.customer?.dni),
+      cups: normalizeCups(data?.customer?.cups),
+      iban,
+      ibanNeedsCompletion:
+        typeof data?.customer?.ibanNeedsCompletion === "boolean"
+          ? data.customer.ibanNeedsCompletion || ibanNeedsCompletion(iban)
+          : ibanNeedsCompletion(iban),
+      email,
+      phone,
     },
     location: {
       address: normalizedAddress ?? null,
       street: safeString(data?.location?.street) ?? addressParts.street,
-      postalCode: safeString(data?.location?.postalCode) ?? addressParts.postalCode,
+      postalCode:
+        safeString(data?.location?.postalCode) ?? addressParts.postalCode,
       city: safeString(data?.location?.city) ?? addressParts.city,
       province: safeString(data?.location?.province) ?? addressParts.province,
       country: safeString(data?.location?.country) ?? "España",
     },
-    invoice_data: {
-      type, billedDays: safeNumber(data?.invoice_data?.billedDays),
-      consumptionKwh: safeNumber(data?.invoice_data?.consumptionKwh),
-      currentInvoiceConsumptionKwh: safeNumber(data?.invoice_data?.currentInvoiceConsumptionKwh) ?? safeNumber(data?.invoice_data?.consumptionKwh),
-      averageMonthlyConsumptionKwh: safeNumber(data?.invoice_data?.averageMonthlyConsumptionKwh),
-      postcodeAverageConsumptionKwh: safeNumber(data?.invoice_data?.postcodeAverageConsumptionKwh),
-      periods: {
-        P1: safeNumber(data?.invoice_data?.periods?.P1), P2: safeNumber(data?.invoice_data?.periods?.P2),
-        P3: safeNumber(data?.invoice_data?.periods?.P3), P4: safeNumber(data?.invoice_data?.periods?.P4),
-        P5: safeNumber(data?.invoice_data?.periods?.P5), P6: safeNumber(data?.invoice_data?.periods?.P6),
-      },
-      periodPricesEurPerKwh: {
-        P1: safeNumber(data?.invoice_data?.periodPricesEurPerKwh?.P1), P2: safeNumber(data?.invoice_data?.periodPricesEurPerKwh?.P2),
-        P3: safeNumber(data?.invoice_data?.periodPricesEurPerKwh?.P3), P4: safeNumber(data?.invoice_data?.periodPricesEurPerKwh?.P4),
-        P5: safeNumber(data?.invoice_data?.periodPricesEurPerKwh?.P5), P6: safeNumber(data?.invoice_data?.periodPricesEurPerKwh?.P6),
-      },
-    },
+invoice_data: {
+  type,
+  billedDays: safeNumber(data?.invoice_data?.billedDays),
+  consumptionKwh: safeNumber(data?.invoice_data?.consumptionKwh),
+  currentInvoiceConsumptionKwh:
+    safeNumber(data?.invoice_data?.currentInvoiceConsumptionKwh) ??
+    safeNumber(data?.invoice_data?.consumptionKwh),
+  averageMonthlyConsumptionKwh: safeNumber(
+    data?.invoice_data?.averageMonthlyConsumptionKwh,
+  ),
+  postcodeAverageConsumptionKwh: safeNumber(
+    data?.invoice_data?.postcodeAverageConsumptionKwh,
+  ),
+  invoiceVariableEnergyAmountEur: safeNumber(
+    data?.invoice_data?.invoiceVariableEnergyAmountEur,
+  ),
+  periods: {
+    P1: safeNumber(data?.invoice_data?.periods?.P1),
+    P2: safeNumber(data?.invoice_data?.periods?.P2),
+    P3: safeNumber(data?.invoice_data?.periods?.P3),
+    P4: safeNumber(data?.invoice_data?.periods?.P4),
+    P5: safeNumber(data?.invoice_data?.periods?.P5),
+    P6: safeNumber(data?.invoice_data?.periods?.P6),
+  },
+  periodPricesEurPerKwh: {
+    P1: safeNumber(data?.invoice_data?.periodPricesEurPerKwh?.P1),
+    P2: safeNumber(data?.invoice_data?.periodPricesEurPerKwh?.P2),
+    P3: safeNumber(data?.invoice_data?.periodPricesEurPerKwh?.P3),
+    P4: safeNumber(data?.invoice_data?.periodPricesEurPerKwh?.P4),
+    P5: safeNumber(data?.invoice_data?.periodPricesEurPerKwh?.P5),
+    P6: safeNumber(data?.invoice_data?.periodPricesEurPerKwh?.P6),
+  },
+},
     extraction: {
       confidenceScore: safeNumber(data?.extraction?.confidenceScore),
-      missingFields: Array.isArray(data?.extraction?.missingFields) ? data.extraction.missingFields.filter((item: any) => typeof item === "string") : [],
-      warnings: Array.isArray(data?.extraction?.warnings) ? data.extraction.warnings.filter((item: any) => typeof item === "string") : [],
-      manualReviewFields: Array.isArray(data?.extraction?.manualReviewFields) ? data.extraction.manualReviewFields.filter((item: any) => typeof item === "string") : [],
-      extractionMethod: "ai", fallbackUsed: false,
+      missingFields: Array.isArray(data?.extraction?.missingFields)
+        ? data.extraction.missingFields.filter(
+            (item: any) => typeof item === "string",
+          )
+        : [],
+      warnings: Array.isArray(data?.extraction?.warnings)
+        ? data.extraction.warnings.filter(
+            (item: any) => typeof item === "string",
+          )
+        : [],
+      manualReviewFields: Array.isArray(data?.extraction?.manualReviewFields)
+        ? data.extraction.manualReviewFields.filter(
+            (item: any) => typeof item === "string",
+          )
+        : [],
+      extractionMethod: "ai",
+      fallbackUsed: false,
     },
   };
 
   if (normalized.customer.ibanNeedsCompletion) {
     normalized.extraction.manualReviewFields.push("customer.iban");
-    normalized.extraction.warnings.push("El IBAN viene oculto parcialmente en la factura. El cliente debe completar los dígitos enmascarados.");
+    normalized.extraction.warnings.push(
+      "El IBAN viene oculto parcialmente en la factura. El cliente debe completar los dígitos enmascarados.",
+    );
   }
 
   if (normalized.invoice_data.type === "2TD") {
-    normalized.invoice_data.periods.P4 = null; normalized.invoice_data.periods.P5 = null; normalized.invoice_data.periods.P6 = null;
+    normalized.invoice_data.periods.P4 = null;
+    normalized.invoice_data.periods.P5 = null;
+    normalized.invoice_data.periods.P6 = null;
   }
 
   normalized.extraction.missingFields = listMissingFields(normalized);
   return normalized;
 }
 
-function mergeExtractions(aiData: ExtractedBillData, localData: PartialExtraction): ExtractedBillData {
+function mergeExtractions(
+  aiData: ExtractedBillData,
+  localData: PartialExtraction,
+): ExtractedBillData {
   const merged: ExtractedBillData = {
     customer: {
       fullName: localData.customer?.fullName ?? aiData.customer.fullName,
@@ -574,7 +836,9 @@ function mergeExtractions(aiData: ExtractedBillData, localData: PartialExtractio
       dni: localData.customer?.dni ?? aiData.customer.dni,
       cups: localData.customer?.cups ?? aiData.customer.cups,
       iban: localData.customer?.iban ?? aiData.customer.iban,
-      ibanNeedsCompletion: localData.customer?.ibanNeedsCompletion ?? aiData.customer.ibanNeedsCompletion,
+      ibanNeedsCompletion:
+        localData.customer?.ibanNeedsCompletion ??
+        aiData.customer.ibanNeedsCompletion,
       email: localData.customer?.email ?? aiData.customer.email,
       phone: localData.customer?.phone ?? aiData.customer.phone,
     },
@@ -588,60 +852,142 @@ function mergeExtractions(aiData: ExtractedBillData, localData: PartialExtractio
     },
     invoice_data: {
       type: localData.invoice_data?.type ?? aiData.invoice_data.type,
-      billedDays: localData.invoice_data?.billedDays ?? aiData.invoice_data.billedDays,
-      consumptionKwh: localData.invoice_data?.consumptionKwh ?? aiData.invoice_data.consumptionKwh,
-      currentInvoiceConsumptionKwh: localData.invoice_data?.currentInvoiceConsumptionKwh ?? aiData.invoice_data.currentInvoiceConsumptionKwh,
-      averageMonthlyConsumptionKwh: aiData.invoice_data.averageMonthlyConsumptionKwh ?? localData.invoice_data?.averageMonthlyConsumptionKwh ?? null,
-      postcodeAverageConsumptionKwh: localData.invoice_data?.postcodeAverageConsumptionKwh ?? aiData.invoice_data.postcodeAverageConsumptionKwh,
-      periods: mergePeriods(localData.invoice_data?.periods, aiData.invoice_data.periods),
-      periodPricesEurPerKwh: mergePeriods(aiData.invoice_data.periodPricesEurPerKwh, localData.invoice_data?.periodPricesEurPerKwh),
+      billedDays:
+        localData.invoice_data?.billedDays ?? aiData.invoice_data.billedDays,
+      consumptionKwh:
+        localData.invoice_data?.consumptionKwh ??
+        aiData.invoice_data.consumptionKwh,
+      currentInvoiceConsumptionKwh:
+        localData.invoice_data?.currentInvoiceConsumptionKwh ??
+        aiData.invoice_data.currentInvoiceConsumptionKwh,
+      averageMonthlyConsumptionKwh:
+        localData.invoice_data?.averageMonthlyConsumptionKwh ??
+        aiData.invoice_data.averageMonthlyConsumptionKwh ??
+        null,
+      postcodeAverageConsumptionKwh:
+        localData.invoice_data?.postcodeAverageConsumptionKwh ??
+        aiData.invoice_data.postcodeAverageConsumptionKwh,
+      invoiceVariableEnergyAmountEur:
+        localData.invoice_data?.invoiceVariableEnergyAmountEur ??
+        aiData.invoice_data.invoiceVariableEnergyAmountEur ??
+        null,
+      periods: mergePeriods(
+        localData.invoice_data?.periods,
+        aiData.invoice_data.periods,
+      ),
+      periodPricesEurPerKwh: mergePeriods(
+        aiData.invoice_data.periodPricesEurPerKwh,
+        localData.invoice_data?.periodPricesEurPerKwh,
+      ),
     },
     extraction: {
-      confidenceScore: aiData.extraction.confidenceScore, missingFields: [],
-      warnings: [...aiData.extraction.warnings], manualReviewFields: [...aiData.extraction.manualReviewFields],
-      extractionMethod: "ai", fallbackUsed: aiData.extraction.fallbackUsed,
+      confidenceScore: aiData.extraction.confidenceScore,
+      missingFields: [],
+      warnings: [...aiData.extraction.warnings],
+      manualReviewFields: [...aiData.extraction.manualReviewFields],
+      extractionMethod: "ai",
+      fallbackUsed: aiData.extraction.fallbackUsed,
     },
   };
 
+  const estimatedMonthlyFromPeriod = estimateMonthlyConsumption(
+    merged.invoice_data.currentInvoiceConsumptionKwh,
+    merged.invoice_data.billedDays,
+  );
+
+  if (estimatedMonthlyFromPeriod != null) {
+    const extractedAverage = merged.invoice_data.averageMonthlyConsumptionKwh;
+
+    if (extractedAverage == null) {
+      merged.invoice_data.averageMonthlyConsumptionKwh =
+        estimatedMonthlyFromPeriod;
+    } else {
+      const deviation =
+        Math.abs(extractedAverage - estimatedMonthlyFromPeriod) /
+        estimatedMonthlyFromPeriod;
+
+      if (deviation > 0.2) {
+        merged.invoice_data.averageMonthlyConsumptionKwh =
+          estimatedMonthlyFromPeriod;
+
+        merged.extraction.warnings.push(
+          "El consumo medio mensual extraído por IA era inconsistente con el periodo facturado y se ha recalculado a partir del consumo real y los días facturados.",
+        );
+
+        if (
+          !merged.extraction.manualReviewFields.includes(
+            "invoice_data.averageMonthlyConsumptionKwh",
+          )
+        ) {
+          merged.extraction.manualReviewFields.push(
+            "invoice_data.averageMonthlyConsumptionKwh",
+          );
+        }
+      }
+    }
+  }
+
   if (isUtilityEmail(merged.customer.email)) {
     merged.customer.email = null;
-    merged.extraction.warnings.push("El email visible en la factura pertenece a la comercializadora y no al titular.");
+    merged.extraction.warnings.push(
+      "El email visible en la factura pertenece a la comercializadora y no al titular.",
+    );
   }
+
   if (isUtilityPhone(merged.customer.phone)) {
     merged.customer.phone = null;
-    merged.extraction.warnings.push("El teléfono visible en la factura pertenece a la comercializadora y no al titular.");
+    merged.extraction.warnings.push(
+      "El teléfono visible en la factura pertenece a la comercializadora y no al titular.",
+    );
   }
 
   const postcodeAverage = merged.invoice_data.postcodeAverageConsumptionKwh;
   const aiAverage = merged.invoice_data.averageMonthlyConsumptionKwh;
 
-  if (postcodeAverage != null && aiAverage != null && Math.abs(aiAverage - postcodeAverage) < 0.01) {
-    merged.invoice_data.averageMonthlyConsumptionKwh = estimateMonthlyConsumption(
-      merged.invoice_data.currentInvoiceConsumptionKwh,
-      merged.invoice_data.billedDays
+  if (
+    postcodeAverage != null &&
+    aiAverage != null &&
+    Math.abs(aiAverage - postcodeAverage) < 0.01
+  ) {
+    merged.invoice_data.averageMonthlyConsumptionKwh =
+      estimateMonthlyConsumption(
+        merged.invoice_data.currentInvoiceConsumptionKwh,
+        merged.invoice_data.billedDays,
+      );
+
+    merged.extraction.warnings.push(
+      "Se ha ignorado el consumo medio del código postal y se ha estimado el consumo medio mensual del cliente a partir del periodo facturado.",
     );
-    merged.extraction.warnings.push("Se ha ignorado el consumo medio del código postal y se ha estimado el consumo medio mensual del cliente a partir del periodo facturado.");
   }
 
   if (merged.invoice_data.averageMonthlyConsumptionKwh == null) {
-    merged.invoice_data.averageMonthlyConsumptionKwh = estimateMonthlyConsumption(
-      merged.invoice_data.currentInvoiceConsumptionKwh,
-      merged.invoice_data.billedDays
-    );
+    merged.invoice_data.averageMonthlyConsumptionKwh =
+      estimateMonthlyConsumption(
+        merged.invoice_data.currentInvoiceConsumptionKwh,
+        merged.invoice_data.billedDays,
+      );
   }
 
   if (merged.invoice_data.consumptionKwh == null) {
-    merged.invoice_data.consumptionKwh = merged.invoice_data.currentInvoiceConsumptionKwh;
+    merged.invoice_data.consumptionKwh =
+      merged.invoice_data.currentInvoiceConsumptionKwh;
   }
 
-  if (merged.customer.ibanNeedsCompletion && !merged.extraction.manualReviewFields.includes("customer.iban")) {
+  if (
+    merged.customer.ibanNeedsCompletion &&
+    !merged.extraction.manualReviewFields.includes("customer.iban")
+  ) {
     merged.extraction.manualReviewFields.push("customer.iban");
   }
 
-  const allPeriodPricesNull = Object.values(merged.invoice_data.periodPricesEurPerKwh).every((value) => value == null);
-  
+  const allPeriodPricesNull = Object.values(
+    merged.invoice_data.periodPricesEurPerKwh,
+  ).every((value) => value == null);
+
   if (allPeriodPricesNull) {
-    merged.extraction.warnings.push("La factura no muestra €/kWh explícitos por periodo tarifario.");
+    merged.extraction.warnings.push(
+      "La factura no muestra €/kWh explícitos por periodo tarifario.",
+    );
   }
 
   merged.extraction.missingFields = listMissingFields(merged);
@@ -652,14 +998,16 @@ function mergeExtractions(aiData: ExtractedBillData, localData: PartialExtractio
  * Función que tu orquestador importa
  * Se ha cambiado el nombre a 'extractDataFromBill' para evitar el SyntaxError
  */
-export async function extractDataFromBill(input: InvoiceBinaryInput): Promise<ExtractedBillData> {
+export async function extractDataFromBill(
+  input: InvoiceBinaryInput,
+): Promise<ExtractedBillData> {
   const ai = getAiClient();
   const textToAnalyze = compactInvoiceText(input.extractedText);
   const useText = textToAnalyze.length > 50;
-  
+
   const prompt = buildPrompt(input.fileName, useText ? "text" : "pdf");
   const contents: any[] = [prompt];
-  
+
   if (useText) {
     contents.push(textToAnalyze);
   } else if (input.buffer) {
@@ -685,10 +1033,10 @@ export async function extractDataFromBill(input: InvoiceBinaryInput): Promise<Ex
 
     const jsonText = extractResponseText(response);
     const parsed = JSON.parse(jsonText);
-    
+
     const aiData = normalizeExtraction(parsed);
     const localData = useText ? extractLocalDataFromText(textToAnalyze) : {};
-    
+
     return mergeExtractions(aiData, localData);
   } catch (error) {
     if (isQuotaError(error)) {
