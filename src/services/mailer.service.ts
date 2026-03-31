@@ -57,20 +57,20 @@ export async function sendProposalEmail({
     .filter(Boolean)
     .join("\n");
 
-  const proposalLinkHtml = proposalUrl
-    ? `
-      <p style="margin: 0 0 16px 0;">
-        También puedes consultar tu propuesta online aquí:<br />
-        <a
-          href="${proposalUrl}"
-          target="_blank"
-          style="color:#07005f; word-break: break-word;"
-        >
-          ${proposalUrl}
-        </a>
-      </p>
-    `
-    : "";
+  // const proposalLinkHtml = proposalUrl
+  //   ? `
+  //     <p style="margin: 0 0 16px 0;">
+  //       También puedes consultar tu propuesta online aquí:<br />
+  //       <a
+  //         href="${proposalUrl}"
+  //         target="_blank"
+  //         style="color:#07005f; word-break: break-word;"
+  //       >
+  //         ${proposalUrl}
+  //       </a>
+  //     </p>
+  //   `
+  //   : "";
 
   const continueContractHtml = continueContractUrl
     ? `
@@ -120,7 +120,6 @@ export async function sendProposalEmail({
           Hemos preparado esta propuesta a partir de los datos de tu factura.
         </p>
 
-        ${proposalLinkHtml}
 
         ${continueContractHtml}
 

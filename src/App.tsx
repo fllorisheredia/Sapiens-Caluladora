@@ -15,6 +15,7 @@ import { confirmStudy } from "./services/confirmStudyService";
 import { Routes, Route } from "react-router-dom";
 import SelectField from "./components/ui/SelectField";
 import ContinuarContratacionPage from "./pages/ContinueContraction";
+
 import { z } from "zod";
 import {
   Check,
@@ -208,6 +209,12 @@ const ValidationBillDataSchema = BillDataSchema.extend({
   periodPriceP4: optionalNumberField,
   periodPriceP5: optionalNumberField,
   periodPriceP6: optionalNumberField,
+
+  ibanMasked: z.string().optional(),
+  contractedPowerText: z.string().optional(),
+  contractedPowerKw: optionalNumberField,
+  contractedPowerP1: optionalNumberField,
+  contractedPowerP2: optionalNumberField,
 });
 
 type ValidationBillDataFormInput = z.input<typeof ValidationBillDataSchema>;
@@ -295,6 +302,48 @@ function mapExtractedToBillData(
   const rawBillType = data.invoice_data.type;
   const safeBillType = isBillType(rawBillType) ? rawBillType : undefined;
 
+  const invoiceDataAny = data.invoice_data as any;
+
+  const contractedPowerTextRaw =
+    invoiceDataAny?.contractedPowerText ??
+    invoiceDataAny?.potenciaContratadaTexto ??
+    invoiceDataAny?.potenciasContratadasTexto ??
+    invoiceDataAny?.contractedPowersText ??
+    null;
+
+  const contractedPowerP1Raw =
+    invoiceDataAny?.contractedPowerP1 ??
+    invoiceDataAny?.contractedPowerP1Kw ??
+    invoiceDataAny?.potenciaContratadaP1 ??
+    invoiceDataAny?.potenciaContratadaPuntaLlano ??
+    invoiceDataAny?.potenciaContratadaPuntaLlanoKw ??
+    invoiceDataAny?.puntaLlanoKw ??
+    invoiceDataAny?.peakFlatKw ??
+    invoiceDataAny?.contractedPowers?.punta_llano ??
+    invoiceDataAny?.contractedPowers?.puntaLlano ??
+    invoiceDataAny?.contractedPowers?.P1 ??
+    null;
+
+  const contractedPowerP2Raw =
+    invoiceDataAny?.contractedPowerP2 ??
+    invoiceDataAny?.contractedPowerP2Kw ??
+    invoiceDataAny?.potenciaContratadaP2 ??
+    invoiceDataAny?.potenciaContratadaValle ??
+    invoiceDataAny?.potenciaContratadaValleKw ??
+    invoiceDataAny?.valleKw ??
+    invoiceDataAny?.valleyKw ??
+    invoiceDataAny?.contractedPowers?.valle ??
+    invoiceDataAny?.contractedPowers?.P2 ??
+    null;
+
+  const contractedPowerKwRaw =
+    invoiceDataAny?.contractedPowerKw ??
+    invoiceDataAny?.potenciaContratadaKw ??
+    (normalizeAndRoundUp(contractedPowerP1Raw, 2) ===
+    normalizeAndRoundUp(contractedPowerP2Raw, 2)
+      ? normalizeAndRoundUp(contractedPowerP1Raw, 2)
+      : null);
+
   return {
     name: data.customer.name ?? "",
     lastName: fullLastName,
@@ -304,6 +353,8 @@ function mapExtractedToBillData(
     email: data.customer.email ?? "",
     phone: data.customer.phone ?? "",
     iban: data.customer.iban ?? "",
+    ibanMasked: data.customer.iban ?? "",
+
     billType: safeBillType,
 
     monthlyConsumption: normalizeAndRoundUp(
@@ -355,6 +406,17 @@ function mapExtractedToBillData(
       data.invoice_data.periodPricesEurPerKwh?.P6,
       5,
     ),
+
+    contractedPowerText:
+      contractedPowerTextRaw ??
+      (normalizeAndRoundUp(contractedPowerP1Raw, 2) &&
+      normalizeAndRoundUp(contractedPowerP2Raw, 2)
+        ? `Punta-llano: ${formatNumber(normalizeAndRoundUp(contractedPowerP1Raw, 2) ?? 0, 2)} kW · Valle: ${formatNumber(normalizeAndRoundUp(contractedPowerP2Raw, 2) ?? 0, 2)} kW`
+        : undefined),
+
+    contractedPowerKw: normalizeAndRoundUp(contractedPowerKwRaw, 2),
+    contractedPowerP1: normalizeAndRoundUp(contractedPowerP1Raw, 2),
+    contractedPowerP2: normalizeAndRoundUp(contractedPowerP2Raw, 2),
   };
 }
 
@@ -371,6 +433,12 @@ function toBaseBillData(data: Partial<ValidationBillData>): BillData {
       data.averageMonthlyConsumptionKwh ?? data.monthlyConsumption ?? 0,
     billType: (data.billType ?? "2TD") as BillData["billType"],
     iban: data.iban ?? "",
+
+    contractedPowerText: data.contractedPowerText,
+    contractedPowerKw: data.contractedPowerKw,
+    contractedPowerP1: data.contractedPowerP1,
+    contractedPowerP2: data.contractedPowerP2,
+    ibanMasked: data.ibanMasked,
   };
 }
 
@@ -2301,6 +2369,22 @@ function MainAppContent() {
     sileo.promise(
       (async () => {
         const extraction = await extractBillFromApi(file);
+        console.log(
+          "[POWER DEBUG] contractedPowerText:",
+          extraction.invoice_data?.contractedPowerText,
+        );
+        console.log(
+          "[POWER DEBUG] contractedPowerKw:",
+          extraction.invoice_data?.contractedPowerKw,
+        );
+        console.log(
+          "[POWER DEBUG] contractedPowerP1:",
+          extraction.invoice_data?.contractedPowerP1,
+        );
+        console.log(
+          "[POWER DEBUG] contractedPowerP2:",
+          extraction.invoice_data?.contractedPowerP2,
+        );
         const mappedData = mapExtractedToBillData(extraction);
 
         setRawExtraction(extraction);
@@ -2314,6 +2398,25 @@ function MainAppContent() {
         if (mappedData.email) setValue("email", mappedData.email);
         if (mappedData.phone) setValue("phone", mappedData.phone);
         if (mappedData.iban) setValue("iban", mappedData.iban);
+        if (mappedData.contractedPowerText) {
+          setValue("contractedPowerText", mappedData.contractedPowerText);
+        }
+
+        if (typeof mappedData.contractedPowerKw === "number") {
+          setValue("contractedPowerKw", mappedData.contractedPowerKw);
+        }
+
+        if (typeof mappedData.contractedPowerP1 === "number") {
+          setValue("contractedPowerP1", mappedData.contractedPowerP1);
+        }
+
+        if (typeof mappedData.contractedPowerP2 === "number") {
+          setValue("contractedPowerP2", mappedData.contractedPowerP2);
+        }
+
+        if (mappedData.ibanMasked) {
+          setValue("ibanMasked", mappedData.ibanMasked);
+        }
 
         if (typeof mappedData.monthlyConsumption === "number") {
           setValue("monthlyConsumption", mappedData.monthlyConsumption);
@@ -2375,8 +2478,40 @@ function MainAppContent() {
           setValue("periodPriceP6", mappedData.periodPriceP6);
         }
 
+        if (mappedData.contractedPowerText) {
+          setValue("contractedPowerText", mappedData.contractedPowerText);
+        }
+
+        if (typeof mappedData.contractedPowerKw === "number") {
+          setValue("contractedPowerKw", mappedData.contractedPowerKw);
+        }
+
+        if (typeof mappedData.contractedPowerP1 === "number") {
+          setValue("contractedPowerP1", mappedData.contractedPowerP1);
+        }
+
+        if (typeof mappedData.contractedPowerP2 === "number") {
+          setValue("contractedPowerP2", mappedData.contractedPowerP2);
+        }
+
+        if (mappedData.ibanMasked) {
+          setValue("ibanMasked", mappedData.ibanMasked);
+        }
+
         setCurrentStep("validation");
         showExtractionToasts(extraction);
+
+        console.log(
+          "[EXTRACTION] invoice_data completo:",
+          extraction.invoice_data,
+        );
+        console.log("[EXTRACTION] customer completo:", extraction.customer);
+        console.log("[EXTRACTION] potencia mapeada:", {
+          contractedPowerText: mappedData.contractedPowerText,
+          contractedPowerKw: mappedData.contractedPowerKw,
+          contractedPowerP1: mappedData.contractedPowerP1,
+          contractedPowerP2: mappedData.contractedPowerP2,
+        });
 
         return extraction;
       })(),
@@ -3278,23 +3413,30 @@ function MainAppContent() {
 
                             <div className="grid grid-cols-2 gap-3 mt-6">
                               <div className="rounded-2xl bg-brand-navy/[0.03] p-4">
-                                <p className="text-[10px] uppercase tracking-widest text-brand-navy/40 font-bold mb-1">
-                                  Disponible
-                                </p>
+                                <div className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-brand-navy/40 font-bold leading-none">
+                                  <Icon
+                                    icon="mdi:solar-panel-large"
+                                    className="w-3.5 h-3.5 shrink-0"
+                                  />
+                                  <span>Fotovoltaica</span>
+                                </div>
+
                                 <p className="font-bold text-brand-navy">
                                   {formatNumber(inst.available_kwp ?? 0)} kWp
                                 </p>
                               </div>
 
                               <div className="rounded-2xl bg-brand-navy/[0.03] p-4">
-                                <p className="text-[10px] uppercase tracking-widest text-brand-navy/40 font-bold mb-1">
-                                  Autoconsumo
-                                </p>
+                                <div className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-brand-navy/40 font-bold leading-none">
+                                  <Icon
+                                    icon="bi:battery-charging"
+                                    className="w-3.5 h-3.5 shrink-0"
+                                  />
+                                  <span>Almacenamiento</span>
+                                </div>
+
                                 <p className="font-bold text-brand-navy">
-                                  {displayPercentage(
-                                    inst.porcentaje_autoconsumo,
-                                  )}
-                                  %
+                                  {formatNumber(inst.almacenamiento_kwh)} kWh
                                 </p>
                               </div>
                             </div>
@@ -3316,13 +3458,13 @@ function MainAppContent() {
                               </span>
                             </div>
 
-                            <div className="mt-2 flex items-center gap-3 text-xs text-brand-gray">
+                            {/* <div className="mt-2 flex items-center gap-3 text-xs text-brand-gray">
                               <BatteryCharging className="w-4 h-4" />
                               <span>
                                 {formatNumber(inst.almacenamiento_kwh)} kWh
                                 almacenamiento
                               </span>
-                            </div>
+                            </div> */}
                           </motion.div>
                         ))
                       )}

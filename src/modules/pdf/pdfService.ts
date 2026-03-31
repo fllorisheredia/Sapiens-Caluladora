@@ -58,6 +58,19 @@ function formatNumber(value: number, decimals = 2): string {
   }).format(Number.isFinite(value) ? value : 0);
 }
 
+function getMaskedIbanText(data: BillData): string {
+  const raw = toRecord(data);
+
+  return (
+    readString(raw, [
+      "ibanMasked",
+      "maskedIban",
+      "iban",
+      "customerIban",
+    ]) || "-"
+  );
+}
+
 function setFill(doc: jsPDF, color: readonly [number, number, number]) {
   doc.setFillColor(color[0], color[1], color[2]);
 }
@@ -542,6 +555,16 @@ function getAnnualConsumptionFromInvoice(
 function getContractedPowerText(data: BillData): string {
   const raw = toRecord(data);
 
+  const directText = readString(raw, [
+    "contractedPowerText",
+    "potenciaContratadaTexto",
+    "potencia_contratada_texto",
+  ]);
+
+  if (directText) {
+    return directText;
+  }
+
   const single = readNumber(raw, [
     "contractedPowerKw",
     "contractedPower",
@@ -605,8 +628,7 @@ function getSupplyRows(
     ["Tarifa", data.billType || "-"],
     ["Dirección", data.address || "-"],
     ["Email", data.email || "-"],
-    ["IBAN", data.iban || "-"],
-    [
+["IBAN", data.ibanMasked || data.iban || "-"],    [
       "Consumo anual factura",
       annualConsumptionFromInvoice > 0
         ? `${formatNumber(annualConsumptionFromInvoice, 0)} kWh`
@@ -655,7 +677,7 @@ function drawEconomicSummary(
       y,
       cardW,
       cardH,
-      "Ahorro total",
+      "Ahorro a 25 años",
       formatCurrency(proposal.totalSavings25Years),
     );
 
@@ -1239,20 +1261,36 @@ function renderStudyPdfPage(
   });
 }
 
-function getRecommendedProposal(proposals: ProposalPdfSummary[]): ProposalPdfSummary | null {
+function getRecommendedProposal(
+  proposals: ProposalPdfSummary[],
+): ProposalPdfSummary | null {
   const investment = proposals.find((p) => p.mode === "investment");
   const service = proposals.find((p) => p.mode === "service");
 
-  if (investment && service) {
-    if (investment.totalSavings25Years >= service.totalSavings25Years) {
-      return investment;
-    }
-    return service;
+  if (!investment && !service) return null;
+  if (!investment) return service ?? null;
+  if (!service) return investment;
+
+  const savingsGap =
+    investment.totalSavings25Years - service.totalSavings25Years;
+
+  const savingsGapPct =
+    service.totalSavings25Years > 0
+      ? savingsGap / service.totalSavings25Years
+      : 0;
+
+  const investmentHasGoodPayback =
+    investment.paybackYears > 0 && investment.paybackYears <= 8;
+
+  // Recomendamos inversión solo si gana claramente en ahorro
+  // y además el retorno es razonable.
+  if (savingsGapPct >= 0.1 && investmentHasGoodPayback) {
+    return investment;
   }
 
-  return proposals[0] || null;
+  // Si la diferencia es pequeña, priorizamos servicio por menor barrera de entrada.
+  return service;
 }
-
 function getRecommendationReason(
   recommended: ProposalPdfSummary | null,
   allProposals: ProposalPdfSummary[],
@@ -1265,22 +1303,33 @@ function getRecommendationReason(
     };
   }
 
-  const hasInvestment = allProposals.some((p) => p.mode === "investment");
-  const hasService = allProposals.some((p) => p.mode === "service");
+  const investment = allProposals.find((p) => p.mode === "investment");
+  const service = allProposals.find((p) => p.mode === "service");
 
-  if (recommended.mode === "investment" && hasInvestment && hasService) {
-    return {
-      title: "Recomendamos la modalidad de inversión",
-      description:
-        "Es la alternativa con mayor ahorro acumulado a largo plazo y mejor rentabilidad global sobre el consumo detectado. Resulta especialmente adecuada cuando se prioriza maximizar el retorno económico del proyecto.",
-    };
-  }
+  if (investment && service) {
+    const savingsGap = Math.abs(
+      investment.totalSavings25Years - service.totalSavings25Years,
+    );
 
-  if (recommended.mode === "service" && hasInvestment && hasService) {
+    if (recommended.mode === "investment") {
+      return {
+        title: "Recomendamos la modalidad de inversión",
+        description:
+          `La inversión ofrece un ahorro acumulado superior a largo plazo ` +
+          `(${formatCurrency(investment.totalSavings25Years)}) y un retorno estimado de ` +
+          `${formatNumber(investment.paybackYears, 1)} años. ` +
+          `La recomendamos cuando se prioriza la rentabilidad global del proyecto y la amortización de la instalación.`,
+      };
+    }
+
     return {
       title: "Recomendamos la modalidad de servicio",
       description:
-        "Es la alternativa más adecuada cuando se prioriza una entrada inicial más cómoda, una cuota mensual clara y una contratación más flexible, manteniendo un ahorro energético relevante.",
+        `La diferencia de ahorro acumulado frente a la inversión es reducida ` +
+        `(${formatCurrency(savingsGap)}), pero la modalidad de servicio evita un desembolso inicial elevado ` +
+        `y mantiene una cuota mensual estimada de ` +
+        `${service.monthlyFee && service.monthlyFee > 0 ? `${formatCurrency(service.monthlyFee)} / mes` : "importe a consultar"}. ` +
+        `La recomendamos cuando se prioriza una entrada más cómoda, mayor flexibilidad y una decisión de contratación más sencilla.`,
     };
   }
 
@@ -1351,29 +1400,39 @@ function drawRecommendationSummaryCard(
     formatCurrency(proposal.annualSavings),
   );
 
-  drawEconomicMiniCard(
-    doc,
-    leftX,
-    topY + 21,
-    miniW,
-    18,
-    "Ahorro total",
-    formatCurrency(proposal.totalSavings25Years),
-  );
+  if (proposal.mode === "service") {
+    drawEconomicMiniCard(
+      doc,
+      leftX,
+      topY + 21,
+      w - 8,
+      18,
+      "Ahorro total",
+      formatCurrency(proposal.totalSavings25Years),
+    );
+  } else {
+    drawEconomicMiniCard(
+      doc,
+      leftX,
+      topY + 21,
+      miniW,
+      18,
+      "Ahorro total",
+      formatCurrency(proposal.totalSavings25Years),
+    );
 
-  drawEconomicMiniCard(
-    doc,
-    leftX + miniW + gap,
-    topY + 21,
-    miniW,
-    18,
-    proposal.mode === "service" ? "Potencia" : "Retorno",
-    proposal.mode === "service"
-      ? `${formatNumber(proposal.recommendedPowerKwp, 1)} kWp`
-      : proposal.paybackYears > 0
+    drawEconomicMiniCard(
+      doc,
+      leftX + miniW + gap,
+      topY + 21,
+      miniW,
+      18,
+      "Retorno",
+      proposal.paybackYears > 0
         ? `${formatNumber(proposal.paybackYears, 1)} años`
         : "N/D",
-  );
+    );
+  }
 
   writeText(doc, "Observación", x + 4, y + h - 12, {
     size: 6,

@@ -46,6 +46,11 @@ export interface ExtractedBillData {
     periodPricesEurPerKwh: PeriodValues;
     postcodeAverageConsumptionKwh: number | null;
     invoiceVariableEnergyAmountEur: number | null;
+
+    contractedPowerText: string | null;
+    contractedPowerKw: number | null;
+    contractedPowerP1: number | null;
+    contractedPowerP2: number | null;
   };
   extraction: {
     confidenceScore: number | null;
@@ -132,7 +137,7 @@ const extractionResponseSchema = {
         "country",
       ],
     },
-    invoice_data: {
+      invoice_data: {
       type: "object",
       additionalProperties: false,
       properties: {
@@ -145,6 +150,12 @@ const extractionResponseSchema = {
         averageMonthlyConsumptionKwh: { type: "number", nullable: true },
         invoiceVariableEnergyAmountEur: { type: "number", nullable: true },
         postcodeAverageConsumptionKwh: { type: "number", nullable: true },
+
+        contractedPowerText: { type: "string", nullable: true },
+        contractedPowerKw: { type: "number", nullable: true },
+        contractedPowerP1: { type: "number", nullable: true },
+        contractedPowerP2: { type: "number", nullable: true },
+
         periods: {
           type: "object",
           additionalProperties: false,
@@ -182,6 +193,10 @@ const extractionResponseSchema = {
         "periods",
         "periodPricesEurPerKwh",
         "invoiceVariableEnergyAmountEur",
+        "contractedPowerText",
+        "contractedPowerKw",
+        "contractedPowerP1",
+        "contractedPowerP2",
       ],
     },
     extraction: {
@@ -417,17 +432,92 @@ function buildPrompt(fileName: string, sourceMode: "text" | "pdf"): string {
     "Extrae datos de la factura eléctrica a JSON según esquema. No inventes. Usa null si falta.",
     "- customer.fullName: titular real. Ignora datos de la comercializadora.",
     "- location.address: dirección completa de suministro.",
-    "- customer.iban: conserva asteriscos. Marca 'ibanNeedsCompletion'=true si hay asteriscos.",
+    "- customer.iban: conserva asteriscos exactamente como aparecen. Marca 'ibanNeedsCompletion'=true si hay asteriscos.",
     "- invoice_data.type: '2TD' o '3TD'.",
     "- consumptionKwh y currentInvoiceConsumptionKwh: consumo total de esta factura.",
     "- averageMonthlyConsumptionKwh: estima el consumo medio mensual del titular a partir del consumo facturado y los días facturados. No uses el consumo medio del código postal.",
     "- postcodeAverageConsumptionKwh: extrae la media del código postal solo si aparece explícitamente.",
     "- invoiceVariableEnergyAmountEur: extrae el importe total de 'Por energía consumida' o 'Facturación por energía consumida (TÉRMINO VARIABLE)'.",
+    "- Extrae la potencia contratada, no la potencia máxima demandada.",
+    "- Si aparece una línea como 'Potencias contratadas: punta-llano X kW; valle Y kW', guarda:",
+    "  - contractedPowerText: el texto visible de potencias contratadas",
+    "  - contractedPowerP1: la potencia punta-llano",
+    "  - contractedPowerP2: la potencia valle",
+    "  - contractedPowerKw: solo si ambas son iguales; si no, null",
+    "- No confundas 'potencias máximas demandadas' con 'potencias contratadas'.",
     "- Para 2TD: punta=P1, llano=P2, valle=P3. P4-P6 en null.",
     "- periodPricesEurPerKwh: solo si hay €/kWh explícitos por periodo.",
     sourceMode === "text" ? "Ignora ruido de OCR." : "PDF original.",
     `Archivo: ${fileName}`,
   ].join("\n");
+}
+
+function extractContractedPowerInfo(text: string): {
+  contractedPowerText: string | null;
+  contractedPowerKw: number | null;
+  contractedPowerP1: number | null;
+  contractedPowerP2: number | null;
+} {
+  const empty = {
+    contractedPowerText: null,
+    contractedPowerKw: null,
+    contractedPowerP1: null,
+    contractedPowerP2: null,
+  };
+
+  const directMatch = text.match(
+    /Potencias contratadas:\s*punta-llano\s*([\d.,]+)\s*kW;\s*valle\s*([\d.,]+)\s*kW/i,
+  );
+
+  if (directMatch) {
+    const p1 = parseSpanishNumber(directMatch[1]);
+    const p2 = parseSpanishNumber(directMatch[2]);
+
+    return {
+      contractedPowerText: normalizeWhitespace(
+        `punta-llano ${directMatch[1]} kW; valle ${directMatch[2]} kW`,
+      ),
+      contractedPowerKw:
+        p1 != null && p2 != null && Math.abs(p1 - p2) < 0.0001 ? p1 : null,
+      contractedPowerP1: p1,
+      contractedPowerP2: p2,
+    };
+  }
+
+  const p1 =
+    parseSpanishNumber(
+      extractRegexValue(text, /Pot\.\s*Punta-Llano\s*([\d.,]+)\s*kW/i),
+    ) ??
+    parseSpanishNumber(
+      extractRegexValue(text, /punta-llano\s*([\d.,]+)\s*kW/i),
+    );
+
+  const p2 =
+    parseSpanishNumber(
+      extractRegexValue(text, /Pot\.\s*Valle\s*([\d.,]+)\s*kW/i),
+    ) ??
+    parseSpanishNumber(
+      extractRegexValue(text, /valle\s*([\d.,]+)\s*kW/i),
+    );
+
+  if (p1 != null || p2 != null) {
+    return {
+      contractedPowerText:
+        p1 != null && p2 != null
+          ? `punta-llano ${formatSpanishPower(p1)} kW; valle ${formatSpanishPower(p2)} kW`
+          : null,
+      contractedPowerKw:
+        p1 != null && p2 != null && Math.abs(p1 - p2) < 0.0001 ? p1 : null,
+      contractedPowerP1: p1,
+      contractedPowerP2: p2,
+    };
+  }
+
+  return empty;
+}
+
+function formatSpanishPower(value: number): string {
+  return value.toFixed(3).replace(".", ",");
 }
 
 function splitFullName(fullName: string | null): {
@@ -635,6 +725,7 @@ function extractLocalDataFromText(text?: string): PartialExtraction {
   const fullName = extractFullNameFromText(source);
   const splitName = splitFullName(fullName);
   const addressParts = parseAddressParts(extractSupplyAddress(source));
+    const contractedPowerInfo = extractContractedPowerInfo(source);
 
   const dni =
     extractRegexValue(source, /NIF:\s*([A-Z0-9]+)\b/i) ??
@@ -694,6 +785,10 @@ function extractLocalDataFromText(text?: string): PartialExtraction {
       invoiceVariableEnergyAmountEur,
       periods: extractPeriodConsumptions(source, normalizedType),
       periodPricesEurPerKwh: extractPeriodPrices(source),
+            contractedPowerText: contractedPowerInfo.contractedPowerText,
+      contractedPowerKw: contractedPowerInfo.contractedPowerKw,
+      contractedPowerP1: contractedPowerInfo.contractedPowerP1,
+      contractedPowerP2: contractedPowerInfo.contractedPowerP2,
     },
   };
 }
@@ -760,6 +855,10 @@ invoice_data: {
   averageMonthlyConsumptionKwh: safeNumber(
     data?.invoice_data?.averageMonthlyConsumptionKwh,
   ),
+        contractedPowerText: safeString(data?.invoice_data?.contractedPowerText),
+      contractedPowerKw: safeNumber(data?.invoice_data?.contractedPowerKw),
+      contractedPowerP1: safeNumber(data?.invoice_data?.contractedPowerP1),
+      contractedPowerP2: safeNumber(data?.invoice_data?.contractedPowerP2),
   postcodeAverageConsumptionKwh: safeNumber(
     data?.invoice_data?.postcodeAverageConsumptionKwh,
   ),
@@ -819,7 +918,29 @@ invoice_data: {
   }
 
   normalized.extraction.missingFields = listMissingFields(normalized);
+    if (
+    normalized.invoice_data.contractedPowerKw == null &&
+    normalized.invoice_data.contractedPowerP1 != null &&
+    normalized.invoice_data.contractedPowerP2 != null &&
+    Math.abs(
+      normalized.invoice_data.contractedPowerP1 -
+        normalized.invoice_data.contractedPowerP2,
+    ) < 0.0001
+  ) {
+    normalized.invoice_data.contractedPowerKw =
+      normalized.invoice_data.contractedPowerP1;
+  }
+
+  if (
+    !normalized.invoice_data.contractedPowerText &&
+    normalized.invoice_data.contractedPowerP1 != null &&
+    normalized.invoice_data.contractedPowerP2 != null
+  ) {
+    normalized.invoice_data.contractedPowerText =
+      `punta-llano ${formatSpanishPower(normalized.invoice_data.contractedPowerP1)} kW; valle ${formatSpanishPower(normalized.invoice_data.contractedPowerP2)} kW`;
+  }
   return normalized;
+  
 }
 
 function mergeExtractions(
@@ -864,6 +985,18 @@ function mergeExtractions(
         localData.invoice_data?.averageMonthlyConsumptionKwh ??
         aiData.invoice_data.averageMonthlyConsumptionKwh ??
         null,
+              contractedPowerText:
+        localData.invoice_data?.contractedPowerText ??
+        aiData.invoice_data.contractedPowerText,
+      contractedPowerKw:
+        localData.invoice_data?.contractedPowerKw ??
+        aiData.invoice_data.contractedPowerKw,
+      contractedPowerP1:
+        localData.invoice_data?.contractedPowerP1 ??
+        aiData.invoice_data.contractedPowerP1,
+      contractedPowerP2:
+        localData.invoice_data?.contractedPowerP2 ??
+        aiData.invoice_data.contractedPowerP2,
       postcodeAverageConsumptionKwh:
         localData.invoice_data?.postcodeAverageConsumptionKwh ??
         aiData.invoice_data.postcodeAverageConsumptionKwh,
@@ -991,6 +1124,28 @@ function mergeExtractions(
   }
 
   merged.extraction.missingFields = listMissingFields(merged);
+    if (
+    merged.invoice_data.contractedPowerKw == null &&
+    merged.invoice_data.contractedPowerP1 != null &&
+    merged.invoice_data.contractedPowerP2 != null &&
+    Math.abs(
+      merged.invoice_data.contractedPowerP1 -
+        merged.invoice_data.contractedPowerP2,
+    ) < 0.0001
+  ) {
+    merged.invoice_data.contractedPowerKw =
+      merged.invoice_data.contractedPowerP1;
+  }
+
+  if (
+    !merged.invoice_data.contractedPowerText &&
+    merged.invoice_data.contractedPowerP1 != null &&
+    merged.invoice_data.contractedPowerP2 != null
+  ) {
+    merged.invoice_data.contractedPowerText =
+      `punta-llano ${formatSpanishPower(merged.invoice_data.contractedPowerP1)} kW; valle ${formatSpanishPower(merged.invoice_data.contractedPowerP2)} kW`;
+  }
+  
   return merged;
 }
 
