@@ -1,5 +1,8 @@
 import nodemailer from "nodemailer";
-
+import esTranslations from "../i18n/locales/es/translation.json";
+import caTranslations from "../i18n/locales/ca/translation.json";
+import valTranslations from "../i18n/locales/val/translation.json";
+import glTranslations from "../i18n/locales/gal/translation.json";
 const SMTP_HOST = process.env.SMTP_HOST || "";
 const SMTP_PORT = Number(process.env.SMTP_PORT || 587);
 const SMTP_USER = process.env.SMTP_USER || "";
@@ -17,6 +20,55 @@ const transporter = nodemailer.createTransport({
   },
 });
 
+
+type AppLanguage = "es" | "ca" | "val" | "gl";
+
+const translationsByLanguage: Record<AppLanguage, any> = {
+  es: esTranslations,
+  ca: caTranslations,
+  val: valTranslations,
+  gl: glTranslations,
+};
+
+function normalizeAppLanguage(value: unknown): AppLanguage {
+  const lang = String(value || "")
+    .trim()
+    .toLowerCase();
+
+  if (lang === "ca") return "ca";
+  if (lang === "val") return "val";
+  if (lang === "gl" || lang === "gal") return "gl";
+  return "es";
+}
+
+function getLanguageLocale(language: AppLanguage): string {
+  if (language === "ca" || language === "val") return "ca-ES";
+  if (language === "gl") return "gl-ES";
+  return "es-ES";
+}
+
+function getNestedValue(obj: any, path: string): unknown {
+  return path.split(".").reduce((acc: any, key) => acc?.[key], obj);
+}
+
+function translate(
+  language: AppLanguage,
+  key: string,
+  fallback: string,
+  replacements?: Record<string, string | number>,
+): string {
+  const dictionary = translationsByLanguage[language] ?? translationsByLanguage.es;
+  const raw = getNestedValue(dictionary, key);
+
+  const base =
+    typeof raw === "string" && raw.trim().length > 0 ? raw : fallback;
+
+  return base.replace(/\{\{(\w+)\}\}/g, (_, token) => {
+    const value = replacements?.[token];
+    return value !== undefined && value !== null ? String(value) : "";
+  });
+}
+
 type SendProposalEmailParams = {
   to: string;
   clientName: string;
@@ -24,6 +76,7 @@ type SendProposalEmailParams = {
   pdfFilename?: string;
   proposalUrl?: string | null;
   continueContractUrl?: string | null;
+  language?: AppLanguage;
 };
 
 export async function sendProposalEmail({
@@ -33,7 +86,10 @@ export async function sendProposalEmail({
   pdfFilename = "propuesta.pdf",
   proposalUrl = null,
   continueContractUrl = null,
+  language = "es",
 }: SendProposalEmailParams) {
+  const lang = normalizeAppLanguage(language);
+
   console.log("[mailer] to:", to);
   console.log("[mailer] from:", SMTP_FROM);
   console.log("[mailer] host:", SMTP_HOST);
@@ -41,42 +97,77 @@ export async function sendProposalEmail({
   console.log("[mailer] filename:", pdfFilename);
   console.log("[mailer] proposalUrl:", proposalUrl);
   console.log("[mailer] continueContractUrl:", continueContractUrl);
+  console.log("[mailer] language:", lang);
   console.log("[mailer] pdfBuffer length:", pdfBuffer?.length);
 
-  const text = [
-    `Hola ${clientName}, te adjuntamos tu propuesta energética personalizada en PDF.`,
-    `Hemos preparado esta propuesta a partir de los datos de tu factura.`,
-    proposalUrl ? `También puedes consultarla aquí: ${proposalUrl}` : "",
-    continueContractUrl
-      ? `Si deseas continuar con la contratación más adelante, puedes acceder desde este enlace seguro: ${continueContractUrl}`
-      : "",
-    `Si tienes cualquier duda, estaremos encantados de ayudarte.`,
-    ``,
-    `${SMTP_FROM_NAME}`,
-  ]
-    .filter(Boolean)
-    .join("\n");
+  const subject = translate(
+    lang,
+    "emails.proposal.subject",
+    "Tu propuesta energética ya está disponible",
+  );
 
-  // const proposalLinkHtml = proposalUrl
-  //   ? `
-  //     <p style="margin: 0 0 16px 0;">
-  //       También puedes consultar tu propuesta online aquí:<br />
-  //       <a
-  //         href="${proposalUrl}"
-  //         target="_blank"
-  //         style="color:#07005f; word-break: break-word;"
-  //       >
-  //         ${proposalUrl}
-  //       </a>
-  //     </p>
-  //   `
-  //   : "";
+  const greeting = translate(
+    lang,
+    "emails.proposal.greeting",
+    "Hola {{clientName}},",
+    { clientName },
+  );
+
+  const body1 = translate(
+    lang,
+    "emails.proposal.body1",
+    "Te adjuntamos tu propuesta energética en PDF.",
+  );
+
+  const body2 = translate(
+    lang,
+    "emails.proposal.body2",
+    "Hemos preparado esta propuesta a partir de los datos de tu factura.",
+  );
+
+  const continueText = translate(
+    lang,
+    "emails.proposal.continueText",
+    "También puedes continuar el proceso desde el siguiente enlace seguro:",
+  );
+
+  const cta = translate(
+    lang,
+    "emails.proposal.cta",
+    "Continuar contratación",
+  );
+
+  const securityNote = translate(
+    lang,
+    "emails.proposal.securityNote",
+    "Por seguridad, este enlace puede caducar.",
+  );
+
+  const body3 = translate(
+    lang,
+    "emails.proposal.body3",
+    "Si tienes cualquier duda, puedes responder directamente a este correo.",
+  );
+
+  const farewell = translate(
+    lang,
+    "emails.proposal.farewell",
+    "Un saludo",
+  );
+
+  const proposalUrlText = proposalUrl
+    ? `\n${proposalUrl}`
+    : "";
+
+  const continueContractText = continueContractUrl
+    ? `${continueText}\n${continueContractUrl}`
+    : "";
 
   const continueContractHtml = continueContractUrl
     ? `
       <div style="margin: 28px 0;">
         <p style="margin: 0 0 12px 0;">
-          Si deseas continuar con la contratación más adelante, puedes hacerlo desde el siguiente acceso seguro:
+          ${continueText}
         </p>
 
         <a
@@ -93,44 +184,59 @@ export async function sendProposalEmail({
             font-size:14px;
           "
         >
-          Continuar contratación
+          ${cta}
         </a>
 
         <p style="margin: 12px 0 0 0; font-size: 12px; color: #6b7280;">
-          Por seguridad, este enlace puede caducar.
+          ${securityNote}
         </p>
       </div>
     `
     : "";
 
+  const text = [
+    greeting,
+    "",
+    body1,
+    body2,
+    proposalUrlText,
+    continueContractText,
+    "",
+    body3,
+    "",
+    farewell,
+    SMTP_FROM_NAME,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
   await transporter.sendMail({
     from: `"${SMTP_FROM_NAME}" <${SMTP_FROM}>`,
     to,
-    subject: "Tu propuesta energética personalizada",
+    subject,
     text,
     html: `
       <div style="font-family: Arial, sans-serif; color: #1f2937; line-height: 1.6;">
-        <h2 style="margin-bottom: 12px; color:#07005f;">Hola ${clientName},</h2>
+        <h2 style="margin-bottom: 12px; color:#07005f;">${greeting.replace(",", "")}</h2>
 
         <p style="margin: 0 0 12px 0;">
-          Te adjuntamos tu propuesta energética personalizada en PDF.
+          ${body1}
         </p>
 
         <p style="margin: 0 0 16px 0;">
-          Hemos preparado esta propuesta a partir de los datos de tu factura.
+          ${body2}
         </p>
-
 
         ${continueContractHtml}
 
         <p style="margin: 24px 0 0 0;">
-          Si tienes cualquier duda, estaremos encantados de ayudarte.
+          ${body3}
         </p>
 
         <br />
 
         <p style="margin: 0;">
-          Un saludo,<br />
+          ${farewell}<br />
           <strong>${SMTP_FROM_NAME}</strong>
         </p>
       </div>
@@ -157,6 +263,7 @@ export async function sendReservationConfirmedEmail(params: {
   reservedKwp: number;
   signalAmount: number;
   paymentDate: string;
+  language?: AppLanguage;
 }) {
   const {
     to,
@@ -170,45 +277,88 @@ export async function sendReservationConfirmedEmail(params: {
     reservedKwp,
     signalAmount,
     paymentDate,
+    language = "es",
   } = params;
 
-  const paymentDateFormatted = new Date(paymentDate).toLocaleString("es-ES");
+  const lang = normalizeAppLanguage(language);
+  const locale = getLanguageLocale(lang);
+
+  const paymentDateFormatted = new Date(paymentDate).toLocaleString(locale);
+
+  const formattedAmount = new Intl.NumberFormat(locale, {
+    style: "currency",
+    currency: "EUR",
+  }).format(signalAmount);
 
   await transporter.sendMail({
     from: process.env.SMTP_FROM || process.env.SMTP_USER,
     to,
-    subject: `Reserva confirmada y pago recibido - ${contractNumber}`,
+    subject: translate(
+      lang,
+      "emails.reservationConfirmed.subject",
+      "Reserva confirmada y pago recibido - {{contractNumber}}",
+      { contractNumber },
+    ),
     html: `
       <div style="font-family: Arial, sans-serif; color: #1f2937; line-height: 1.6;">
         <h2 style="color: #07005f; margin-bottom: 16px;">
-          Reserva confirmada
+          ${translate(
+            lang,
+            "emails.reservationConfirmed.title",
+            "Reserva confirmada",
+          )}
         </h2>
 
-        <p>Hola <strong>${clientName}</strong>,</p>
+        <p>${translate(
+          lang,
+          "emails.reservationConfirmed.greeting",
+          "Hola <strong>{{clientName}}</strong>,",
+          { clientName },
+        )}</p>
 
         <p>
-          Hemos recibido correctamente el pago de tu señal y tu reserva ha quedado registrada.
+          ${translate(
+            lang,
+            "emails.reservationConfirmed.intro",
+            "Hemos recibido correctamente el pago de tu señal y tu reserva ha quedado registrada.",
+          )}
         </p>
 
         <div style="margin: 20px 0; padding: 16px; border: 1px solid #e5e7eb; border-radius: 12px; background: #f9fafb;">
-          <p style="margin: 0 0 8px 0;"><strong>Precontrato:</strong> ${contractNumber}</p>
-          <p style="margin: 0 0 8px 0;"><strong>Instalación:</strong> ${installationName}</p>
-          <p style="margin: 0 0 8px 0;"><strong>Potencia reservada:</strong> ${reservedKwp} kWp</p>
-          <p style="margin: 0 0 8px 0;"><strong>Señal abonada:</strong> ${signalAmount} €</p>
-          <p style="margin: 0;"><strong>Fecha de pago:</strong> ${paymentDateFormatted}</p>
+          <p style="margin: 0 0 8px 0;"><strong>${translate(lang, "emails.reservationConfirmed.labels.precontract", "Precontrato")}:</strong> ${contractNumber}</p>
+          <p style="margin: 0 0 8px 0;"><strong>${translate(lang, "emails.reservationConfirmed.labels.installation", "Instalación")}:</strong> ${installationName}</p>
+          <p style="margin: 0 0 8px 0;"><strong>${translate(lang, "emails.reservationConfirmed.labels.power", "Potencia reservada")}:</strong> ${reservedKwp} kWp</p>
+          <p style="margin: 0 0 8px 0;"><strong>${translate(lang, "emails.reservationConfirmed.labels.amount", "Señal abonada")}:</strong> ${formattedAmount}</p>
+          <p style="margin: 0;"><strong>${translate(lang, "emails.reservationConfirmed.labels.paymentDate", "Fecha de pago")}:</strong> ${paymentDateFormatted}</p>
         </div>
 
         <p>
-          Te adjuntamos:
+          ${translate(
+            lang,
+            "emails.reservationConfirmed.attachmentsIntro",
+            "Te adjuntamos:",
+          )}
         </p>
 
         <ul>
-          <li>Copia del precontrato firmado</li>
-          <li>Justificante del pago realizado</li>
+          <li>${translate(
+            lang,
+            "emails.reservationConfirmed.attachments.precontract",
+            "Copia del precontrato firmado",
+          )}</li>
+          <li>${translate(
+            lang,
+            "emails.reservationConfirmed.attachments.receipt",
+            "Justificante del pago realizado",
+          )}</li>
         </ul>
 
         <p>
-          Gracias por confiar en Sapiens Energía.
+          ${translate(
+            lang,
+            "emails.reservationConfirmed.thanks",
+            "Gracias por confiar en Sapiens Energía.",
+          )}
         </p>
       </div>
     `,
@@ -236,9 +386,13 @@ export async function sendSignedContractEmail(params: {
   installationName: string;
   reservedKwp: number;
   paymentDeadlineAt: string;
+  language?: AppLanguage;
 }) {
+  const lang = normalizeAppLanguage(params.language);
+  const locale = getLanguageLocale(lang);
+
   const formattedDate = new Date(params.paymentDeadlineAt).toLocaleDateString(
-    "es-ES",
+    locale,
     {
       day: "2-digit",
       month: "2-digit",
@@ -249,29 +403,77 @@ export async function sendSignedContractEmail(params: {
   await transporter.sendMail({
     from: `"${SMTP_FROM_NAME}" <${SMTP_FROM}>`,
     to: params.to,
-    subject: "Tu contrato firmado y reserva provisional - Sapiens Energía",
+    subject: translate(
+      lang,
+      "emails.signedContract.subject",
+      "Tu contrato firmado y reserva provisional - Sapiens Energía",
+    ),
     html: `
       <div style="font-family: Arial, sans-serif; color: #1f2937; line-height: 1.6;">
-        <h2 style="color:#07005f;">Contrato firmado correctamente</h2>
-        <p>Hola ${params.clientName},</p>
+        <h2 style="color:#07005f;">
+          ${translate(
+            lang,
+            "emails.signedContract.title",
+            "Contrato firmado correctamente",
+          )}
+        </h2>
+
         <p>
-          Adjuntamos una copia de tu contrato firmado.
+          ${translate(
+            lang,
+            "emails.signedContract.greeting",
+            "Hola {{clientName}},",
+            { clientName: params.clientName },
+          )}
         </p>
+
         <p>
-          Hemos realizado una <strong>reserva provisional de ${params.reservedKwp} kWp</strong>
-          en la planta <strong>${params.installationName}</strong>.
+          ${translate(
+            lang,
+            "emails.signedContract.contractAttached",
+            "Adjuntamos una copia de tu contrato firmado.",
+          )}
         </p>
+
         <p>
-          Dispones de un plazo orientativo de <strong>15 días</strong>,
-          hasta el <strong>${formattedDate}</strong>, para realizar la transferencia
-          y confirmar la reserva.
+          ${translate(
+            lang,
+            "emails.signedContract.reservationText",
+            "Hemos realizado una <strong>reserva provisional de {{reservedKwp}} kWp</strong> en la planta <strong>{{installationName}}</strong>.",
+            {
+              reservedKwp: params.reservedKwp,
+              installationName: params.installationName,
+            },
+          )}
         </p>
+
+        <p>
+          ${translate(
+            lang,
+            "emails.signedContract.deadlineText",
+            "Dispones de un plazo orientativo de <strong>15 días</strong>, hasta el <strong>{{formattedDate}}</strong>, para realizar la transferencia y confirmar la reserva.",
+            { formattedDate },
+          )}
+        </p>
+
         ${
           params.contractUrl
-            ? `<p>Puedes consultar también tu contrato aquí: <a href="${params.contractUrl}" target="_blank">${params.contractUrl}</a></p>`
+            ? `<p>${translate(
+                lang,
+                "emails.signedContract.contractUrlText",
+                'Puedes consultar también tu contrato aquí: <a href="{{contractUrl}}" target="_blank">{{contractUrl}}</a>',
+                { contractUrl: params.contractUrl },
+              )}</p>`
             : ""
         }
-        <p>Gracias por confiar en Sapiens Energía.</p>
+
+        <p>
+          ${translate(
+            lang,
+            "emails.signedContract.thanks",
+            "Gracias por confiar en Sapiens Energía.",
+          )}
+        </p>
       </div>
     `,
     attachments: [
@@ -283,7 +485,6 @@ export async function sendSignedContractEmail(params: {
     ],
   });
 }
-
 export async function sendBankTransferReservationEmail(params: {
   to: string;
   clientName: string;
@@ -298,6 +499,7 @@ export async function sendBankTransferReservationEmail(params: {
   bankAccountIban: string;
   bankBeneficiary: string;
   transferConcept: string;
+  language?: AppLanguage;
 }) {
   const {
     to,
@@ -313,10 +515,14 @@ export async function sendBankTransferReservationEmail(params: {
     bankAccountIban,
     bankBeneficiary,
     transferConcept,
+    language = "es",
   } = params;
 
+  const lang = normalizeAppLanguage(language);
+  const locale = getLanguageLocale(lang);
+
   const formattedDeadline = new Date(paymentDeadlineAt).toLocaleDateString(
-    "es-ES",
+    locale,
     {
       day: "2-digit",
       month: "2-digit",
@@ -324,79 +530,139 @@ export async function sendBankTransferReservationEmail(params: {
     },
   );
 
-  const formattedAmount = new Intl.NumberFormat("es-ES", {
+  const formattedAmount = new Intl.NumberFormat(locale, {
     style: "currency",
     currency: currency.toUpperCase(),
   }).format(signalAmount);
 
   const text = [
-    `Hola ${clientName},`,
-    ``,
-    `Tu precontrato de reserva ya ha sido firmado correctamente.`,
-    `Para completar la reserva, debes realizar la transferencia bancaria de la señal en un plazo máximo de 15 días, hasta el ${formattedDeadline}.`,
-    ``,
-    `Resumen de la operación:`,
-    `- Precontrato: ${contractNumber}`,
-    `- Instalación: ${installationName}`,
-    `- Potencia reservada: ${reservedKwp} kWp`,
-    `- Importe de la señal: ${formattedAmount}`,
-    ``,
-    `Datos bancarios para la transferencia:`,
-    `- Beneficiario: ${bankBeneficiary}`,
-    `- IBAN: ${bankAccountIban}`,
-    `- Concepto: ${transferConcept}`,
-    ``,
-    `Te adjuntamos el PDF del precontrato firmado.`,
-    ``,
+    translate(
+      lang,
+      "emails.bankTransfer.greeting",
+      "Hola {{clientName}},",
+      { clientName },
+    ),
+    "",
+    translate(
+      lang,
+      "emails.bankTransfer.signedIntro",
+      "Tu precontrato de reserva ya ha sido firmado correctamente.",
+    ),
+    translate(
+      lang,
+      "emails.bankTransfer.deadlineIntro",
+      "Para completar la reserva, debes realizar la transferencia bancaria de la señal en un plazo máximo de 15 días, hasta el {{formattedDeadline}}.",
+      { formattedDeadline },
+    ),
+    "",
+    translate(
+      lang,
+      "emails.bankTransfer.summaryTitle",
+      "Resumen de la operación:",
+    ),
+    `${translate(lang, "emails.bankTransfer.labels.precontract", "Precontrato")}: ${contractNumber}`,
+    `${translate(lang, "emails.bankTransfer.labels.installation", "Instalación")}: ${installationName}`,
+    `${translate(lang, "emails.bankTransfer.labels.power", "Potencia reservada")}: ${reservedKwp} kWp`,
+    `${translate(lang, "emails.bankTransfer.labels.amount", "Importe de la señal")}: ${formattedAmount}`,
+    "",
+    translate(
+      lang,
+      "emails.bankTransfer.bankDataTitle",
+      "Datos bancarios para la transferencia:",
+    ),
+    `${translate(lang, "emails.bankTransfer.labels.beneficiary", "Beneficiario")}: ${bankBeneficiary}`,
+    `${translate(lang, "emails.bankTransfer.labels.iban", "IBAN")}: ${bankAccountIban}`,
+    `${translate(lang, "emails.bankTransfer.labels.concept", "Concepto")}: ${transferConcept}`,
+    "",
+    translate(
+      lang,
+      "emails.bankTransfer.attachmentNotice",
+      "Te adjuntamos el PDF del precontrato firmado.",
+    ),
+    "",
     `${SMTP_FROM_NAME}`,
   ].join("\n");
 
   await transporter.sendMail({
     from: `"${SMTP_FROM_NAME}" <${SMTP_FROM}>`,
     to,
-    subject: `Instrucciones de transferencia para tu reserva - ${contractNumber}`,
+    subject: translate(
+      lang,
+      "emails.bankTransfer.subject",
+      "Instrucciones de transferencia para tu reserva - {{contractNumber}}",
+      { contractNumber },
+    ),
     text,
     html: `
       <div style="font-family: Arial, sans-serif; color: #1f2937; line-height: 1.6;">
         <h2 style="color:#07005f; margin-bottom: 16px;">
-          Reserva iniciada correctamente
+          ${translate(
+            lang,
+            "emails.bankTransfer.title",
+            "Reserva iniciada correctamente",
+          )}
         </h2>
 
-        <p>Hola <strong>${clientName}</strong>,</p>
+        <p>${translate(
+          lang,
+          "emails.bankTransfer.greeting",
+          "Hola <strong>{{clientName}}</strong>,",
+          { clientName },
+        )}</p>
 
         <p>
-          Tu precontrato de reserva ha sido firmado correctamente.
+          ${translate(
+            lang,
+            "emails.bankTransfer.signedIntro",
+            "Tu precontrato de reserva ha sido firmado correctamente.",
+          )}
         </p>
 
         <p>
-          Para completar la reserva, debes realizar la transferencia bancaria de la señal
-          en un plazo máximo de <strong>15 días</strong>, hasta el
-          <strong>${formattedDeadline}</strong>.
+          ${translate(
+            lang,
+            "emails.bankTransfer.deadlineHtml",
+            "Para completar la reserva, debes realizar la transferencia bancaria de la señal en un plazo máximo de <strong>15 días</strong>, hasta el <strong>{{formattedDeadline}}</strong>.",
+            { formattedDeadline },
+          )}
         </p>
 
         <div style="margin: 20px 0; padding: 16px; border: 1px solid #e5e7eb; border-radius: 12px; background: #f9fafb;">
-          <p style="margin: 0 0 8px 0;"><strong>Precontrato:</strong> ${contractNumber}</p>
-          <p style="margin: 0 0 8px 0;"><strong>Instalación:</strong> ${installationName}</p>
-          <p style="margin: 0 0 8px 0;"><strong>Potencia reservada:</strong> ${reservedKwp} kWp</p>
-          <p style="margin: 0;"><strong>Importe de la señal:</strong> ${formattedAmount}</p>
+          <p style="margin: 0 0 8px 0;"><strong>${translate(lang, "emails.bankTransfer.labels.precontract", "Precontrato")}:</strong> ${contractNumber}</p>
+          <p style="margin: 0 0 8px 0;"><strong>${translate(lang, "emails.bankTransfer.labels.installation", "Instalación")}:</strong> ${installationName}</p>
+          <p style="margin: 0 0 8px 0;"><strong>${translate(lang, "emails.bankTransfer.labels.power", "Potencia reservada")}:</strong> ${reservedKwp} kWp</p>
+          <p style="margin: 0;"><strong>${translate(lang, "emails.bankTransfer.labels.amount", "Importe de la señal")}:</strong> ${formattedAmount}</p>
         </div>
 
         <div style="margin: 20px 0; padding: 16px; border: 1px solid #dbeafe; border-radius: 12px; background: #eff6ff;">
-          <p style="margin: 0 0 8px 0;"><strong>Beneficiario:</strong> ${bankBeneficiary}</p>
-          <p style="margin: 0 0 8px 0;"><strong>IBAN:</strong> ${bankAccountIban}</p>
-          <p style="margin: 0;"><strong>Concepto:</strong> ${transferConcept}</p>
+          <p style="margin: 0 0 8px 0;"><strong>${translate(lang, "emails.bankTransfer.labels.beneficiary", "Beneficiario")}:</strong> ${bankBeneficiary}</p>
+          <p style="margin: 0 0 8px 0;"><strong>${translate(lang, "emails.bankTransfer.labels.iban", "IBAN")}:</strong> ${bankAccountIban}</p>
+          <p style="margin: 0;"><strong>${translate(lang, "emails.bankTransfer.labels.concept", "Concepto")}:</strong> ${transferConcept}</p>
         </div>
 
         <p>
-          Te adjuntamos una copia del precontrato firmado en PDF.
+          ${translate(
+            lang,
+            "emails.bankTransfer.attachmentNotice",
+            "Te adjuntamos una copia del precontrato firmado en PDF.",
+          )}
         </p>
 
         <p>
-          Una vez recibida y validada la transferencia, confirmaremos tu reserva.
+          ${translate(
+            lang,
+            "emails.bankTransfer.confirmationNotice",
+            "Una vez recibida y validada la transferencia, confirmaremos tu reserva.",
+          )}
         </p>
 
         <p style="margin-top: 24px;">
-          Gracias por confiar en <strong>${SMTP_FROM_NAME}</strong>.
+          ${translate(
+            lang,
+            "emails.bankTransfer.thanks",
+            "Gracias por confiar en <strong>{{companyName}}</strong>.",
+            { companyName: SMTP_FROM_NAME },
+          )}
         </p>
       </div>
     `,

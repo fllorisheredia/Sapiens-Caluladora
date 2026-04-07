@@ -171,5 +171,100 @@
     "cards": {
       "mode": "Modalidad"
     }
+  },
+  "contractPdf": {
+    "htmlLang": "es",
+    "title": "Contrato de adhesión",
+    "contractNumber": "Contrato nº",
+    "date": "Fecha",
+    "clientData": "Datos del cliente",
+    "name": "Nombre",
+    "dni": "DNI",
+    "email": "Email",
+    "phone": "Teléfono",
+    "address": "Dirección",
+    "installationData": "Datos de la instalación",
+    "installation": "Instalación",
+    "mode": "Modalidad",
+    "assignedKwp": "kWp asignados",
+    "basicConditions": "Condiciones básicas",
+    "condition1": "El cliente solicita la reserva de la potencia indicada en la instalación seleccionada, quedando dicha reserva pendiente de confirmación económica.",
+    "condition2": "Se informa al cliente de un plazo orientativo de 15 días para realizar la transferencia correspondiente.",
+    "condition3": "Hasta la validación del pago, la reserva tendrá carácter provisional.",
+    "clientSignature": "Firma del cliente",
+    "modes": {
+      "investment": "Inversión",
+      "service": "Servicio"
+    }
+  },
+  "paymentReceipt": {
+    "title": "Justificante de pago",
+    "precontractLabel": "Precontrato",
+    "holderSection": "Titular",
+    "client": "Cliente",
+    "dni": "DNI",
+    "reservationSection": "Reserva",
+    "contractId": "Contrato ID",
+    "reservationId": "Reserva ID",
+    "installation": "Instalación",
+    "reservedPower": "Potencia reservada",
+    "paidAmount": "Importe abonado",
+    "currency": "Moneda",
+    "paymentDate": "Fecha de pago",
+    "stripeSection": "Referencia Stripe",
+    "checkoutSessionId": "Checkout Session ID",
+    "paymentIntentId": "Payment Intent ID",
+    "footer": "Este documento acredita la recepción de la señal asociada al precontrato de reserva/participación."
+  },
+  "emails": {
+    "proposal": {
+      "subject": "Tu propuesta energética ya está disponible",
+      "greeting": "Hola {{clientName}},",
+      "body1": "Te adjuntamos tu propuesta energética en PDF.",
+      "body2": "Hemos preparado esta propuesta a partir de los datos de tu factura.",
+      "continueText": "También puedes continuar el proceso desde el siguiente enlace seguro:",
+      "cta": "Continuar contratación",
+      "securityNote": "Por seguridad, este enlace puede caducar.",
+      "body3": "Si tienes cualquier duda, puedes responder directamente a este correo.",
+      "farewell": "Un saludo"
+    },
+    "bankTransfer": {
+      "subject": "Instrucciones para completar tu reserva por transferencia",
+      "greeting": "Hola {{clientName}},",
+      "body1": "Adjuntamos tu precontrato firmado y los datos para completar la reserva mediante transferencia bancaria.",
+      "contractNumber": "Precontrato",
+      "installation": "Instalación",
+      "reservedPower": "Potencia reservada",
+      "signalAmount": "Importe de la señal",
+      "deadline": "Fecha límite",
+      "iban": "IBAN",
+      "beneficiary": "Beneficiario",
+      "concept": "Concepto",
+      "body2": "Es importante que indiques exactamente el concepto en la transferencia para poder identificar el pago correctamente.",
+      "body3": "Una vez recibido y validado el pago, te enviaremos la confirmación por correo electrónico.",
+      "farewell": "Un saludo"
+    },
+    "reservationConfirmed": {
+      "subject": "Confirmación de tu reserva y justificante de pago",
+      "greeting": "Hola {{clientName}},",
+      "body1": "Hemos confirmado correctamente tu reserva.",
+      "contractNumber": "Precontrato",
+      "installation": "Instalación",
+      "reservedPower": "Potencia reservada",
+      "signalAmount": "Señal abonada",
+      "paymentDate": "Fecha de pago",
+      "body2": "Adjuntamos el precontrato y el justificante de pago para tu referencia.",
+      "body3": "Gracias por confiar en nosotros.",
+      "farewell": "Un saludo"
+    },
+    "signedContract": {
+      "subject": "Tu contrato firmado y reserva provisional - Sapiens Energía",
+      "greeting": "Hola {{clientName}},",
+      "body1": "Adjuntamos una copia de tu contrato firmado.",
+      "body2": "Hemos realizado una reserva provisional de {{reservedKwp}} kWp en la planta {{installationName}}.",
+      "body3": "Dispones de un plazo orientativo de 15 días, hasta el {{formattedDate}}, para realizar la transferencia y confirmar la reserva.",
+      "contractLink": "Puedes consultar también tu contrato aquí:",
+      "farewell": "Gracias por confiar en nosotros."
+    }
   }
 }

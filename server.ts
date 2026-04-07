@@ -14,21 +14,24 @@ import fs from "node:fs";
 import {
   sendProposalEmail,
   sendReservationConfirmedEmail,
-    sendBankTransferReservationEmail,
+  sendBankTransferReservationEmail,
 } from "./src/services/mailer.service";
 // dotenv.config();
-
+import esTranslations from "./src/i18n/locales/es/translation.json";
+import caTranslations from "./src/i18n/locales/ca/translation.json";
+import valTranslations from "./src/i18n/locales/val/translation.json";
+import glTranslations from "./src/i18n/locales/gal/translation.json";
 import crypto from "node:crypto";
 import jwt from "jsonwebtoken";
-import {jsPDF} from "jspdf";
+import { jsPDF } from "jspdf";
 const PORT = Number(process.env.PORT || 3000);
 const SAPIENS_CONTACT_PHONE =
   process.env.SAPIENS_CONTACT_PHONE || "960 99 27 77";
 const SAPIENS_CONTACT_EMAIL =
   process.env.SAPIENS_CONTACT_EMAIL || "info@sapiensenergia.es";
 
- const SAPIENS_BANK_ACCOUNT_IBAN =
-  process.env.SAPIENS_BANK_ACCOUNT_IBAN || "ES7001822339620201642233"; 
+const SAPIENS_BANK_ACCOUNT_IBAN =
+  process.env.SAPIENS_BANK_ACCOUNT_IBAN || "ES7001822339620201642233";
 
 //Strine
 
@@ -132,7 +135,55 @@ function pickFirstString(...values: unknown[]): string | null {
   return null;
 }
 type ProposalMode = "investment" | "service";
+type AppLanguage = "es" | "ca" | "val" | "gl";
 
+const TRANSLATIONS = {
+  es: esTranslations,
+  ca: caTranslations,
+  val: valTranslations,
+  gl: glTranslations,
+} as const;
+
+function getNestedTranslation(
+  obj: Record<string, any> | undefined,
+  path: string,
+): unknown {
+  return path.split(".").reduce<unknown>((acc, key) => {
+    if (!acc || typeof acc !== "object") return undefined;
+    return (acc as Record<string, unknown>)[key];
+  }, obj);
+}
+
+function tServer(
+  language: AppLanguage,
+  path: string,
+  fallback?: string,
+): string {
+  const localized = getNestedTranslation(TRANSLATIONS[language], path);
+  if (typeof localized === "string") return localized;
+
+  const base = getNestedTranslation(TRANSLATIONS.es, path);
+  if (typeof base === "string") return base;
+
+  return fallback ?? path;
+}
+
+function getLocaleFromLanguage(language: AppLanguage): string {
+  if (language === "ca" || language === "val") return "ca-ES";
+  if (language === "gl") return "gl-ES";
+  return "es-ES";
+}
+
+function formatCurrencyByLanguage(
+  amount: number,
+  currency: string,
+  language: AppLanguage,
+): string {
+  return new Intl.NumberFormat(getLocaleFromLanguage(language), {
+    style: "currency",
+    currency: currency.toUpperCase(),
+  }).format(amount);
+}
 function normalizeInstallationModalidad(
   modalidad: unknown,
 ): "inversion" | "servicio" | "ambas" {
@@ -147,6 +198,128 @@ function normalizeInstallationModalidad(
   if (value === "ambas") return "ambas";
 
   return "ambas";
+}
+
+function normalizeAppLanguage(value: unknown): AppLanguage {
+  const lang = String(value || "")
+    .trim()
+    .toLowerCase();
+
+  if (lang === "ca") return "ca";
+  if (lang === "val") return "val";
+  if (lang === "gl" || lang === "gal") return "gl";
+  return "es";
+}
+function getContractTexts(language: AppLanguage) {
+  return {
+    htmlLang: tServer(language, "contractPdf.htmlLang", "es"),
+    title: tServer(language, "contractPdf.title", "Contrato de adhesión"),
+    contractNumber: tServer(
+      language,
+      "contractPdf.contractNumber",
+      "Contrato nº",
+    ),
+    date: tServer(language, "contractPdf.date", "Fecha"),
+    clientData: tServer(
+      language,
+      "contractPdf.clientData",
+      "Datos del cliente",
+    ),
+    name: tServer(language, "contractPdf.name", "Nombre"),
+    dni: tServer(language, "contractPdf.dni", "DNI"),
+    email: tServer(language, "contractPdf.email", "Email"),
+    phone: tServer(language, "contractPdf.phone", "Teléfono"),
+    address: tServer(language, "contractPdf.address", "Dirección"),
+    installationData: tServer(
+      language,
+      "contractPdf.installationData",
+      "Datos de la instalación",
+    ),
+    installation: tServer(language, "contractPdf.installation", "Instalación"),
+    mode: tServer(language, "contractPdf.mode", "Modalidad"),
+    assignedKwp: tServer(language, "contractPdf.assignedKwp", "kWp asignados"),
+    basicConditions: tServer(
+      language,
+      "contractPdf.basicConditions",
+      "Condiciones básicas",
+    ),
+    condition1: tServer(language, "contractPdf.condition1"),
+    condition2: tServer(language, "contractPdf.condition2"),
+    condition3: tServer(language, "contractPdf.condition3"),
+    clientSignature: tServer(
+      language,
+      "contractPdf.clientSignature",
+      "Firma del cliente",
+    ),
+    investment: tServer(language, "contractPdf.modes.investment", "Inversión"),
+    service: tServer(language, "contractPdf.modes.service", "Servicio"),
+  };
+}
+
+function getPaymentReceiptTexts(language: AppLanguage) {
+  return {
+    title: tServer(language, "paymentReceipt.title", "Justificante de pago"),
+    precontractLabel: tServer(
+      language,
+      "paymentReceipt.precontractLabel",
+      "Precontrato",
+    ),
+    holderSection: tServer(language, "paymentReceipt.holderSection", "Titular"),
+    client: tServer(language, "paymentReceipt.client", "Cliente"),
+    dni: tServer(language, "paymentReceipt.dni", "DNI"),
+    reservationSection: tServer(
+      language,
+      "paymentReceipt.reservationSection",
+      "Reserva",
+    ),
+    contractId: tServer(language, "paymentReceipt.contractId", "Contrato ID"),
+    reservationId: tServer(
+      language,
+      "paymentReceipt.reservationId",
+      "Reserva ID",
+    ),
+    installation: tServer(
+      language,
+      "paymentReceipt.installation",
+      "Instalación",
+    ),
+    reservedPower: tServer(
+      language,
+      "paymentReceipt.reservedPower",
+      "Potencia reservada",
+    ),
+    paidAmount: tServer(
+      language,
+      "paymentReceipt.paidAmount",
+      "Importe abonado",
+    ),
+    currency: tServer(language, "paymentReceipt.currency", "Moneda"),
+    paymentDate: tServer(
+      language,
+      "paymentReceipt.paymentDate",
+      "Fecha de pago",
+    ),
+    stripeSection: tServer(
+      language,
+      "paymentReceipt.stripeSection",
+      "Referencia Stripe",
+    ),
+    checkoutSessionId: tServer(
+      language,
+      "paymentReceipt.checkoutSessionId",
+      "Checkout Session ID",
+    ),
+    paymentIntentId: tServer(
+      language,
+      "paymentReceipt.paymentIntentId",
+      "Payment Intent ID",
+    ),
+    footer: tServer(
+      language,
+      "paymentReceipt.footer",
+      "Este documento acredita la recepción de la señal asociada al precontrato de reserva/participación.",
+    ),
+  };
 }
 
 function getAllowedProposalModes(modalidad: unknown): ProposalMode[] {
@@ -171,8 +344,12 @@ function resolveProposalMode(
     : (allowedModes[0] ?? "investment");
 }
 
-function getProposalModeLabel(mode: ProposalMode): string {
-  return mode === "investment" ? "Inversión" : "Servicio";
+function getProposalModeLabel(
+  mode: ProposalMode,
+  language: AppLanguage,
+): string {
+  const texts = getContractTexts(language);
+  return mode === "investment" ? texts.investment : texts.service;
 }
 
 function getStudyCoordinates(study: any): { lat: number; lng: number } | null {
@@ -213,11 +390,15 @@ async function buildPaymentReceiptPdfBuffer(params: {
   paidAt: string;
   clientName: string;
   clientDni: string;
+  language: AppLanguage;
 }): Promise<Buffer> {
   const pdf = new jsPDF({
     unit: "pt",
     format: "a4",
   });
+
+  const texts = getPaymentReceiptTexts(params.language);
+  const locale = getLocaleFromLanguage(params.language);
 
   const margin = 48;
   const pageWidth = pdf.internal.pageSize.getWidth();
@@ -267,36 +448,33 @@ async function buildPaymentReceiptPdfBuffer(params: {
   };
 
   const formatAmount = (amount: number, currency: string) => {
-    return new Intl.NumberFormat("es-ES", {
-      style: "currency",
-      currency: currency.toUpperCase(),
-    }).format(amount);
+    return formatCurrencyByLanguage(amount, currency, params.language);
   };
 
-  const paymentDate = new Date(params.paidAt).toLocaleString("es-ES");
+  const paymentDate = new Date(params.paidAt).toLocaleString(locale);
 
-  writeTitle("Justificante de pago");
-  writeSubtitle(`Precontrato ${params.contractNumber}`);
+  writeTitle(texts.title);
+  writeSubtitle(`${texts.precontractLabel} ${params.contractNumber}`);
 
-  writeSectionTitle("Titular");
-  writeLine("Cliente", params.clientName);
+  writeSectionTitle(texts.holderSection);
+  writeLine(texts.client, params.clientName);
   writeLine("DNI", params.clientDni);
 
-  writeSectionTitle("Reserva");
-  writeLine("Contrato ID", params.contractId);
-  writeLine("Reserva ID", params.reservationId);
-  writeLine("Instalación", params.installationName);
-  writeLine("Potencia reservada", `${params.reservedKwp} kWp`);
+  writeSectionTitle(texts.reservationSection);
+  writeLine(texts.contractId, params.contractId);
+  writeLine(texts.reservationId, params.reservationId);
+  writeLine(texts.installation, params.installationName);
+  writeLine(texts.reservedPower, `${params.reservedKwp} kWp`);
   writeLine(
-    "Importe abonado",
+    texts.paidAmount,
     formatAmount(params.signalAmount, params.currency),
   );
-  writeLine("Moneda", params.currency.toUpperCase());
-  writeLine("Fecha de pago", paymentDate);
+  writeLine(texts.currency, params.currency.toUpperCase());
+  writeLine(texts.paymentDate, paymentDate);
 
-  writeSectionTitle("Referencia Stripe");
-  writeLine("Checkout Session ID", params.stripeSessionId);
-  writeLine("Payment Intent ID", params.stripePaymentIntentId ?? "-");
+  writeSectionTitle(texts.stripeSection);
+  writeLine(texts.checkoutSessionId, params.stripeSessionId);
+  writeLine(texts.paymentIntentId, params.stripePaymentIntentId ?? "-");
 
   y += 18;
   pdf.setDrawColor(220, 224, 230);
@@ -306,264 +484,13 @@ async function buildPaymentReceiptPdfBuffer(params: {
   pdf.setFont("helvetica", "normal");
   pdf.setFontSize(10);
   pdf.setTextColor(110, 110, 110);
-  const footer = pdf.splitTextToSize(
-    "Este documento acredita la recepción de la señal asociada al precontrato de reserva/participación.",
-    usableWidth,
-  );
+
+  const footer = pdf.splitTextToSize(texts.footer, usableWidth);
   pdf.text(footer, margin, y);
 
   const arrayBuffer = pdf.output("arraybuffer");
   return Buffer.from(arrayBuffer);
 }
-
-// async function sendReservationConfirmationAfterPayment(params: {
-//   reservationId: string;
-//   stripeSessionId: string;
-//   stripePaymentIntentId?: string | null;
-// }) {
-//   const { reservationId, stripeSessionId, stripePaymentIntentId } = params;
-
-//   const { data: reservation, error: reservationError } = await supabase
-//     .from("installation_reservations")
-//     .select("*")
-//     .eq("id", reservationId)
-//     .single();
-
-//   if (reservationError || !reservation) {
-//     throw new Error(
-//       reservationError?.message || "No se encontró la reserva para enviar el correo",
-//     );
-//   }
-
-//   const { data: contract, error: contractError } = await supabase
-//     .from("contracts")
-//     .select("*")
-//     .eq("id", reservation.contract_id)
-//     .single();
-
-//   if (contractError || !contract) {
-//     throw new Error(
-//       contractError?.message || "No se encontró el pre-contrato asociado",
-//     );
-//   }
-
-//   const alreadySentAt =
-//     (reservation.metadata as any)?.payment_confirmation_email_sent_at ?? null;
-
-//   if (alreadySentAt) {
-//     return;
-//   }
-
-//   const ctx = await getContractContextFromStudy(contract.study_id);
-
-//   if (!ctx.client.email) {
-//     throw new Error("El cliente no tiene email");
-//   }
-
-//   if (!contract.contract_drive_file_id) {
-//     throw new Error("El pre-contrato no tiene PDF asociado en Drive");
-//   }
-
-//   const precontractFile = await downloadDriveFileAsBuffer(
-//     contract.contract_drive_file_id,
-//   );
-
-//   const receiptBuffer = await buildPaymentReceiptPdfBuffer({
-//     contractNumber: contract.contract_number,
-//     contractId: contract.id,
-//     reservationId: reservation.id,
-//     installationName: ctx.installation.nombre_instalacion,
-//     reservedKwp: Number(reservation.reserved_kwp ?? 0),
-//     signalAmount: Number(reservation.signal_amount ?? 0),
-//     currency: String(reservation.currency || "eur").toUpperCase(),
-//     stripeSessionId,
-//     stripePaymentIntentId: stripePaymentIntentId ?? null,
-//     paidAt: new Date().toISOString(),
-//     clientName: `${ctx.client.nombre} ${ctx.client.apellidos}`.trim(),
-//     clientDni: ctx.client.dni,
-//   });
-
-//   await sendReservationConfirmedEmail({
-//     to: ctx.client.email,
-//     clientName: `${ctx.client.nombre} ${ctx.client.apellidos}`.trim(),
-//     precontractPdfBuffer: precontractFile.buffer,
-//     precontractPdfFilename:
-//       precontractFile.fileName || `PRECONTRATO_${contract.contract_number}.pdf`,
-//     receiptPdfBuffer: receiptBuffer,
-//     receiptPdfFilename: `JUSTIFICANTE_PAGO_${contract.contract_number}.pdf`,
-//     contractNumber: contract.contract_number,
-//     installationName: ctx.installation.nombre_instalacion,
-//     reservedKwp: Number(reservation.reserved_kwp ?? 0),
-//     signalAmount: Number(reservation.signal_amount ?? 0),
-//     paymentDate: new Date().toISOString(),
-//   });
-
-//   await supabase
-//     .from("installation_reservations")
-//     .update({
-//       metadata: {
-//         ...(reservation.metadata ?? {}),
-//         payment_confirmation_email_sent_at: new Date().toISOString(),
-//         stripe_checkout_session_id: stripeSessionId,
-//         stripe_payment_intent_id: stripePaymentIntentId ?? null,
-//       },
-//     })
-//     .eq("id", reservation.id);
-// }
-
-// type InstallationWithAvailability = {
-//   id: string;
-//   nombre_instalacion: string;
-//   direccion: string;
-//   lat: number;
-//   lng: number;
-//   active: boolean;
-//   potencia_instalada_kwp: number;
-//   distance_meters: number;
-//   totalKwp: number;
-//   usedKwp: number;
-//   availableKwp: number;
-//   occupancyPercent: number;
-// };
-
-// type FindEligibleInstallationsResult = {
-//   study: any;
-//   coords: { lat: number; lng: number };
-//   withinRange: InstallationWithAvailability[];
-//   eligible: InstallationWithAvailability[];
-//   recommended: InstallationWithAvailability | null;
-//   reason: "no_installations_in_range" | "no_capacity_in_range" | null;
-// };
-// async function findEligibleInstallationsForStudy(params: {
-//   studyId: string;
-//   assignedKwp: number;
-//   radiusMeters?: number;
-// }): Promise<FindEligibleInstallationsResult> {
-//   const radiusMeters = params.radiusMeters ?? 2000;
-
-//   const { data: study, error: studyError } = await supabase
-//     .from("studies")
-//     .select("*")
-//     .eq("id", params.studyId)
-//     .single();
-
-//   if (studyError || !study) {
-//     throw new Error("El estudio no existe");
-//   }
-
-//   const coords = getStudyCoordinates(study);
-
-//   if (!coords) {
-//     throw new Error(
-//       "El estudio no tiene coordenadas válidas para buscar instalaciones cercanas",
-//     );
-//   }
-
-//   const { data: installations, error: installationsError } = await supabase
-//     .from("installations")
-//     .select("*")
-//     .eq("active", true)
-//     .order("nombre_instalacion", { ascending: true });
-
-//   if (installationsError) {
-//     throw new Error(
-//       `No se pudieron obtener las instalaciones: ${installationsError.message}`,
-//     );
-//   }
-
-//   const withinRange = (installations ?? [])
-//     .map((installation) => {
-//       const distance_meters = haversineDistanceMeters(
-//         coords.lat,
-//         coords.lng,
-//         Number(installation.lat),
-//         Number(installation.lng),
-//       );
-
-//       return {
-//         ...installation,
-//         distance_meters,
-//       };
-//     })
-//     .filter((installation) => installation.distance_meters <= radiusMeters)
-//     .sort((a, b) => a.distance_meters - b.distance_meters);
-
-//   if (withinRange.length === 0) {
-//     return {
-//       study,
-//       coords,
-//       withinRange: [],
-//       eligible: [],
-//       recommended: null,
-//       reason: "no_installations_in_range" as const,
-//     };
-//   }
-
-//   const installationIds = withinRange.map((item) => item.id);
-
-//   const { data: relatedStudies, error: relatedStudiesError } = await supabase
-//     .from("studies")
-//     .select("id, selected_installation_id, assigned_kwp")
-//     .in("selected_installation_id", installationIds)
-//     .neq("id", params.studyId);
-
-//   if (relatedStudiesError) {
-//     throw new Error(
-//       `No se pudo calcular la ocupación actual: ${relatedStudiesError.message}`,
-//     );
-//   }
-
-//   const usedByInstallation = new Map<string, number>();
-
-//   for (const row of relatedStudies ?? []) {
-//     const installationId = String((row as any).selected_installation_id ?? "");
-//     const assigned = Number((row as any).assigned_kwp ?? 0);
-
-//     if (!installationId) continue;
-
-//     usedByInstallation.set(
-//       installationId,
-//       (usedByInstallation.get(installationId) ?? 0) + assigned,
-//     );
-//   }
-
-//   const eligible: InstallationWithAvailability[] = withinRange
-//     .map((installation) => {
-//       const totalKwp = Number(installation.potencia_instalada_kwp ?? 0);
-//       const usedKwp = usedByInstallation.get(String(installation.id)) ?? 0;
-//       const availableKwp = Math.max(totalKwp - usedKwp, 0);
-//       const occupancyPercent =
-//         totalKwp > 0 ? Number(((usedKwp / totalKwp) * 100).toFixed(2)) : 0;
-
-//       return {
-//         ...installation,
-//         totalKwp,
-//         usedKwp,
-//         availableKwp,
-//         occupancyPercent,
-//       };
-//     })
-//     .filter((installation) => installation.availableKwp >= params.assignedKwp)
-//     .sort((a, b) => {
-//       if (a.distance_meters !== b.distance_meters) {
-//         return a.distance_meters - b.distance_meters;
-//       }
-
-//       return a.occupancyPercent - b.occupancyPercent;
-//     });
-
-//   return {
-//     study,
-//     coords,
-//     withinRange,
-//     eligible,
-//     recommended: eligible[0] ?? null,
-//     reason:
-//       eligible.length === 0
-//         ? ("no_capacity_in_range" as const)
-//         : (null as null),
-//   };
-// }
 
 async function sendReservationConfirmationAfterPayment(params: {
   reservationId: string;
@@ -628,11 +555,13 @@ async function sendReservationConfirmationAfterPayment(params: {
   }
 
   const ctx = await getContractContextFromStudy(contract.study_id);
+  const language = normalizeAppLanguage(ctx.study?.language);
 
   console.log("[payment-email] client/context OK", {
     clientEmail: ctx.client.email,
     clientName: `${ctx.client.nombre} ${ctx.client.apellidos}`.trim(),
     installationName: ctx.installation.nombre_instalacion,
+    language,
   });
 
   if (!ctx.client.email) {
@@ -666,10 +595,12 @@ async function sendReservationConfirmationAfterPayment(params: {
     paidAt: new Date().toISOString(),
     clientName: `${ctx.client.nombre} ${ctx.client.apellidos}`.trim(),
     clientDni: ctx.client.dni,
+    language,
   });
 
   console.log("[payment-email] justificante generado", {
     size: receiptBuffer.length,
+    language,
   });
 
   await sendReservationConfirmedEmail({
@@ -685,10 +616,12 @@ async function sendReservationConfirmationAfterPayment(params: {
     reservedKwp: Number(reservation.reserved_kwp ?? 0),
     signalAmount: Number(reservation.signal_amount ?? 0),
     paymentDate: new Date().toISOString(),
+    language,
   });
 
   console.log("[payment-email] EMAIL ENVIADO OK", {
     to: ctx.client.email,
+    language,
   });
 
   const { error: updateReservationError } = await supabase
@@ -699,6 +632,7 @@ async function sendReservationConfirmationAfterPayment(params: {
       metadata: {
         ...(reservation.metadata ?? {}),
         payment_confirmation_email_sent_at: new Date().toISOString(),
+        payment_confirmation_email_language: language,
       },
     })
     .eq("id", reservation.id);
@@ -715,7 +649,6 @@ async function sendReservationConfirmationAfterPayment(params: {
 
   console.log("[payment-email] FIN OK");
 }
-
 type InstallationWithAvailability = {
   id: string;
   nombre_instalacion: string;
@@ -994,95 +927,6 @@ function toPositiveNumber(value: unknown): number | null {
   return parsed > 0 ? parsed : null;
 }
 
-// async function getInstallationCapacityState(params: {
-//   installationId: string;
-//   excludeStudyId?: string;
-// }) {
-//   const { installationId, excludeStudyId } = params;
-
-//   const { data: installation, error: installationError } = await supabase
-//     .from("installations")
-//     .select("id, nombre_instalacion, potencia_instalada_kwp, active")
-//     .eq("id", installationId)
-//     .single();
-
-//   if (installationError || !installation) {
-//     throw new Error("La instalación no existe");
-//   }
-
-//   if (!installation.active) {
-//     throw new Error("La instalación está inactiva");
-//   }
-
-//   let query = supabase
-//     .from("studies")
-//     .select("id, assigned_kwp")
-//     .eq("selected_installation_id", installationId);
-
-//   if (excludeStudyId) {
-//     query = query.neq("id", excludeStudyId);
-//   }
-
-//   const { data: relatedStudies, error: relatedStudiesError } = await query;
-
-//   if (relatedStudiesError) {
-//     throw new Error(
-//       `No se pudo calcular la ocupación de la instalación: ${relatedStudiesError.message}`,
-//     );
-//   }
-
-//   const usedKwp = (relatedStudies ?? []).reduce((acc, study) => {
-//     return acc + Number((study as any).assigned_kwp ?? 0);
-//   }, 0);
-
-//   const totalKwp = Number(installation.potencia_instalada_kwp ?? 0);
-//   const availableKwp = Math.max(totalKwp - usedKwp, 0);
-//   const occupancyPercent =
-//     totalKwp > 0 ? Number(((usedKwp / totalKwp) * 100).toFixed(2)) : 0;
-
-//   return {
-//     installation,
-//     totalKwp,
-//     usedKwp,
-//     availableKwp,
-//     occupancyPercent,
-//   };
-// }
-
-// async function validateInstallationAssignment(params: {
-//   installationId: string;
-//   assignedKwp: number;
-//   excludeStudyId?: string;
-// }) {
-//   const state = await getInstallationCapacityState({
-//     installationId: params.installationId,
-//     excludeStudyId: params.excludeStudyId,
-//   });
-
-//   const nextUsedKwp = state.usedKwp + params.assignedKwp;
-
-//   if (nextUsedKwp > state.totalKwp) {
-//     const availableKwp = Math.max(state.totalKwp - state.usedKwp, 0);
-
-//     throw new Error(
-//       `No hay capacidad suficiente en la instalación. Disponibles: ${availableKwp.toFixed(
-//         2,
-//       )} kWp`,
-//     );
-//   }
-
-//   return {
-//     ...state,
-//     assignedKwp: params.assignedKwp,
-//     nextUsedKwp,
-//     nextAvailableKwp: Math.max(state.totalKwp - nextUsedKwp, 0),
-//     nextOccupancyPercent:
-//       state.totalKwp > 0
-//         ? Number(((nextUsedKwp / state.totalKwp) * 100).toFixed(2))
-//         : 0,
-//   };
-// }
-
 async function downloadDriveFileAsBuffer(fileId: string) {
   const metadata = await drive.files.get({
     fileId,
@@ -1121,39 +965,6 @@ async function downloadDriveFileAsBuffer(fileId: string) {
     mimeType: metadata.data.mimeType ?? "application/pdf",
   };
 }
-
-// function buildInstallationSnapshot(params: {
-//   installation: {
-//     id: string;
-//     nombre_instalacion: string;
-//     potencia_instalada_kwp: number;
-//     active?: boolean;
-//   };
-//   assignedKwp: number;
-//   totalKwp: number;
-//   usedKwp: number;
-//   availableKwp: number;
-//   occupancyPercent: number;
-// }) {
-//   return {
-//     installationId: params.installation.id,
-//     installationName: params.installation.nombre_instalacion,
-//     installationData: {
-//       id: params.installation.id,
-//       nombre_instalacion: params.installation.nombre_instalacion,
-//       potencia_instalada_kwp: params.totalKwp,
-//       active: params.installation.active ?? true,
-//     },
-//     assigned_kwp: params.assignedKwp,
-//     occupancy: {
-//       total_kwp: params.totalKwp,
-//       used_kwp: params.usedKwp,
-//       available_kwp: params.availableKwp,
-//       occupancy_percent: params.occupancyPercent,
-//     },
-//     updated_at: new Date().toISOString(),
-//   };
-// }
 
 function getPeriodPrice(
   reqBody: any,
@@ -1407,14 +1218,16 @@ async function getContractContextFromStudy(studyId: string) {
     throw new Error("El estudio no tiene assigned_kwp válido");
   }
 
+  const language = normalizeAppLanguage(study.language);
+
   return {
     study,
     client,
     installation,
     assignedKwp,
+    language,
   };
 }
-
 function buildBasicContractHtml(params: {
   contractId: string;
   contractNumber: string;
@@ -1423,17 +1236,20 @@ function buildBasicContractHtml(params: {
   study: any;
   installation: any;
   assignedKwp: number;
+  language: AppLanguage;
 }) {
+  const texts = getContractTexts(params.language);
   const fullName = `${params.client.nombre} ${params.client.apellidos}`.trim();
-  const signedDate = new Date().toLocaleDateString("es-ES");
+  const signedDate = new Date().toLocaleDateString(
+    getLocaleFromLanguage(params.language),
+  );
 
   return `
     <!doctype html>
-    <html lang="es">
+    <html lang="${texts.htmlLang}">
       <head>
         <meta charset="UTF-8" />
-        <title>Contrato ${params.contractNumber}</title>
-        <style>
+<title>${texts.title} ${params.contractNumber}</title>        <style>
           body {
             font-family: Arial, sans-serif;
             color: #111827;
@@ -1469,48 +1285,44 @@ function buildBasicContractHtml(params: {
         </style>
       </head>
       <body>
-        <div class="title">Contrato de adhesión</div>
-        <div class="subtitle">Contrato nº ${
+        <div class="title">${texts.title}</div>
+        <div class="subtitle">${texts.contractNumber} ${
           params.contractNumber
-        } · Fecha ${signedDate}</div>
+        } · ${texts.date} ${signedDate}</div>
 
         <div class="box">
-          <h3>Datos del cliente</h3>
-          <p><strong>Nombre:</strong> ${fullName}</p>
-          <p><strong>DNI:</strong> ${params.client.dni}</p>
-          <p><strong>Email:</strong> ${params.client.email ?? "-"}</p>
-          <p><strong>Teléfono:</strong> ${params.client.telefono ?? "-"}</p>
-          <p><strong>Dirección:</strong> ${
+          <h3>${texts.clientData}</h3>
+          <p><strong>${texts.name}:</strong> ${fullName}</p>
+          <p><strong>${texts.dni}:</strong> ${params.client.dni}</p>
+          <p><strong>${texts.email}:</strong> ${params.client.email ?? "-"}</p>
+          <p><strong>${texts.phone}:</strong> ${params.client.telefono ?? "-"}</p>
+          <p><strong>${texts.address}:</strong> ${
             params.client.direccion_completa ?? "-"
           }</p>
         </div>
 
         <div class="box">
-          <h3>Datos de la instalación</h3>
-          <p><strong>Instalación:</strong> ${
+          <h3>${texts.installationData}</h3>
+          <p><strong>${texts.installation}:</strong> ${
             params.installation.nombre_instalacion
           }</p>
-          <p><strong>Dirección:</strong> ${params.installation.direccion}</p>
-<p><strong>Modalidad:</strong> ${getProposalModeLabel(params.proposalMode)}</p>          <p><strong>kWp asignados:</strong> ${params.assignedKwp}</p>
+          <p><strong>${texts.address}:</strong> ${params.installation.direccion}</p>
+          <p><strong>${texts.mode}:</strong> ${getProposalModeLabel(
+            params.proposalMode,
+            params.language,
+          )}</p>
+          <p><strong>${texts.assignedKwp}:</strong> ${params.assignedKwp}</p>
         </div>
 
         <div class="box">
-          <h3>Condiciones básicas</h3>
-          <p>
-            El cliente solicita la reserva de la potencia indicada en la instalación
-            seleccionada, quedando dicha reserva pendiente de confirmación económica.
-          </p>
-          <p>
-            Se informa al cliente de un plazo orientativo de 15 días para realizar
-            la transferencia correspondiente.
-          </p>
-          <p>
-            Hasta la validación del pago, la reserva tendrá carácter provisional.
-          </p>
+          <h3>${texts.basicConditions}</h3>
+          <p>${texts.condition1}</p>
+          <p>${texts.condition2}</p>
+          <p>${texts.condition3}</p>
         </div>
 
         <div class="signature">
-          <p><strong>Firma del cliente:</strong></p>
+          <p><strong>${texts.clientSignature}:</strong></p>
           <div style="height: 80px;"></div>
         </div>
       </body>
@@ -2345,9 +2157,9 @@ async function startServer() {
         const assignedKwp = toPositiveNumber(
           req.body.assignedKwp ?? req.body.assigned_kwp,
         );
-
+        const appLanguage = normalizeAppLanguage(req.body.language);
         const studyInsert = {
-          language: req.body.language ?? "ES",
+          language: appLanguage,
           consent_accepted: toBoolean(req.body.consent_accepted),
           source_file: {
             ...(sourceFile ?? {}),
@@ -2440,6 +2252,7 @@ async function startServer() {
                 `PROPUESTA_${normalizeDriveToken(dni)}.pdf`,
               proposalUrl: uploadedProposal?.webViewLink ?? null,
               continueContractUrl,
+              language: appLanguage,
             });
 
             emailStatus = "sent";
@@ -2698,7 +2511,7 @@ async function startServer() {
         clientId: client.id,
         expiresInDays: 15,
       });
-
+      const language = normalizeAppLanguage(study.language);
       await sendProposalEmail({
         to: email,
         clientName: `${nombre} ${apellidos}`.trim(),
@@ -2706,6 +2519,7 @@ async function startServer() {
         pdfFilename: driveProposal.fileName,
         proposalUrl,
         continueContractUrl: access.continueUrl,
+        language,
       });
 
       const { data: updatedStudy } = await supabase
@@ -2933,7 +2747,7 @@ async function startServer() {
         .from("studies")
         .insert([
           {
-            language: payload.language ?? "ES",
+            language: normalizeAppLanguage(payload.language),
             consent_accepted: payload.consent_accepted ?? false,
             source_file: payload.source_file ?? null,
             customer: payload.customer ?? null,
@@ -3491,19 +3305,21 @@ async function startServer() {
             study.selected_installation_snapshot ?? null,
         },
         installation: {
-  id: installation.id,
-  nombre_instalacion: installation.nombre_instalacion,
-  direccion: installation.direccion,
-  modalidad: installation.modalidad,
-  availableProposalModes: getAllowedProposalModes(installation.modalidad),
-  defaultProposalMode:
-    getAllowedProposalModes(installation.modalidad)[0] ?? "investment",
-  contractable_kwp_total: installation.contractable_kwp_total ?? null,
-  contractable_kwp_reserved:
-    installation.contractable_kwp_reserved ?? null,
-  contractable_kwp_confirmed:
-    installation.contractable_kwp_confirmed ?? null,
-},
+          id: installation.id,
+          nombre_instalacion: installation.nombre_instalacion,
+          direccion: installation.direccion,
+          modalidad: installation.modalidad,
+          availableProposalModes: getAllowedProposalModes(
+            installation.modalidad,
+          ),
+          defaultProposalMode:
+            getAllowedProposalModes(installation.modalidad)[0] ?? "investment",
+          contractable_kwp_total: installation.contractable_kwp_total ?? null,
+          contractable_kwp_reserved:
+            installation.contractable_kwp_reserved ?? null,
+          contractable_kwp_confirmed:
+            installation.contractable_kwp_confirmed ?? null,
+        },
         existingContract: existingContract
           ? {
               id: existingContract.id,
@@ -3602,11 +3418,11 @@ async function startServer() {
         });
       }
 
-   const requestedProposalMode = req.body?.proposalMode;
-const proposalMode = resolveProposalMode(
-  requestedProposalMode,
-  installation.modalidad,
-);
+      const requestedProposalMode = req.body?.proposalMode;
+      const proposalMode = resolveProposalMode(
+        requestedProposalMode,
+        installation.modalidad,
+      );
 
       const { data: existingContract, error: existingContractError } =
         await supabase
@@ -3624,39 +3440,41 @@ const proposalMode = resolveProposalMode(
 
       let contract = existingContract;
       if (
-  contract &&
-  contract.status === "generated" &&
-  !contract.signed_at &&
-  !contract.uploaded_at &&
-  contract.proposal_mode !== proposalMode
-) {
-  const { data: updatedExistingContract, error: updateExistingContractError } =
-    await supabase
-      .from("contracts")
-      .update({
-        proposal_mode: proposalMode,
-        metadata: {
-          ...(contract.metadata ?? {}),
-          assigned_kwp: assignedKwp,
-          created_from_resume_access: true,
-          proposal_mode_updated_from_access: true,
-          proposal_mode_updated_at: new Date().toISOString(),
-        },
-      })
-      .eq("id", contract.id)
-      .select()
-      .single();
+        contract &&
+        contract.status === "generated" &&
+        !contract.signed_at &&
+        !contract.uploaded_at &&
+        contract.proposal_mode !== proposalMode
+      ) {
+        const {
+          data: updatedExistingContract,
+          error: updateExistingContractError,
+        } = await supabase
+          .from("contracts")
+          .update({
+            proposal_mode: proposalMode,
+            metadata: {
+              ...(contract.metadata ?? {}),
+              assigned_kwp: assignedKwp,
+              created_from_resume_access: true,
+              proposal_mode_updated_from_access: true,
+              proposal_mode_updated_at: new Date().toISOString(),
+            },
+          })
+          .eq("id", contract.id)
+          .select()
+          .single();
 
-  if (updateExistingContractError || !updatedExistingContract) {
-    return res.status(500).json({
-      error: "No se pudo actualizar la modalidad del contrato existente",
-      details:
-        updateExistingContractError?.message ?? "Error desconocido",
-    });
-  }
+        if (updateExistingContractError || !updatedExistingContract) {
+          return res.status(500).json({
+            error: "No se pudo actualizar la modalidad del contrato existente",
+            details:
+              updateExistingContractError?.message ?? "Error desconocido",
+          });
+        }
 
-  contract = updatedExistingContract;
-}
+        contract = updatedExistingContract;
+      }
 
       if (!contract) {
         const insertPayload = {
@@ -3769,6 +3587,8 @@ const proposalMode = resolveProposalMode(
         });
       }
 
+      const language = normalizeAppLanguage(study.language);
+
       const previewHtml = buildBasicContractHtml({
         contractId: contract.id,
         contractNumber: contract.contract_number,
@@ -3777,6 +3597,7 @@ const proposalMode = resolveProposalMode(
         study,
         installation,
         assignedKwp,
+        language,
       });
 
       return res.json({
@@ -3817,14 +3638,12 @@ const proposalMode = resolveProposalMode(
     try {
       const { studyId } = req.params;
 
-  
-
       const ctx = await getContractContextFromStudy(studyId);
       const requestedProposalMode = req.body?.proposalMode;
-const proposalMode = resolveProposalMode(
-  requestedProposalMode,
-  ctx.installation.modalidad,
-);
+      const proposalMode = resolveProposalMode(
+        requestedProposalMode,
+        ctx.installation.modalidad,
+      );
 
       const { data: existingContract } = await supabase
         .from("contracts")
@@ -3834,38 +3653,40 @@ const proposalMode = resolveProposalMode(
 
       let contract = existingContract;
       if (
-  contract &&
-  contract.status === "generated" &&
-  !contract.signed_at &&
-  !contract.uploaded_at &&
-  contract.proposal_mode !== proposalMode
-) {
-  const { data: updatedExistingContract, error: updateExistingContractError } =
-    await supabase
-      .from("contracts")
-      .update({
-        proposal_mode: proposalMode,
-        metadata: {
-          ...(contract.metadata ?? {}),
-          assigned_kwp: ctx.assignedKwp,
-          proposal_mode_updated_from_study: true,
-          proposal_mode_updated_at: new Date().toISOString(),
-        },
-      })
-      .eq("id", contract.id)
-      .select()
-      .single();
+        contract &&
+        contract.status === "generated" &&
+        !contract.signed_at &&
+        !contract.uploaded_at &&
+        contract.proposal_mode !== proposalMode
+      ) {
+        const {
+          data: updatedExistingContract,
+          error: updateExistingContractError,
+        } = await supabase
+          .from("contracts")
+          .update({
+            proposal_mode: proposalMode,
+            metadata: {
+              ...(contract.metadata ?? {}),
+              assigned_kwp: ctx.assignedKwp,
+              proposal_mode_updated_from_study: true,
+              proposal_mode_updated_at: new Date().toISOString(),
+            },
+          })
+          .eq("id", contract.id)
+          .select()
+          .single();
 
-  if (updateExistingContractError || !updatedExistingContract) {
-    return res.status(500).json({
-      error: "No se pudo actualizar la modalidad del contrato existente",
-      details:
-        updateExistingContractError?.message ?? "Error desconocido",
-    });
-  }
+        if (updateExistingContractError || !updatedExistingContract) {
+          return res.status(500).json({
+            error: "No se pudo actualizar la modalidad del contrato existente",
+            details:
+              updateExistingContractError?.message ?? "Error desconocido",
+          });
+        }
 
-  contract = updatedExistingContract;
-}
+        contract = updatedExistingContract;
+      }
 
       if (!contract) {
         const insertPayload = {
@@ -3906,6 +3727,7 @@ const proposalMode = resolveProposalMode(
         study: ctx.study,
         installation: ctx.installation,
         assignedKwp: ctx.assignedKwp,
+        language: ctx.language,
       });
 
       return res.json({
@@ -3972,8 +3794,6 @@ const proposalMode = resolveProposalMode(
       });
     }
   });
-
-
 
   // app.post(
   //   "/api/contracts/:id/sign",
@@ -4288,28 +4108,273 @@ const proposalMode = resolveProposalMode(
   // );
 
   app.post(
-  "/api/contracts/:id/sign",
-  upload.fields([
-    { name: "signed_contract", maxCount: 1 },
-    { name: "file", maxCount: 1 },
-  ]),
-  async (req, res) => {
-    try {
-      const { id } = req.params;
+    "/api/contracts/:id/sign",
+    upload.fields([
+      { name: "signed_contract", maxCount: 1 },
+      { name: "file", maxCount: 1 },
+    ]),
+    async (req, res) => {
+      try {
+        const { id } = req.params;
 
-      const files =
-        (req.files as {
-          [fieldname: string]: Express.Multer.File[];
-        }) || {};
+        const files =
+          (req.files as {
+            [fieldname: string]: Express.Multer.File[];
+          }) || {};
 
-      const signedContractFile =
-        files.signed_contract?.[0] || files.file?.[0] || null;
+        const signedContractFile =
+          files.signed_contract?.[0] || files.file?.[0] || null;
 
-      if (!signedContractFile) {
-        return res.status(400).json({
-          error: "Debes enviar el PDF firmado del pre-contrato",
+        if (!signedContractFile) {
+          return res.status(400).json({
+            error: "Debes enviar el PDF firmado del pre-contrato",
+          });
+        }
+
+        const { data: contract, error: contractError } = await supabase
+          .from("contracts")
+          .select("*")
+          .eq("id", id)
+          .single();
+
+        if (contractError || !contract) {
+          return res.status(404).json({
+            error: "Contrato no encontrado",
+            details: contractError?.message ?? "El contrato no existe",
+          });
+        }
+
+        if (contract.status !== "generated") {
+          return res.status(409).json({
+            alreadySigned: true,
+            error: "Este pre-contrato ya fue firmado anteriormente",
+            message: "Este pre-contrato ya fue firmado anteriormente",
+            contract: {
+              id: contract.id,
+              status: contract.status,
+              contract_number: contract.contract_number,
+            },
+          });
+        }
+
+        const { data: existingReservation, error: existingReservationError } =
+          await supabase
+            .from("installation_reservations")
+            .select(
+              "id, reservation_status, payment_status, payment_deadline_at, signal_amount, currency, stripe_checkout_session_id",
+            )
+            .eq("contract_id", contract.id)
+            .maybeSingle();
+
+        if (existingReservationError) {
+          return res.status(500).json({
+            error: "No se pudo comprobar si ya existe una reserva asociada",
+            details: existingReservationError.message,
+          });
+        }
+
+        if (existingReservation) {
+          return res.status(409).json({
+            alreadySigned: true,
+            error: "Este pre-contrato ya tiene una reserva asociada",
+            message: "Este pre-contrato ya fue firmado anteriormente",
+            contract: {
+              id: contract.id,
+              status: contract.status,
+              contract_number: contract.contract_number,
+            },
+            reservationSummary: {
+              reservationId: existingReservation.id,
+              reservationStatus: existingReservation.reservation_status ?? null,
+              paymentStatus: existingReservation.payment_status ?? null,
+              paymentDeadlineAt:
+                existingReservation.payment_deadline_at ?? null,
+              signalAmount: existingReservation.signal_amount ?? null,
+              currency: existingReservation.currency ?? null,
+              stripeCheckoutSessionId:
+                existingReservation.stripe_checkout_session_id ?? null,
+            },
+          });
+        }
+
+        const ctx = await getContractContextFromStudy(contract.study_id);
+
+        const contractsFolders =
+          await ensureContractsStatusFolder("PendientesPago");
+
+        const contractFileName = buildContractFileName({
+          dni: ctx.client.dni,
+          nombre: ctx.client.nombre,
+          apellidos: ctx.client.apellidos,
+          contractId: contract.id,
+        });
+
+        const uploadedContract = await uploadBufferToDrive({
+          folderId: contractsFolders.folder.id,
+          fileName: contractFileName,
+          mimeType: signedContractFile.mimetype || "application/pdf",
+          buffer: signedContractFile.buffer,
+        });
+
+        const paymentDeadlineAt = new Date(
+          Date.now() + 15 * 24 * 60 * 60 * 1000,
+        ).toISOString();
+
+        const signalAmount =
+          toPositiveNumber(
+            req.body.signalAmount ??
+              req.body.signal_amount ??
+              contract?.metadata?.signal_amount ??
+              DEFAULT_SIGNAL_AMOUNT_EUR,
+          ) ?? null;
+
+        if (signalAmount === null) {
+          return res.status(400).json({
+            error: "La señal debe ser un número mayor que 0",
+          });
+        }
+
+        const currency = String(req.body.currency || "eur")
+          .trim()
+          .toLowerCase();
+
+        const { data: reservation, error: reservationError } =
+          await supabase.rpc("reserve_installation_kwp", {
+            p_installation_id: ctx.installation.id,
+            p_study_id: ctx.study.id,
+            p_client_id: ctx.client.id,
+            p_contract_id: contract.id,
+            p_reserved_kwp: ctx.assignedKwp,
+            p_payment_deadline_at: paymentDeadlineAt,
+            p_deadline_enforced: false,
+            p_notes:
+              "Reserva creada tras firma del pre-contrato y pendiente de selección de método de pago",
+          });
+
+        if (reservationError) {
+          return res.status(400).json({
+            error: "No se pudo crear la reserva de kWp",
+            details: reservationError.message,
+          });
+        }
+
+        const reservationId = Array.isArray(reservation)
+          ? reservation[0]?.id
+          : (reservation as any)?.id;
+
+        if (!reservationId) {
+          return res.status(500).json({
+            error: "La reserva se creó pero no devolvió id",
+          });
+        }
+
+        const { error: reservationUpdateError } = await supabase
+          .from("installation_reservations")
+          .update({
+            signal_amount: signalAmount,
+            currency,
+            metadata: {
+              payment_method: null,
+              payment_method_selected_at: null,
+              payment_options_available: ["stripe", "bank_transfer"],
+            },
+          })
+          .eq("id", reservationId);
+
+        if (reservationUpdateError) {
+          return res.status(500).json({
+            error: "No se pudo guardar la señal y moneda en la reserva",
+            details: reservationUpdateError.message,
+          });
+        }
+
+        const nowIso = new Date().toISOString();
+
+        const { data: updatedContract, error: updateContractError } =
+          await supabase
+            .from("contracts")
+            .update({
+              status: "uploaded",
+              signed_at: nowIso,
+              uploaded_at: nowIso,
+              drive_folder_id: contractsFolders.folder.id,
+              drive_folder_url: contractsFolders.folder.webViewLink,
+              contract_drive_file_id: uploadedContract.id,
+              contract_drive_url: uploadedContract.webViewLink,
+              metadata: {
+                ...(contract.metadata ?? {}),
+                assigned_kwp: ctx.assignedKwp,
+                reservation_created: true,
+                reservation_id: reservationId,
+                reservation_status: "pending_payment",
+                payment_status: "pending",
+                payment_deadline_at: paymentDeadlineAt,
+                signal_amount: signalAmount,
+                currency,
+                payment_method: null,
+                payment_step: "pending_method_selection",
+              },
+            })
+            .eq("id", contract.id)
+            .select()
+            .single();
+
+        if (updateContractError) {
+          return res.status(500).json({
+            error: "No se pudo actualizar el contrato tras la firma",
+            details: updateContractError.message,
+          });
+        }
+
+        return res.status(201).json({
+          success: true,
+          message:
+            "Pre-contrato firmado y reserva creada correctamente. Ahora el cliente debe seleccionar la forma de pago.",
+          contract: updatedContract,
+          reservation: {
+            id: reservationId,
+            reservationStatus: "pending_payment",
+            paymentStatus: "pending",
+            paymentDeadlineAt,
+            signalAmount,
+            currency,
+            installationName: ctx.installation.nombre_instalacion,
+            reservedKwp: ctx.assignedKwp,
+          },
+          payment: {
+            step: "select_method",
+            availableMethods: [
+              {
+                id: "bank_transfer",
+                label: "Transferencia bancaria",
+              },
+              {
+                id: "stripe",
+                label: "Tarjeta",
+              },
+            ],
+          },
+          drive: {
+            contractsRootFolderUrl: contractsFolders.root.webViewLink,
+            contractFolderUrl: contractsFolders.folder.webViewLink,
+            contractFileUrl: uploadedContract.webViewLink,
+          },
+        });
+      } catch (error: any) {
+        console.error("Error en /api/contracts/:id/sign:", error);
+
+        return res.status(500).json({
+          error: "No se pudo firmar/subir el contrato",
+          details: error?.message || "Error desconocido",
         });
       }
+    },
+  );
+
+  //STRIPE PAYMENT INTENT WEBHOOK
+  app.post("/api/contracts/:id/payments/stripe", async (req, res) => {
+    try {
+      const { id } = req.params;
 
       const { data: contract, error: contractError } = await supabase
         .from("contracts")
@@ -4324,86 +4389,44 @@ const proposalMode = resolveProposalMode(
         });
       }
 
-      if (contract.status !== "generated") {
-        return res.status(409).json({
-          alreadySigned: true,
-          error: "Este pre-contrato ya fue firmado anteriormente",
-          message: "Este pre-contrato ya fue firmado anteriormente",
-          contract: {
-            id: contract.id,
-            status: contract.status,
-            contract_number: contract.contract_number,
-          },
-        });
-      }
+      const { data: reservation, error: reservationError } = await supabase
+        .from("installation_reservations")
+        .select("*")
+        .eq("contract_id", contract.id)
+        .maybeSingle();
 
-      const { data: existingReservation, error: existingReservationError } =
-        await supabase
-          .from("installation_reservations")
-          .select(
-            "id, reservation_status, payment_status, payment_deadline_at, signal_amount, currency, stripe_checkout_session_id",
-          )
-          .eq("contract_id", contract.id)
-          .maybeSingle();
-
-      if (existingReservationError) {
+      if (reservationError) {
         return res.status(500).json({
-          error: "No se pudo comprobar si ya existe una reserva asociada",
-          details: existingReservationError.message,
+          error: "No se pudo consultar la reserva asociada",
+          details: reservationError.message,
         });
       }
 
-      if (existingReservation) {
+      if (!reservation) {
+        return res.status(404).json({
+          error: "No existe una reserva asociada a este contrato",
+        });
+      }
+
+      if (reservation.payment_status === "paid") {
         return res.status(409).json({
-          alreadySigned: true,
-          error: "Este pre-contrato ya tiene una reserva asociada",
-          message: "Este pre-contrato ya fue firmado anteriormente",
-          contract: {
-            id: contract.id,
-            status: contract.status,
-            contract_number: contract.contract_number,
-          },
-          reservationSummary: {
-            reservationId: existingReservation.id,
-            reservationStatus: existingReservation.reservation_status ?? null,
-            paymentStatus: existingReservation.payment_status ?? null,
-            paymentDeadlineAt:
-              existingReservation.payment_deadline_at ?? null,
-            signalAmount: existingReservation.signal_amount ?? null,
-            currency: existingReservation.currency ?? null,
-            stripeCheckoutSessionId:
-              existingReservation.stripe_checkout_session_id ?? null,
-          },
+          error: "La reserva ya está pagada",
+        });
+      }
+
+      if (reservation.reservation_status !== "pending_payment") {
+        return res.status(409).json({
+          error: "La reserva ya no está pendiente de pago",
+          reservationStatus: reservation.reservation_status ?? null,
+          paymentStatus: reservation.payment_status ?? null,
         });
       }
 
       const ctx = await getContractContextFromStudy(contract.study_id);
 
-      const contractsFolders =
-        await ensureContractsStatusFolder("PendientesPago");
-
-      const contractFileName = buildContractFileName({
-        dni: ctx.client.dni,
-        nombre: ctx.client.nombre,
-        apellidos: ctx.client.apellidos,
-        contractId: contract.id,
-      });
-
-      const uploadedContract = await uploadBufferToDrive({
-        folderId: contractsFolders.folder.id,
-        fileName: contractFileName,
-        mimeType: signedContractFile.mimetype || "application/pdf",
-        buffer: signedContractFile.buffer,
-      });
-
-      const paymentDeadlineAt = new Date(
-        Date.now() + 15 * 24 * 60 * 60 * 1000,
-      ).toISOString();
-
       const signalAmount =
         toPositiveNumber(
-          req.body.signalAmount ??
-            req.body.signal_amount ??
+          reservation.signal_amount ??
             contract?.metadata?.signal_amount ??
             DEFAULT_SIGNAL_AMOUNT_EUR,
         ) ?? null;
@@ -4414,39 +4437,224 @@ const proposalMode = resolveProposalMode(
         });
       }
 
-      const currency = String(req.body.currency || "eur")
+      const currency = String(
+        reservation.currency || contract?.metadata?.currency || "eur",
+      )
         .trim()
         .toLowerCase();
 
-      const { data: reservation, error: reservationError } =
-        await supabase.rpc("reserve_installation_kwp", {
-          p_installation_id: ctx.installation.id,
-          p_study_id: ctx.study.id,
-          p_client_id: ctx.client.id,
-          p_contract_id: contract.id,
-          p_reserved_kwp: ctx.assignedKwp,
-          p_payment_deadline_at: paymentDeadlineAt,
-          p_deadline_enforced: false,
-          p_notes:
-            "Reserva creada tras firma del pre-contrato y pendiente de selección de método de pago",
+      const paymentDeadlineAt =
+        reservation.payment_deadline_at ??
+        new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString();
+
+      const checkoutSession = await createCheckoutSessionForReservation({
+        reservationId: reservation.id,
+        contractId: contract.id,
+        studyId: ctx.study.id,
+        clientId: ctx.client.id,
+        installationId: ctx.installation.id,
+        installationName: ctx.installation.nombre_instalacion,
+        clientEmail: ctx.client.email ?? null,
+        signalAmount,
+        currency,
+        paymentDeadlineAt,
+      });
+
+      const nowIso = new Date().toISOString();
+
+      const { error: reservationUpdateError } = await supabase
+        .from("installation_reservations")
+        .update({
+          stripe_checkout_session_id: checkoutSession.id,
+          signal_amount: signalAmount,
+          currency,
+          metadata: {
+            ...(reservation.metadata ?? {}),
+            payment_method: "stripe",
+            payment_method_selected_at: nowIso,
+          },
+        })
+        .eq("id", reservation.id);
+
+      if (reservationUpdateError) {
+        return res.status(500).json({
+          error: "No se pudo guardar la selección de pago con Stripe",
+          details: reservationUpdateError.message,
         });
+      }
+
+      const { data: updatedContract, error: contractUpdateError } =
+        await supabase
+          .from("contracts")
+          .update({
+            metadata: {
+              ...(contract.metadata ?? {}),
+              signal_amount: signalAmount,
+              currency,
+              payment_method: "stripe",
+              payment_method_selected_at: nowIso,
+              payment_step: "redirect_to_stripe",
+              stripe_checkout_session_id: checkoutSession.id,
+            },
+          })
+          .eq("id", contract.id)
+          .select()
+          .single();
+
+      if (contractUpdateError) {
+        return res.status(500).json({
+          error: "No se pudo actualizar el contrato tras seleccionar Stripe",
+          details: contractUpdateError.message,
+        });
+      }
+
+      return res.json({
+        success: true,
+        message:
+          "Método de pago seleccionado correctamente. Redirigiendo a Stripe.",
+        contract: {
+          id: updatedContract.id,
+          status: updatedContract.status,
+          contractNumber: updatedContract.contract_number,
+        },
+        reservation: {
+          id: reservation.id,
+          reservationStatus:
+            reservation.reservation_status ?? "pending_payment",
+          paymentStatus: reservation.payment_status ?? "pending",
+          paymentDeadlineAt,
+          signalAmount,
+          currency,
+          paymentMethod: "stripe",
+        },
+        stripe: {
+          checkoutSessionId: checkoutSession.id,
+          checkoutUrl: checkoutSession.url,
+        },
+      });
+    } catch (error: any) {
+      console.error("Error en /api/contracts/:id/payments/stripe:", error);
+
+      return res.status(500).json({
+        error: "No se pudo iniciar el pago con Stripe",
+        details: error?.message || "Error desconocido",
+      });
+    }
+  });
+
+  app.post("/api/contracts/:id/payments/bank-transfer", async (req, res) => {
+    try {
+      const { id } = req.params;
+
+      const { data: contract, error: contractError } = await supabase
+        .from("contracts")
+        .select("*")
+        .eq("id", id)
+        .single();
+
+      if (contractError || !contract) {
+        return res.status(404).json({
+          error: "Contrato no encontrado",
+          details: contractError?.message ?? "El contrato no existe",
+        });
+      }
+
+      const { data: reservation, error: reservationError } = await supabase
+        .from("installation_reservations")
+        .select("*")
+        .eq("contract_id", contract.id)
+        .maybeSingle();
 
       if (reservationError) {
-        return res.status(400).json({
-          error: "No se pudo crear la reserva de kWp",
+        return res.status(500).json({
+          error: "No se pudo consultar la reserva asociada",
           details: reservationError.message,
         });
       }
 
-      const reservationId = Array.isArray(reservation)
-        ? reservation[0]?.id
-        : (reservation as any)?.id;
-
-      if (!reservationId) {
-        return res.status(500).json({
-          error: "La reserva se creó pero no devolvió id",
+      if (!reservation) {
+        return res.status(404).json({
+          error: "No existe una reserva asociada a este contrato",
         });
       }
+
+      if (reservation.payment_status === "paid") {
+        return res.status(409).json({
+          error: "La reserva ya está pagada",
+        });
+      }
+
+      if (reservation.reservation_status !== "pending_payment") {
+        return res.status(409).json({
+          error: "La reserva ya no está pendiente de pago",
+          reservationStatus: reservation.reservation_status ?? null,
+          paymentStatus: reservation.payment_status ?? null,
+        });
+      }
+
+      const ctx = await getContractContextFromStudy(contract.study_id);
+
+      if (!ctx.client.email) {
+        return res.status(400).json({
+          error:
+            "El cliente no tiene email para enviar las instrucciones de transferencia",
+        });
+      }
+
+      if (!contract.contract_drive_file_id) {
+        return res.status(400).json({
+          error: "El contrato no tiene PDF firmado asociado en Drive",
+        });
+      }
+
+      const signalAmount =
+        toPositiveNumber(
+          reservation.signal_amount ??
+            contract?.metadata?.signal_amount ??
+            DEFAULT_SIGNAL_AMOUNT_EUR,
+        ) ?? null;
+
+      if (signalAmount === null) {
+        return res.status(400).json({
+          error: "La señal debe ser un número mayor que 0",
+        });
+      }
+
+      const currency = String(
+        reservation.currency || contract?.metadata?.currency || "eur",
+      )
+        .trim()
+        .toLowerCase();
+
+      const paymentDeadlineAt =
+        reservation.payment_deadline_at ??
+        new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString();
+
+      const precontractFile = await downloadDriveFileAsBuffer(
+        contract.contract_drive_file_id,
+      );
+
+      const transferConcept = `Reserva ${contract.contract_number}`;
+      const nowIso = new Date().toISOString();
+
+      await sendBankTransferReservationEmail({
+        to: ctx.client.email,
+        clientName: `${ctx.client.nombre} ${ctx.client.apellidos}`.trim(),
+        precontractPdfBuffer: precontractFile.buffer,
+        precontractPdfFilename:
+          precontractFile.fileName ||
+          `PRECONTRATO_${contract.contract_number}.pdf`,
+        contractNumber: contract.contract_number,
+        installationName: ctx.installation.nombre_instalacion,
+        reservedKwp: Number(reservation.reserved_kwp ?? ctx.assignedKwp ?? 0),
+        signalAmount,
+        currency,
+        paymentDeadlineAt,
+        bankAccountIban: SAPIENS_BANK_ACCOUNT_IBAN,
+        bankBeneficiary: "Sapiens Energía",
+        transferConcept,
+        language: ctx.language,
+      });
 
       const { error: reservationUpdateError } = await supabase
         .from("installation_reservations")
@@ -4454,470 +4662,91 @@ const proposalMode = resolveProposalMode(
           signal_amount: signalAmount,
           currency,
           metadata: {
-            payment_method: null,
-            payment_method_selected_at: null,
-            payment_options_available: ["stripe", "bank_transfer"],
+            ...(reservation.metadata ?? {}),
+            payment_method: "bank_transfer",
+            payment_method_selected_at: nowIso,
+            bank_transfer_email_sent_at: nowIso,
+            bank_account_iban: SAPIENS_BANK_ACCOUNT_IBAN,
+            transfer_concept: transferConcept,
           },
         })
-        .eq("id", reservationId);
+        .eq("id", reservation.id);
 
       if (reservationUpdateError) {
         return res.status(500).json({
-          error: "No se pudo guardar la señal y moneda en la reserva",
+          error:
+            "No se pudo actualizar la reserva tras seleccionar transferencia",
           details: reservationUpdateError.message,
         });
       }
 
-      const nowIso = new Date().toISOString();
-
-      const { data: updatedContract, error: updateContractError } =
+      const { data: updatedContract, error: contractUpdateError } =
         await supabase
           .from("contracts")
           .update({
-            status: "uploaded",
-            signed_at: nowIso,
-            uploaded_at: nowIso,
-            drive_folder_id: contractsFolders.folder.id,
-            drive_folder_url: contractsFolders.folder.webViewLink,
-            contract_drive_file_id: uploadedContract.id,
-            contract_drive_url: uploadedContract.webViewLink,
             metadata: {
               ...(contract.metadata ?? {}),
-              assigned_kwp: ctx.assignedKwp,
-              reservation_created: true,
-              reservation_id: reservationId,
-              reservation_status: "pending_payment",
-              payment_status: "pending",
-              payment_deadline_at: paymentDeadlineAt,
               signal_amount: signalAmount,
               currency,
-              payment_method: null,
-              payment_step: "pending_method_selection",
+              payment_method: "bank_transfer",
+              payment_method_selected_at: nowIso,
+              payment_step: "awaiting_bank_transfer",
+              bank_transfer_email_sent_at: nowIso,
+              bank_account_iban: SAPIENS_BANK_ACCOUNT_IBAN,
+              transfer_concept: transferConcept,
             },
           })
           .eq("id", contract.id)
           .select()
           .single();
 
-      if (updateContractError) {
+      if (contractUpdateError) {
         return res.status(500).json({
-          error: "No se pudo actualizar el contrato tras la firma",
-          details: updateContractError.message,
+          error:
+            "No se pudo actualizar el contrato tras seleccionar transferencia",
+          details: contractUpdateError.message,
         });
       }
 
-      return res.status(201).json({
+      return res.json({
         success: true,
         message:
-          "Pre-contrato firmado y reserva creada correctamente. Ahora el cliente debe seleccionar la forma de pago.",
-        contract: updatedContract,
+          "Método de pago seleccionado correctamente. Se ha enviado un email con las instrucciones de transferencia bancaria.",
+        contract: {
+          id: updatedContract.id,
+          status: updatedContract.status,
+          contractNumber: updatedContract.contract_number,
+        },
         reservation: {
-          id: reservationId,
-          reservationStatus: "pending_payment",
-          paymentStatus: "pending",
+          id: reservation.id,
+          reservationStatus:
+            reservation.reservation_status ?? "pending_payment",
+          paymentStatus: reservation.payment_status ?? "pending",
           paymentDeadlineAt,
           signalAmount,
           currency,
-          installationName: ctx.installation.nombre_instalacion,
-          reservedKwp: ctx.assignedKwp,
+          paymentMethod: "bank_transfer",
         },
-        payment: {
-          step: "select_method",
-          availableMethods: [
-            {
-              id: "bank_transfer",
-              label: "Transferencia bancaria",
-            },
-            {
-              id: "stripe",
-              label: "Tarjeta",
-            },
-          ],
-        },
-        drive: {
-          contractsRootFolderUrl: contractsFolders.root.webViewLink,
-          contractFolderUrl: contractsFolders.folder.webViewLink,
-          contractFileUrl: uploadedContract.webViewLink,
+        bankTransfer: {
+          iban: SAPIENS_BANK_ACCOUNT_IBAN,
+          beneficiary: "Sapiens Energía",
+          concept: transferConcept,
+          paymentDeadlineAt,
+          emailSentTo: ctx.client.email,
         },
       });
     } catch (error: any) {
-      console.error("Error en /api/contracts/:id/sign:", error);
+      console.error(
+        "Error en /api/contracts/:id/payments/bank-transfer:",
+        error,
+      );
 
       return res.status(500).json({
-        error: "No se pudo firmar/subir el contrato",
+        error: "No se pudo seleccionar el pago por transferencia bancaria",
         details: error?.message || "Error desconocido",
       });
     }
-  },
-);
-
-
-//STRIPE PAYMENT INTENT WEBHOOK
-app.post("/api/contracts/:id/payments/stripe", async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const { data: contract, error: contractError } = await supabase
-      .from("contracts")
-      .select("*")
-      .eq("id", id)
-      .single();
-
-    if (contractError || !contract) {
-      return res.status(404).json({
-        error: "Contrato no encontrado",
-        details: contractError?.message ?? "El contrato no existe",
-      });
-    }
-
-    const { data: reservation, error: reservationError } = await supabase
-      .from("installation_reservations")
-      .select("*")
-      .eq("contract_id", contract.id)
-      .maybeSingle();
-
-    if (reservationError) {
-      return res.status(500).json({
-        error: "No se pudo consultar la reserva asociada",
-        details: reservationError.message,
-      });
-    }
-
-    if (!reservation) {
-      return res.status(404).json({
-        error: "No existe una reserva asociada a este contrato",
-      });
-    }
-
-    if (reservation.payment_status === "paid") {
-      return res.status(409).json({
-        error: "La reserva ya está pagada",
-      });
-    }
-
-    if (reservation.reservation_status !== "pending_payment") {
-      return res.status(409).json({
-        error: "La reserva ya no está pendiente de pago",
-        reservationStatus: reservation.reservation_status ?? null,
-        paymentStatus: reservation.payment_status ?? null,
-      });
-    }
-
-    const ctx = await getContractContextFromStudy(contract.study_id);
-
-    const signalAmount =
-      toPositiveNumber(
-        reservation.signal_amount ??
-          contract?.metadata?.signal_amount ??
-          DEFAULT_SIGNAL_AMOUNT_EUR,
-      ) ?? null;
-
-    if (signalAmount === null) {
-      return res.status(400).json({
-        error: "La señal debe ser un número mayor que 0",
-      });
-    }
-
-    const currency = String(
-      reservation.currency || contract?.metadata?.currency || "eur",
-    )
-      .trim()
-      .toLowerCase();
-
-    const paymentDeadlineAt =
-      reservation.payment_deadline_at ??
-      new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString();
-
-    const checkoutSession = await createCheckoutSessionForReservation({
-      reservationId: reservation.id,
-      contractId: contract.id,
-      studyId: ctx.study.id,
-      clientId: ctx.client.id,
-      installationId: ctx.installation.id,
-      installationName: ctx.installation.nombre_instalacion,
-      clientEmail: ctx.client.email ?? null,
-      signalAmount,
-      currency,
-      paymentDeadlineAt,
-    });
-
-    const nowIso = new Date().toISOString();
-
-    const { error: reservationUpdateError } = await supabase
-      .from("installation_reservations")
-      .update({
-        stripe_checkout_session_id: checkoutSession.id,
-        signal_amount: signalAmount,
-        currency,
-        metadata: {
-          ...(reservation.metadata ?? {}),
-          payment_method: "stripe",
-          payment_method_selected_at: nowIso,
-        },
-      })
-      .eq("id", reservation.id);
-
-    if (reservationUpdateError) {
-      return res.status(500).json({
-        error: "No se pudo guardar la selección de pago con Stripe",
-        details: reservationUpdateError.message,
-      });
-    }
-
-    const { data: updatedContract, error: contractUpdateError } = await supabase
-      .from("contracts")
-      .update({
-        metadata: {
-          ...(contract.metadata ?? {}),
-          signal_amount: signalAmount,
-          currency,
-          payment_method: "stripe",
-          payment_method_selected_at: nowIso,
-          payment_step: "redirect_to_stripe",
-          stripe_checkout_session_id: checkoutSession.id,
-        },
-      })
-      .eq("id", contract.id)
-      .select()
-      .single();
-
-    if (contractUpdateError) {
-      return res.status(500).json({
-        error: "No se pudo actualizar el contrato tras seleccionar Stripe",
-        details: contractUpdateError.message,
-      });
-    }
-
-    return res.json({
-      success: true,
-      message:
-        "Método de pago seleccionado correctamente. Redirigiendo a Stripe.",
-      contract: {
-        id: updatedContract.id,
-        status: updatedContract.status,
-        contractNumber: updatedContract.contract_number,
-      },
-      reservation: {
-        id: reservation.id,
-        reservationStatus: reservation.reservation_status ?? "pending_payment",
-        paymentStatus: reservation.payment_status ?? "pending",
-        paymentDeadlineAt,
-        signalAmount,
-        currency,
-        paymentMethod: "stripe",
-      },
-      stripe: {
-        checkoutSessionId: checkoutSession.id,
-        checkoutUrl: checkoutSession.url,
-      },
-    });
-  } catch (error: any) {
-    console.error("Error en /api/contracts/:id/payments/stripe:", error);
-
-    return res.status(500).json({
-      error: "No se pudo iniciar el pago con Stripe",
-      details: error?.message || "Error desconocido",
-    });
-  }
-});
-
-app.post("/api/contracts/:id/payments/bank-transfer", async (req, res) => {
-  try {
-    const { id } = req.params;
-
-    const { data: contract, error: contractError } = await supabase
-      .from("contracts")
-      .select("*")
-      .eq("id", id)
-      .single();
-
-    if (contractError || !contract) {
-      return res.status(404).json({
-        error: "Contrato no encontrado",
-        details: contractError?.message ?? "El contrato no existe",
-      });
-    }
-
-    const { data: reservation, error: reservationError } = await supabase
-      .from("installation_reservations")
-      .select("*")
-      .eq("contract_id", contract.id)
-      .maybeSingle();
-
-    if (reservationError) {
-      return res.status(500).json({
-        error: "No se pudo consultar la reserva asociada",
-        details: reservationError.message,
-      });
-    }
-
-    if (!reservation) {
-      return res.status(404).json({
-        error: "No existe una reserva asociada a este contrato",
-      });
-    }
-
-    if (reservation.payment_status === "paid") {
-      return res.status(409).json({
-        error: "La reserva ya está pagada",
-      });
-    }
-
-    if (reservation.reservation_status !== "pending_payment") {
-      return res.status(409).json({
-        error: "La reserva ya no está pendiente de pago",
-        reservationStatus: reservation.reservation_status ?? null,
-        paymentStatus: reservation.payment_status ?? null,
-      });
-    }
-
-    const ctx = await getContractContextFromStudy(contract.study_id);
-
-    if (!ctx.client.email) {
-      return res.status(400).json({
-        error: "El cliente no tiene email para enviar las instrucciones de transferencia",
-      });
-    }
-
-    if (!contract.contract_drive_file_id) {
-      return res.status(400).json({
-        error: "El contrato no tiene PDF firmado asociado en Drive",
-      });
-    }
-
-    const signalAmount =
-      toPositiveNumber(
-        reservation.signal_amount ??
-          contract?.metadata?.signal_amount ??
-          DEFAULT_SIGNAL_AMOUNT_EUR,
-      ) ?? null;
-
-    if (signalAmount === null) {
-      return res.status(400).json({
-        error: "La señal debe ser un número mayor que 0",
-      });
-    }
-
-    const currency = String(
-      reservation.currency || contract?.metadata?.currency || "eur",
-    )
-      .trim()
-      .toLowerCase();
-
-    const paymentDeadlineAt =
-      reservation.payment_deadline_at ??
-      new Date(Date.now() + 15 * 24 * 60 * 60 * 1000).toISOString();
-
-    const precontractFile = await downloadDriveFileAsBuffer(
-      contract.contract_drive_file_id,
-    );
-
-    const transferConcept = `Reserva ${contract.contract_number}`;
-    const nowIso = new Date().toISOString();
-
-    await sendBankTransferReservationEmail({
-      to: ctx.client.email,
-      clientName: `${ctx.client.nombre} ${ctx.client.apellidos}`.trim(),
-      precontractPdfBuffer: precontractFile.buffer,
-      precontractPdfFilename:
-        precontractFile.fileName ||
-        `PRECONTRATO_${contract.contract_number}.pdf`,
-      contractNumber: contract.contract_number,
-      installationName: ctx.installation.nombre_instalacion,
-      reservedKwp: Number(reservation.reserved_kwp ?? ctx.assignedKwp ?? 0),
-      signalAmount,
-      currency,
-      paymentDeadlineAt,
-      bankAccountIban: SAPIENS_BANK_ACCOUNT_IBAN,
-      bankBeneficiary: "Sapiens Energía",
-      transferConcept,
-    });
-
-    const { error: reservationUpdateError } = await supabase
-      .from("installation_reservations")
-      .update({
-        signal_amount: signalAmount,
-        currency,
-        metadata: {
-          ...(reservation.metadata ?? {}),
-          payment_method: "bank_transfer",
-          payment_method_selected_at: nowIso,
-          bank_transfer_email_sent_at: nowIso,
-          bank_account_iban: SAPIENS_BANK_ACCOUNT_IBAN,
-          transfer_concept: transferConcept,
-        },
-      })
-      .eq("id", reservation.id);
-
-    if (reservationUpdateError) {
-      return res.status(500).json({
-        error: "No se pudo actualizar la reserva tras seleccionar transferencia",
-        details: reservationUpdateError.message,
-      });
-    }
-
-    const { data: updatedContract, error: contractUpdateError } = await supabase
-      .from("contracts")
-      .update({
-        metadata: {
-          ...(contract.metadata ?? {}),
-          signal_amount: signalAmount,
-          currency,
-          payment_method: "bank_transfer",
-          payment_method_selected_at: nowIso,
-          payment_step: "awaiting_bank_transfer",
-          bank_transfer_email_sent_at: nowIso,
-          bank_account_iban: SAPIENS_BANK_ACCOUNT_IBAN,
-          transfer_concept: transferConcept,
-        },
-      })
-      .eq("id", contract.id)
-      .select()
-      .single();
-
-    if (contractUpdateError) {
-      return res.status(500).json({
-        error:
-          "No se pudo actualizar el contrato tras seleccionar transferencia",
-        details: contractUpdateError.message,
-      });
-    }
-
-    return res.json({
-      success: true,
-      message:
-        "Método de pago seleccionado correctamente. Se ha enviado un email con las instrucciones de transferencia bancaria.",
-      contract: {
-        id: updatedContract.id,
-        status: updatedContract.status,
-        contractNumber: updatedContract.contract_number,
-      },
-      reservation: {
-        id: reservation.id,
-        reservationStatus: reservation.reservation_status ?? "pending_payment",
-        paymentStatus: reservation.payment_status ?? "pending",
-        paymentDeadlineAt,
-        signalAmount,
-        currency,
-        paymentMethod: "bank_transfer",
-      },
-      bankTransfer: {
-        iban: SAPIENS_BANK_ACCOUNT_IBAN,
-        beneficiary: "Sapiens Energía",
-        concept: transferConcept,
-        paymentDeadlineAt,
-        emailSentTo: ctx.client.email,
-      },
-    });
-  } catch (error: any) {
-    console.error("Error en /api/contracts/:id/payments/bank-transfer:", error);
-
-    return res.status(500).json({
-      error: "No se pudo seleccionar el pago por transferencia bancaria",
-      details: error?.message || "Error desconocido",
-    });
-  }
-});
+  });
 
   //CLIENTS GET
   app.get("/api/clients", async (_req, res) => {
@@ -4990,89 +4819,6 @@ app.post("/api/contracts/:id/payments/bank-transfer", async (req, res) => {
     }
   });
 
-  //SENDMAIL
-  // server.ts
-  // app.post("/api/send-proposal-email", async (req, res) => {
-  //   try {
-  //     const { to, clientName, studyData } = req.body;
-
-  //     // 1. Generar PDF
-  //     const pdfBuffer = await generateStudyPDFBuffer(studyData);
-
-  //     // 2. Enviar email
-  //     await sendProposalEmail({
-  //       to,
-  //       clientName,
-  //       pdfBuffer,
-  //     });
-
-  //     res.status(200).json({
-  //       ok: true,
-  //       message: "Correo enviado correctamente",
-  //     });
-  //   } catch (error) {
-  //     console.error("Error enviando correo:", error);
-  //     res.status(500).json({
-  //       ok: false,
-  //       message: "No se pudo enviar el correo",
-  //     });
-  //   }
-  // });
-
-  // =========================
-  // INSTALLATIONS API
-  // =========================
-
-  // app.get("/api/installations", async (req, res) => {
-  //   try {
-  //     const lat = req.query.lat ? Number(req.query.lat) : null;
-  //     const lng = req.query.lng ? Number(req.query.lng) : null;
-  //     const radius = req.query.radius ? Number(req.query.radius) : 2000;
-
-  //     const { data, error } = await supabase
-  //       .from("installations")
-  //       .select("*")
-  //       .eq("active", true)
-  //       .order("nombre_instalacion", { ascending: true });
-
-  //     if (error) {
-  //       console.error("Error obteniendo instalaciones:", error);
-  //       return res.status(500).json({
-  //         error: "Error fetching installations",
-  //         details: error.message,
-  //       });
-  //     }
-
-  //     let installations = data ?? [];
-
-  //     if (lat !== null && lng !== null) {
-  //       installations = installations
-  //         .map((installation) => {
-  //           const distance_meters = haversineDistanceMeters(
-  //             lat,
-  //             lng,
-  //             installation.lat,
-  //             installation.lng,
-  //           );
-
-  //           return {
-  //             ...installation,
-  //             distance_meters,
-  //           };
-  //         })
-  //         .filter((installation) => installation.distance_meters <= radius)
-  //         .sort((a, b) => a.distance_meters - b.distance_meters);
-  //     }
-
-  //     res.json(installations);
-  //   } catch (error: any) {
-  //     console.error("Error inesperado obteniendo instalaciones:", error);
-  //     res.status(500).json({
-  //       error: "Error fetching installations",
-  //       details: error.message,
-  //     });
-  //   }
-  // });
 
   app.get("/api/installations", async (req, res) => {
     try {

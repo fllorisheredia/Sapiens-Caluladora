@@ -145,6 +145,8 @@ function roundUpToDecimals(value: number, decimals: number): number {
   return Math.ceil(value * factor) / factor;
 }
 
+
+
 function normalizeAndRoundUp(
   value: unknown,
   decimals: number,
@@ -222,7 +224,15 @@ const ValidationBillDataSchema = BillDataSchema.extend({
 
 type ValidationBillDataFormInput = z.input<typeof ValidationBillDataSchema>;
 type ValidationBillData = z.output<typeof ValidationBillDataSchema>;
+type AppLanguage = "es" | "ca" | "val" | "gl";
+function normalizeAppLanguage(value?: string): AppLanguage {
+  const lang = (value || "es").toLowerCase().trim();
 
+  if (lang.startsWith("ca")) return "ca";
+  if (lang.startsWith("val")) return "val";
+  if (lang.startsWith("gl")) return "gl";
+  return "es";
+}
 function buildLastName(
   lastname1: string | null | undefined,
   lastname2: string | null | undefined,
@@ -592,8 +602,14 @@ const buildPdfArtifact = async (
   billData: BillData,
   calculationResult: CalculationResult,
   proposals: ProposalPdfSummary[],
+  language: AppLanguage,
 ): Promise<PdfArtifact> => {
-  const result = await generateStudyPDF(billData, calculationResult, proposals);
+  const result = await generateStudyPDF(
+    billData,
+    calculationResult,
+    proposals,
+    language,
+  );
   return result as PdfArtifact;
 };
 
@@ -1375,6 +1391,10 @@ function getDateLocale(language: string) {
 }
 function MainAppContent() {
   const { t, i18n } = useTranslation();
+  const currentAppLanguage = normalizeAppLanguage(
+    i18n.resolvedLanguage || i18n.language,
+  );
+
   const [view, setView] = useState<"public" | "admin">("public");
   const [isAdminLoggedIn, setIsAdminLoggedIn] = useState(false);
   const [currentStep, setCurrentStep] = useState<Step>("upload");
@@ -1790,6 +1810,7 @@ function MainAppContent() {
           billData,
           activeCalculationResult,
           pdfSummaries,
+          currentAppLanguage,
         );
 
         savePdfArtifactLocally(
@@ -1836,6 +1857,7 @@ function MainAppContent() {
       billData,
       result,
       proposalSummariesForPdf,
+      currentAppLanguage,
     );
     console.log("[front] pdfArtifact generado:", pdfArtifact);
 
@@ -1957,7 +1979,7 @@ function MainAppContent() {
       selectedInstallationId: installation.id,
       selectedInstallationSnapshot: installation,
       assignedKwp: assignedKwpForStudy,
-      language: "ES",
+      language: currentAppLanguage,
       consentAccepted: privacyAccepted,
     });
 
@@ -2111,96 +2133,126 @@ function MainAppContent() {
     signatureDrawingRef.current = false;
   };
 
-  const buildSignedContractPdfFile = async (
-    preview: ContractPreviewData,
-    signatureDataUrl: string,
-  ) => {
-    const pdf = new jsPDF({
-      unit: "pt",
-      format: "a4",
-    });
+const buildSignedContractPdfFile = async (
+  preview: ContractPreviewData,
+  signatureDataUrl: string,
+  language: AppLanguage,
+) => {
+  const pdf = new jsPDF({
+    unit: "pt",
+    format: "a4",
+  });
 
-    const margin = 48;
-    const pageWidth = pdf.internal.pageSize.getWidth();
-    const usableWidth = pageWidth - margin * 2;
-    let y = 56;
+  const locale = getDateLocale(language);
 
-    const writeSectionTitle = (title: string) => {
-      pdf.setFont("helvetica", "bold");
-      pdf.setFontSize(14);
-      pdf.setTextColor(7, 0, 95);
-      pdf.text(title, margin, y);
-      y += 20;
-    };
+  const contractTexts = {
+    title: t("contractPdf.title"),
+    contractNumber: t("contractPdf.contractNumber"),
+    date: t("contractPdf.date"),
+    clientData: t("contractPdf.clientData"),
+    name: t("contractPdf.name"),
+    dni: t("contractPdf.dni"),
+    email: t("contractPdf.email"),
+    phone: t("contractPdf.phone"),
+    installationData: t("contractPdf.installationData"),
+    installation: t("contractPdf.installation"),
+    mode: t("contractPdf.mode"),
+    assignedKwp: t("contractPdf.assignedKwp"),
+    basicConditions: t("contractPdf.basicConditions"),
+    condition1: t("contractPdf.condition1"),
+    condition2: t("contractPdf.condition2"),
+    condition3: t("contractPdf.condition3"),
+    clientSignature: t("contractPdf.clientSignature"),
+    investment: t("contractPdf.modes.investment"),
+    service: t("contractPdf.modes.service"),
+  };
 
-    const writeParagraph = (text: string) => {
-      pdf.setFont("helvetica", "normal");
-      pdf.setFontSize(11);
-      pdf.setTextColor(40, 40, 40);
+  const margin = 48;
+  const pageWidth = pdf.internal.pageSize.getWidth();
+  const usableWidth = pageWidth - margin * 2;
+  let y = 56;
 
-      const lines = pdf.splitTextToSize(text, usableWidth);
-      pdf.text(lines, margin, y);
-      y += lines.length * 14 + 8;
-    };
-
+  const writeSectionTitle = (title: string) => {
     pdf.setFont("helvetica", "bold");
-    pdf.setFontSize(22);
+    pdf.setFontSize(14);
     pdf.setTextColor(7, 0, 95);
-    pdf.text("Contrato de Reserva", margin, y);
-    y += 24;
+    pdf.text(title, margin, y);
+    y += 20;
+  };
 
+  const writeParagraph = (text: string) => {
     pdf.setFont("helvetica", "normal");
     pdf.setFontSize(11);
-    pdf.setTextColor(90, 90, 90);
-    pdf.text(`Contrato nº ${preview.contractNumber}`, margin, y);
-    y += 26;
+    pdf.setTextColor(40, 40, 40);
 
-    writeSectionTitle("Datos del cliente");
-    writeParagraph(
-      `Nombre: ${preview.client.nombre} ${preview.client.apellidos}`,
-    );
-    writeParagraph(`DNI: ${preview.client.dni}`);
-    writeParagraph(`Email: ${preview.client.email || "-"}`);
-    writeParagraph(`Teléfono: ${preview.client.telefono || "-"}`);
-
-    writeSectionTitle("Datos de la instalación");
-    writeParagraph(`Instalación: ${preview.installation.nombre_instalacion}`);
-    writeParagraph(`Dirección: ${preview.installation.direccion}`);
-    writeParagraph(
-      `Modalidad: ${preview.proposalMode === "investment" ? "Inversión" : "Servicio"}`,
-    );
-    writeParagraph(`kWp asignados: ${preview.assignedKwp}`);
-
-    writeSectionTitle("Condiciones básicas");
-    writeParagraph(
-      "El cliente solicita la reserva de la potencia indicada en la instalación seleccionada, quedando dicha reserva vinculada al presente precontrato.",
-    );
-    writeParagraph(
-      "La reserva se formalizará mediante el pago de una señal a través de Stripe.",
-    );
-    writeParagraph(
-      "Hasta la confirmación del pago de la señal, la reserva tendrá carácter pendiente de validación.",
-    );
-    y += 12;
-    pdf.setFont("helvetica", "bold");
-    pdf.setFontSize(12);
-    pdf.setTextColor(7, 0, 95);
-    pdf.text("Firma del cliente", margin, y);
-    y += 12;
-
-    pdf.addImage(signatureDataUrl, "PNG", margin, y, 180, 70);
-
-    const safeDni = preview.client.dni.replace(/[^a-zA-Z0-9_-]/g, "");
-    const safeName = `${preview.client.nombre}_${preview.client.apellidos}`
-      .replace(/\s+/g, "_")
-      .replace(/[^a-zA-Z0-9_-]/g, "");
-
-    const blob = pdf.output("blob");
-
-    return new File([blob], `CONTRATO_${safeDni}_${safeName}.pdf`, {
-      type: "application/pdf",
-    });
+    const lines = pdf.splitTextToSize(text, usableWidth);
+    pdf.text(lines, margin, y);
+    y += lines.length * 14 + 8;
   };
+
+  pdf.setFont("helvetica", "bold");
+  pdf.setFontSize(22);
+  pdf.setTextColor(7, 0, 95);
+  pdf.text(contractTexts.title, margin, y);
+  y += 24;
+
+  pdf.setFont("helvetica", "normal");
+  pdf.setFontSize(11);
+  pdf.setTextColor(90, 90, 90);
+  pdf.text(
+    `${contractTexts.contractNumber} ${preview.contractNumber}`,
+    margin,
+    y,
+  );
+  y += 26;
+
+  writeSectionTitle(contractTexts.clientData);
+  writeParagraph(
+    `${contractTexts.name}: ${preview.client.nombre} ${preview.client.apellidos}`,
+  );
+  writeParagraph(`${contractTexts.dni}: ${preview.client.dni}`);
+  writeParagraph(`${contractTexts.email}: ${preview.client.email || "-"}`);
+  writeParagraph(`${contractTexts.phone}: ${preview.client.telefono || "-"}`);
+
+  writeSectionTitle(contractTexts.installationData);
+  writeParagraph(
+    `${contractTexts.installation}: ${preview.installation.nombre_instalacion}`,
+  );
+  writeParagraph(`${t("fields.address")}: ${preview.installation.direccion}`);
+  writeParagraph(
+    `${contractTexts.mode}: ${
+      preview.proposalMode === "investment"
+        ? contractTexts.investment
+        : contractTexts.service
+    }`,
+  );
+  writeParagraph(`${contractTexts.assignedKwp}: ${preview.assignedKwp}`);
+
+  writeSectionTitle(contractTexts.basicConditions);
+  writeParagraph(contractTexts.condition1);
+  writeParagraph(contractTexts.condition2);
+  writeParagraph(contractTexts.condition3);
+
+  y += 12;
+  pdf.setFont("helvetica", "bold");
+  pdf.setFontSize(12);
+  pdf.setTextColor(7, 0, 95);
+  pdf.text(contractTexts.clientSignature, margin, y);
+  y += 12;
+
+  pdf.addImage(signatureDataUrl, "PNG", margin, y, 180, 70);
+
+  const safeDni = preview.client.dni.replace(/[^a-zA-Z0-9_-]/g, "");
+  const safeName = `${preview.client.nombre}_${preview.client.apellidos}`
+    .replace(/\s+/g, "_")
+    .replace(/[^a-zA-Z0-9_-]/g, "");
+
+  const blob = pdf.output("blob");
+
+  return new File([blob], `CONTRATO_${safeDni}_${safeName}.pdf`, {
+    type: "application/pdf",
+  });
+};
 
   const handleGenerateContract = async () => {
     const studyId = savedStudy?.study?.id;
@@ -2217,12 +2269,13 @@ function MainAppContent() {
     setIsGeneratingContract(true);
 
     try {
-      const response = await axios.post<GeneratedContractResponse>(
-        `/api/contracts/generate-from-study/${studyId}`,
-        {
-          proposalMode: activeProposal.id,
-        },
-      );
+const response = await axios.post<GeneratedContractResponse>(
+  `/api/contracts/generate-from-study/${studyId}`,
+  {
+    proposalMode: activeProposal.id,
+    language: currentAppLanguage,
+  },
+);
 
       setGeneratedContract(response.data);
       setIsContractModalOpen(true);
@@ -2271,10 +2324,11 @@ function MainAppContent() {
       const signatureDataUrl =
         signatureCanvasRef.current.toDataURL("image/png");
 
-      const signedPdfFile = await buildSignedContractPdfFile(
-        generatedContract.preview,
-        signatureDataUrl,
-      );
+     const signedPdfFile = await buildSignedContractPdfFile(
+  generatedContract.preview,
+  signatureDataUrl,
+  currentAppLanguage,
+);
 
       const formData = new FormData();
       formData.append("signed_contract", signedPdfFile);
@@ -2843,104 +2897,104 @@ function MainAppContent() {
   return (
     <Layout>
       {/* Selector idioma */}
- <div className="fixed top-8 right-6 z-[101]">
-  <div className="relative">
-    <button
-      type="button"
-      onClick={() => setIsLanguageMenuOpen((prev) => !prev)}
-      className="group flex items-center justify-center w-14 h-14 rounded-2xl border border-white/40 bg-white/60 backdrop-blur-2xl shadow-[0_16px_40px_rgba(7,0,95,0.12)] hover:shadow-[0_20px_50px_rgba(7,0,95,0.16)] transition-all"
-      aria-label="Seleccionar idioma"
-      title="Seleccionar idioma"
-    >
-      <Icon
-        icon="solar:global-bold-duotone"
-        className="w-7 h-7 text-brand-navy group-hover:scale-110 transition-transform"
-      />
-    </button>
+      <div className="fixed top-8 right-6 z-[101]">
+        <div className="relative">
+          <button
+            type="button"
+            onClick={() => setIsLanguageMenuOpen((prev) => !prev)}
+            className="group flex items-center justify-center w-14 h-14 rounded-2xl border border-white/40 bg-white/60 backdrop-blur-2xl shadow-[0_16px_40px_rgba(7,0,95,0.12)] hover:shadow-[0_20px_50px_rgba(7,0,95,0.16)] transition-all"
+            aria-label="Seleccionar idioma"
+            title="Seleccionar idioma"
+          >
+            <Icon
+              icon="solar:global-bold-duotone"
+              className="w-7 h-7 text-brand-navy group-hover:scale-110 transition-transform"
+            />
+          </button>
 
-    <AnimatePresence>
-      {isLanguageMenuOpen && (
-        <motion.div
-          initial={{ opacity: 0, y: -8, scale: 0.96 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          exit={{ opacity: 0, y: -8, scale: 0.96 }}
-          transition={{ duration: 0.2, ease: "easeOut" }}
-          className="absolute top-16 right-0 w-56 rounded-[1.8rem] border border-white/40 bg-white/70 backdrop-blur-2xl p-2 shadow-[0_20px_60px_rgba(7,0,95,0.15)]"
-        >
-          {[
-            {
-              code: "es",
-              short: "ES",
-              name: "Castellano",
-              flag: "/flags/es.png",
-            },
-            {
-              code: "ca",
-              short: "CA",
-              name: "Català",
-              flag: "/flags/ca.png",
-            },
-            {
-              code: "val",
-              short: "VAL",
-              name: "Valencià",
-              flag: "/flags/val.png",
-            },
-            {
-              code: "gl",
-              short: "GL",
-              name: "Galego",
-              flag: "/flags/gal.png",
-            },
-          ].map((lang) => {
-            const active = i18n.language === lang.code;
-
-            return (
-              <button
-                key={lang.code}
-                type="button"
-                onClick={() => {
-                  i18n.changeLanguage(lang.code);
-                  setIsLanguageMenuOpen(false);
-                }}
-                className={cn(
-                  "w-full flex items-center gap-3 rounded-[1.2rem] px-3 py-3 text-left transition-all",
-                  active
-                    ? "brand-gradient text-brand-navy shadow-md"
-                    : "text-brand-navy/75 hover:bg-white hover:text-brand-navy",
-                )}
+          <AnimatePresence>
+            {isLanguageMenuOpen && (
+              <motion.div
+                initial={{ opacity: 0, y: -8, scale: 0.96 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: -8, scale: 0.96 }}
+                transition={{ duration: 0.2, ease: "easeOut" }}
+                className="absolute top-16 right-0 w-56 rounded-[1.8rem] border border-white/40 bg-white/70 backdrop-blur-2xl p-2 shadow-[0_20px_60px_rgba(7,0,95,0.15)]"
               >
-                <img
-                  src={lang.flag}
-                  alt={lang.name}
-                  className="w-9 h-9 rounded-full object-cover border border-black/5"
-                />
+                {[
+                  {
+                    code: "es",
+                    short: "ES",
+                    name: "Castellano",
+                    flag: "/flags/es.png",
+                  },
+                  {
+                    code: "ca",
+                    short: "CA",
+                    name: "Català",
+                    flag: "/flags/ca.png",
+                  },
+                  {
+                    code: "val",
+                    short: "VAL",
+                    name: "Valencià",
+                    flag: "/flags/val.png",
+                  },
+                  {
+                    code: "gl",
+                    short: "GL",
+                    name: "Galego",
+                    flag: "/flags/gal.png",
+                  },
+                ].map((lang) => {
+                  const active = i18n.language === lang.code;
 
-                <div className="flex flex-col leading-none">
-                  <span className="text-sm font-extrabold tracking-[0.12em]">
-                    {lang.short}
-                  </span>
-                  <span className="mt-1 text-[11px] font-medium opacity-70">
-                    {lang.name}
-                  </span>
-                </div>
+                  return (
+                    <button
+                      key={lang.code}
+                      type="button"
+                      onClick={() => {
+                        i18n.changeLanguage(lang.code);
+                        setIsLanguageMenuOpen(false);
+                      }}
+                      className={cn(
+                        "w-full flex items-center gap-3 rounded-[1.2rem] px-3 py-3 text-left transition-all",
+                        active
+                          ? "brand-gradient text-brand-navy shadow-md"
+                          : "text-brand-navy/75 hover:bg-white hover:text-brand-navy",
+                      )}
+                    >
+                      <img
+                        src={lang.flag}
+                        alt={lang.name}
+                        className="w-9 h-9 rounded-full object-cover border border-black/5"
+                      />
 
-                <div className="ml-auto">
-                  {active ? (
-                    <Icon
-                      icon="solar:check-circle-bold-duotone"
-                      className="w-5 h-5 text-brand-navy"
-                    />
-                  ) : null}
-                </div>
-              </button>
-            );
-          })}
-        </motion.div>
-      )}
-    </AnimatePresence>
-  </div>
-</div>
+                      <div className="flex flex-col leading-none">
+                        <span className="text-sm font-extrabold tracking-[0.12em]">
+                          {lang.short}
+                        </span>
+                        <span className="mt-1 text-[11px] font-medium opacity-70">
+                          {lang.name}
+                        </span>
+                      </div>
+
+                      <div className="ml-auto">
+                        {active ? (
+                          <Icon
+                            icon="solar:check-circle-bold-duotone"
+                            className="w-5 h-5 text-brand-navy"
+                          />
+                        ) : null}
+                      </div>
+                    </button>
+                  );
+                })}
+              </motion.div>
+            )}
+          </AnimatePresence>
+        </div>
+      </div>
 
       <div className="fixed bottom-8 right-8 z-[100]">
         <Button
@@ -3228,12 +3282,12 @@ function MainAppContent() {
                             )}
                           /> */}
 
-                          <Input
-                            label="Dirección completa"
-                            {...register("address")}
-                            error={errors.address?.message}
-                            placeholder="Calle, número, CP, ciudad, provincia"
-                          />
+                        <Input
+  label={t("fields.address")}
+  {...register("address")}
+  error={errors.address?.message}
+  placeholder={t("placeholders.address")}
+/>
                         </div>
                       </FormSection>
 
@@ -3910,7 +3964,8 @@ function MainAppContent() {
                                 }
                                 className="h-4 w-4"
                               />
-{t("result.cards.mode")} {proposal.title.toLowerCase()}
+                              {t("result.cards.mode")}{" "}
+                              {proposal.title.toLowerCase()}
                             </div>
 
                             <div>
@@ -3946,7 +4001,7 @@ function MainAppContent() {
                                       : "text-brand-navy/40",
                                   )}
                                 >
-{t("result.summary.annualSavings")}
+                                  {t("result.summary.annualSavings")}
                                 </p>
                                 <p className="mt-2 text-lg font-bold">
                                   {formatCurrency(proposal.annualSavings)}
@@ -4006,7 +4061,8 @@ function MainAppContent() {
                                       : "text-brand-navy/40",
                                   )}
                                 >
-{t("result.summary.monthlySavings")}                                </p>
+                                  {t("result.summary.monthlySavings")}{" "}
+                                </p>
                                 <p className="mt-2 text-lg font-bold">
                                   {formatCurrency(proposal.annualSavings / 12)}
                                 </p>
@@ -4079,149 +4135,158 @@ function MainAppContent() {
                     })}
 
                     {/* ACCIONES */}
-                   <div className="rounded-[2rem] md:rounded-[2.5rem] bg-white border border-brand-navy/5 shadow-2xl shadow-brand-navy/5 p-5 md:p-6 flex flex-col gap-5 xl:min-h-[520px]">
-  <div>
-    <p className="text-[10px] uppercase tracking-[0.16em] font-bold text-brand-navy/40">
-      {t("result.actions.title")}
-    </p>
-  </div>
+                    <div className="rounded-[2rem] md:rounded-[2.5rem] bg-white border border-brand-navy/5 shadow-2xl shadow-brand-navy/5 p-5 md:p-6 flex flex-col gap-5 xl:min-h-[520px]">
+                      <div>
+                        <p className="text-[10px] uppercase tracking-[0.16em] font-bold text-brand-navy/40">
+                          {t("result.actions.title")}
+                        </p>
+                      </div>
 
-  <div className="rounded-[1.4rem] bg-brand-navy text-white p-4 border border-brand-navy">
-    <p className="text-[10px] uppercase tracking-[0.16em] font-bold text-white/50">
-      {t("result.actions.youWillHire")}
-    </p>
+                      <div className="rounded-[1.4rem] bg-brand-navy text-white p-4 border border-brand-navy">
+                        <p className="text-[10px] uppercase tracking-[0.16em] font-bold text-white/50">
+                          {t("result.actions.youWillHire")}
+                        </p>
 
-    <p className="mt-3 text-2xl font-bold">
-      {activeProposal.title}
-    </p>
+                        <p className="mt-3 text-2xl font-bold">
+                          {activeProposal.title}
+                        </p>
 
-    <div className="mt-4 space-y-2 text-sm text-white/75">
-      <p>
-        {t("result.actions.mode")}:{" "}
-        <span className="font-bold text-white">
-          {activeProposal.title}
-        </span>
-      </p>
+                        <div className="mt-4 space-y-2 text-sm text-white/75">
+                          <p>
+                            {t("result.actions.mode")}:{" "}
+                            <span className="font-bold text-white">
+                              {activeProposal.title}
+                            </span>
+                          </p>
 
-      <p>
-        {t("result.summary.annualSavings")}:{" "}
-        <span className="font-bold text-white">
-          {formatCurrency(activeProposal.annualSavings)}
-        </span>
-      </p>
+                          <p>
+                            {t("result.summary.annualSavings")}:{" "}
+                            <span className="font-bold text-white">
+                              {formatCurrency(activeProposal.annualSavings)}
+                            </span>
+                          </p>
 
-      <p>
-        {activeProposal.id === "investment" ? (
-          <>
-            {t("result.summary.initialCost")}:{" "}
-            <span className="font-bold text-white">
-              {formatCurrency(activeProposal.upfrontCost)}
-            </span>
-          </>
-        ) : activeProposal.monthlyFee && activeProposal.monthlyFee > 0 ? (
-          <>
-            {t("result.summary.monthlyFee")}:{" "}
-            <span className="font-bold text-white">
-              {formatNumber(activeProposal.monthlyFee)} € / {t("result.units.month")}
-            </span>
-          </>
-        ) : (
-          t("result.summary.noFee")
-        )}
-      </p>
+                          <p>
+                            {activeProposal.id === "investment" ? (
+                              <>
+                                {t("result.summary.initialCost")}:{" "}
+                                <span className="font-bold text-white">
+                                  {formatCurrency(activeProposal.upfrontCost)}
+                                </span>
+                              </>
+                            ) : activeProposal.monthlyFee &&
+                              activeProposal.monthlyFee > 0 ? (
+                              <>
+                                {t("result.summary.monthlyFee")}:{" "}
+                                <span className="font-bold text-white">
+                                  {formatNumber(activeProposal.monthlyFee)} € /{" "}
+                                  {t("result.units.month")}
+                                </span>
+                              </>
+                            ) : (
+                              t("result.summary.noFee")
+                            )}
+                          </p>
 
-      <p>
-        {t("result.actions.power")}:{" "}
-        <span className="font-bold text-white">
-          {formatNumber(activeProposal.recommendedPowerKwp)} kWp
-        </span>
-      </p>
-    </div>
-  </div>
+                          <p>
+                            {t("result.actions.power")}:{" "}
+                            <span className="font-bold text-white">
+                              {formatNumber(activeProposal.recommendedPowerKwp)}{" "}
+                              kWp
+                            </span>
+                          </p>
+                        </div>
+                      </div>
 
-  {signedContractResult?.reservation ? (
-    <div className="rounded-[1.4rem] bg-brand-mint/10 border border-brand-mint/20 p-4 text-brand-navy">
-      <p className="text-[10px] uppercase tracking-[0.16em] font-bold text-brand-navy/50">
-        {t("result.reserve.startedTitle")}
-      </p>
+                      {signedContractResult?.reservation ? (
+                        <div className="rounded-[1.4rem] bg-brand-mint/10 border border-brand-mint/20 p-4 text-brand-navy">
+                          <p className="text-[10px] uppercase tracking-[0.16em] font-bold text-brand-navy/50">
+                            {t("result.reserve.startedTitle")}
+                          </p>
 
-      <div className="mt-3 space-y-2 text-sm leading-relaxed">
-        <p>
-          <span className="font-bold">
-            {signedContractResult.reservation.reservedKwp} kWp
-          </span>{" "}
-          {t("result.actions.reservedIn")}{" "}
-          <span className="font-bold">
-            {signedContractResult.reservation.installationName}
-          </span>
-          .
-        </p>
+                          <div className="mt-3 space-y-2 text-sm leading-relaxed">
+                            <p>
+                              <span className="font-bold">
+                                {signedContractResult.reservation.reservedKwp}{" "}
+                                kWp
+                              </span>{" "}
+                              {t("result.actions.reservedIn")}{" "}
+                              <span className="font-bold">
+                                {
+                                  signedContractResult.reservation
+                                    .installationName
+                                }
+                              </span>
+                              .
+                            </p>
 
-        <p>
-          {t("result.actions.paymentStatus")}:{" "}
-          <span className="font-bold">
-            {signedContractResult.reservation.paymentStatus}
-          </span>
-        </p>
+                            <p>
+                              {t("result.actions.paymentStatus")}:{" "}
+                              <span className="font-bold">
+                                {signedContractResult.reservation.paymentStatus}
+                              </span>
+                            </p>
 
-        <p>
-          {t("result.actions.pendingSignal")}:{" "}
-          <span className="font-bold">
-            {formatCurrency(signedContractResult.reservation.signalAmount)}
-          </span>
-        </p>
-      </div>
-    </div>
-  ) : null}
+                            <p>
+                              {t("result.actions.pendingSignal")}:{" "}
+                              <span className="font-bold">
+                                {formatCurrency(
+                                  signedContractResult.reservation.signalAmount,
+                                )}
+                              </span>
+                            </p>
+                          </div>
+                        </div>
+                      ) : null}
 
-  <div className="mt-auto space-y-3">
-    <Button
-      className={cn(
-        "w-full py-5 rounded-[1.2rem] border-none",
-        contractAlreadySigned
-          ? "bg-brand-navy/10 text-brand-navy/50 cursor-not-allowed"
-          : "bg-brand-mint text-brand-navy hover:bg-brand-mint/90",
-      )}
-      onClick={handleGenerateContract}
-      disabled={
-        !savedStudy?.study?.id ||
-        isGeneratingContract ||
-        isSigningContract ||
-        contractAlreadySigned
-      }
-    >
-      <span className="inline-flex items-center justify-center">
-        <span className="mr-3 inline-flex h-6 w-6 items-center justify-center">
-          {isGeneratingContract ? (
-            <Loader2 className="h-6 w-6 animate-spin" />
-          ) : contractAlreadySigned ? (
-            <Icon
-              icon="solar:shield-check-bold-duotone"
-              className="h-6 w-6"
-            />
-          ) : (
-            <Icon
-              icon="solar:pen-new-square-bold-duotone"
-              className="h-6 w-6"
-            />
-          )}
-        </span>
-        <span>{reserveButtonText}</span>
-      </span>
-    </Button>
+                      <div className="mt-auto space-y-3">
+                        <Button
+                          className={cn(
+                            "w-full py-5 rounded-[1.2rem] border-none",
+                            contractAlreadySigned
+                              ? "bg-brand-navy/10 text-brand-navy/50 cursor-not-allowed"
+                              : "bg-brand-mint text-brand-navy hover:bg-brand-mint/90",
+                          )}
+                          onClick={handleGenerateContract}
+                          disabled={
+                            !savedStudy?.study?.id ||
+                            isGeneratingContract ||
+                            isSigningContract ||
+                            contractAlreadySigned
+                          }
+                        >
+                          <span className="inline-flex items-center justify-center">
+                            <span className="mr-3 inline-flex h-6 w-6 items-center justify-center">
+                              {isGeneratingContract ? (
+                                <Loader2 className="h-6 w-6 animate-spin" />
+                              ) : contractAlreadySigned ? (
+                                <Icon
+                                  icon="solar:shield-check-bold-duotone"
+                                  className="h-6 w-6"
+                                />
+                              ) : (
+                                <Icon
+                                  icon="solar:pen-new-square-bold-duotone"
+                                  className="h-6 w-6"
+                                />
+                              )}
+                            </span>
+                            <span>{reserveButtonText}</span>
+                          </span>
+                        </Button>
 
-    <Button
-      className="w-full py-5 rounded-[1.2rem] brand-gradient text-brand-navy border-none"
-      onClick={handleDownloadPDF}
-    >
-      <Icon
-        icon="solar:download-minimalistic-bold-duotone"
-        className="mr-3 h-6 w-6"
-      />
-      {t("common.downloadPdf")}
-    </Button>
-  </div>
-</div>
+                        <Button
+                          className="w-full py-5 rounded-[1.2rem] brand-gradient text-brand-navy border-none"
+                          onClick={handleDownloadPDF}
+                        >
+                          <Icon
+                            icon="solar:download-minimalistic-bold-duotone"
+                            className="mr-3 h-6 w-6"
+                          />
+                          {t("common.downloadPdf")}
+                        </Button>
+                      </div>
+                    </div>
                   </div>
                 </motion.div>
               )}
@@ -4453,8 +4518,8 @@ function MainAppContent() {
                           Fecha límite:
                         </span>{" "}
                         {new Date(
-                          signedContractResult.reservation.paymentDeadlineAt,
-                        ).toLocaleDateString("es-ES")}
+  signedContractResult.reservation.paymentDeadlineAt,
+).toLocaleDateString(getDateLocale(currentAppLanguage))}
                       </p>
                     </div>
                   </div>

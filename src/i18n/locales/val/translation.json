@@ -86,11 +86,11 @@
     }
   },
   "result": {
-    "badge": "Estudi finalisat",
+    "badge": "Estudi finalitzat",
     "hero": {
       "titleLine1": "La teua proposta energètica",
       "titleLine2": "ja està llesta",
-      "compareDescription": "Compara les dues modalitats i revisa quina encaixa millor amb tu.",
+      "compareDescription": "Compara les dos modalitats i revisa quina encaixa millor amb tu.",
       "singleModeInvestment": "Esta instal·lació només està disponible en modalitat d'inversió.",
       "singleModeService": "Esta instal·lació només està disponible en modalitat de servici."
     },
@@ -118,7 +118,7 @@
       "annualConsumptionEstimated": "Consum anual estimat",
       "return": "Retorn",
       "investment": "Inversió",
-      "savings25Years": "Estalvi 25 anys",
+      "savings25Years": "Estalvi en 25 anys",
       "noFee": "Sense quota",
       "noInitialInvestment": "Sense inversió"
     },
@@ -140,12 +140,12 @@
     },
     "actions": {
       "title": "Accions",
-      "youWillHire": "Vas a contractar",
+      "youWillHire": "Contractaràs",
       "paymentStatus": "Estat del pagament",
       "pendingSignal": "Senyal pendent",
       "mode": "Modalitat",
-"power": "Potència",
-"reservedIn": "reservats en"
+      "power": "Potència",
+      "reservedIn": "reservats en"
     },
     "proposals": {
       "investment": {
@@ -164,12 +164,107 @@
         "points": [
           "Sense desemborsament inicial",
           "Quota mensual fixa",
-          "Ideal si prioritces no desemborsar directament"
+          "Ideal si prioritzes no desemborsar directament"
         ]
       }
     },
     "cards": {
-  "mode": "Modalitat"
-}
+      "mode": "Modalitat"
+    }
+  },
+  "contractPdf": {
+    "htmlLang": "ca",
+    "title": "Contracte d’adhesió",
+    "contractNumber": "Contracte núm.",
+    "date": "Data",
+    "clientData": "Dades del client",
+    "name": "Nom",
+    "dni": "DNI",
+    "email": "Correu electrònic",
+    "phone": "Telèfon",
+    "address": "Adreça",
+    "installationData": "Dades de la instal·lació",
+    "installation": "Instal·lació",
+    "mode": "Modalitat",
+    "assignedKwp": "kWp assignats",
+    "basicConditions": "Condicions bàsiques",
+    "condition1": "El client sol·licita la reserva de la potència indicada en la instal·lació seleccionada, i esta reserva queda pendent de confirmació econòmica.",
+    "condition2": "S’informa el client d’un termini orientatiu de 15 dies per a fer la transferència corresponent.",
+    "condition3": "Fins a la validació del pagament, la reserva tindrà caràcter provisional.",
+    "clientSignature": "Firma del client",
+    "modes": {
+      "investment": "Inversió",
+      "service": "Servici"
+    }
+  },
+  "paymentReceipt": {
+    "title": "Justificant de pagament",
+    "precontractLabel": "Precontracte",
+    "holderSection": "Titular",
+    "client": "Client",
+    "dni": "DNI",
+    "reservationSection": "Reserva",
+    "contractId": "ID del contracte",
+    "reservationId": "ID de la reserva",
+    "installation": "Instal·lació",
+    "reservedPower": "Potència reservada",
+    "paidAmount": "Import abonat",
+    "currency": "Moneda",
+    "paymentDate": "Data de pagament",
+    "stripeSection": "Referència Stripe",
+    "checkoutSessionId": "Checkout Session ID",
+    "paymentIntentId": "Payment Intent ID",
+    "footer": "Este document acredita la recepció de la senyal associada al precontracte de reserva/participació."
+  },
+  "emails": {
+    "proposal": {
+      "subject": "La teua proposta energètica ja està disponible",
+      "greeting": "Hola {{clientName}},",
+      "body1": "T’adjuntem la teua proposta energètica en PDF.",
+      "body2": "Hem preparat esta proposta a partir de les dades de la teua factura.",
+      "continueText": "També pots continuar el procés des del següent enllaç segur:",
+      "cta": "Continuar contractació",
+      "securityNote": "Per seguretat, este enllaç pot caducar.",
+      "body3": "Si tens qualsevol dubte, pots respondre directament a este correu.",
+      "farewell": "Una salutació"
+    },
+    "bankTransfer": {
+      "subject": "Instruccions per a completar la teua reserva per transferència",
+      "greeting": "Hola {{clientName}},",
+      "body1": "T’adjuntem el teu precontracte firmat i les dades per a completar la reserva mitjançant transferència bancària.",
+      "contractNumber": "Precontracte",
+      "installation": "Instal·lació",
+      "reservedPower": "Potència reservada",
+      "signalAmount": "Import de la senyal",
+      "deadline": "Data límit",
+      "iban": "IBAN",
+      "beneficiary": "Beneficiari",
+      "concept": "Concepte",
+      "body2": "És important que indiques exactament el concepte en la transferència per a poder identificar correctament el pagament.",
+      "body3": "Una vegada rebut i validat el pagament, t’enviarem la confirmació per correu electrònic.",
+      "farewell": "Una salutació"
+    },
+    "reservationConfirmed": {
+      "subject": "Confirmació de la teua reserva i justificant de pagament",
+      "greeting": "Hola {{clientName}},",
+      "body1": "Hem confirmat correctament la teua reserva.",
+      "contractNumber": "Precontracte",
+      "installation": "Instal·lació",
+      "reservedPower": "Potència reservada",
+      "signalAmount": "Senyal abonada",
+      "paymentDate": "Data de pagament",
+      "body2": "T’adjuntem el precontracte i el justificant de pagament per a la teua referència.",
+      "body3": "Gràcies per confiar en nosaltres.",
+      "farewell": "Una salutació"
+    },
+    "signedContract": {
+      "subject": "El teu contracte firmat i reserva provisional - Sapiens Energía",
+      "greeting": "Hola {{clientName}},",
+      "body1": "T’adjuntem una còpia del teu contracte firmat.",
+      "body2": "Hem realitzat una reserva provisional de {{reservedKwp}} kWp en la planta {{installationName}}.",
+      "body3": "Disposes d’un termini orientatiu de 15 dies, fins al {{formattedDate}}, per a realitzar la transferència i confirmar la reserva.",
+      "contractLink": "També pots consultar el teu contracte ací:",
+      "farewell": "Gràcies per confiar en nosaltres."
+    }
   }
 }
