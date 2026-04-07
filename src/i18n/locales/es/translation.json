@@ -265,6 +265,120 @@
       "body3": "Dispones de un plazo orientativo de 15 días, hasta el {{formattedDate}}, para realizar la transferencia y confirmar la reserva.",
       "contractLink": "Puedes consultar también tu contrato aquí:",
       "farewell": "Gracias por confiar en nosotros."
+    },
+    "proposalPdf": {
+      "pageTitle": "PROPUESTA ENERGÉTICA",
+      "header": {
+        "date": "FECHA"
+      },
+      "footer": {
+        "note": "Propuesta generada automáticamente por Sapiens Energía a partir del análisis documental de la factura del cliente."
+      },
+      "hero": {
+        "executiveReport": "INFORME EJECUTIVO",
+        "serviceTitle": "Propuesta energética\nmodalidad servicio",
+        "investmentTitle": "Propuesta energética\nmodalidad inversión",
+        "serviceSubtitle": "Modelo pensado para reducir la entrada inicial, simplificar la contratación y ofrecer una cuota más predecible.",
+        "investmentSubtitle": "Modelo orientado a maximizar el ahorro acumulado, acelerar la amortización y reforzar la rentabilidad a largo plazo."
+      },
+      "viability": {
+        "high": "Alta",
+        "medium": "Media",
+        "low": "Baja"
+      },
+      "sections": {
+        "supplyData": "DATOS DEL SUMINISTRO",
+        "priorityRecommendations": "RECOMENDACIONES PRIORITARIAS",
+        "economicSummary": "RESUMEN ECONÓMICO",
+        "technicalProfile": "PERFIL TÉCNICO",
+        "executiveConclusion": "CONCLUSIÓN EJECUTIVA"
+      },
+      "supply": {
+        "holder": "Titular",
+        "cups": "CUPS",
+        "tariff": "Tarifa",
+        "address": "Dirección",
+        "email": "Email",
+        "iban": "IBAN",
+        "annualInvoiceConsumption": "Consumo anual factura",
+        "contractedPower": "Potencia contratada"
+      },
+      "labels": {
+        "solarViability": "VIABILIDAD SOLAR",
+        "consumptionDistribution": "Distribución del consumo",
+        "powerAndProduction": "Potencia y producción",
+        "annualProduction": "Prod. anual",
+        "selfConsumption": "Autocons.",
+        "summary": "Resumen",
+        "estimated": "estimado",
+        "modality": "Modalidad",
+        "modalityUpper": "MODALIDAD",
+        "observation": "Observación",
+        "client": "Cliente"
+      },
+      "common": {
+        "consult": "Consultar",
+        "notAvailable": "N/D"
+      },
+      "highlights": {
+        "service": [
+          "Sin desembolso inicial elevado",
+          "Cuota mensual fija y predecible"
+        ],
+        "investment": [
+          "Mayor ahorro acumulado a largo plazo",
+          "Más control sobre la rentabilidad del proyecto"
+        ]
+      },
+      "recommendations": {
+        "service": [
+          {
+            "title": "Reducir la barrera de entrada",
+            "description": "La modalidad de servicio permite empezar sin un desembolso inicial elevado y con una cuota más previsible."
+          },
+          {
+            "title": "Equilibrar cuota y ahorro",
+            "description": "Conviene revisar la relación entre cuota mensual, ahorro anual y horizonte esperado para validar la propuesta."
+          }
+        ],
+        "investment": [
+          {
+            "title": "Maximizar el retorno de la inversión",
+            "description": "El nivel de consumo detectado hace atractiva una solución fotovoltaica orientada a capturar más ahorro acumulado."
+          },
+          {
+            "title": "Priorizar rentabilidad a largo plazo",
+            "description": "La inversión directa gana valor cuando se busca mayor ahorro total, control del activo y amortización sostenida."
+          }
+        ]
+      },
+      "conclusion": {
+        "service": "La modalidad de servicio encaja bien cuando se busca una entrada más cómoda, una cuota mensual clara y una decisión de contratación más flexible.",
+        "investment": "La modalidad de inversión encaja mejor cuando se prioriza el ahorro acumulado, la amortización de la instalación y la rentabilidad a medio y largo plazo."
+      },
+      "observation": {
+        "service": "Pensada para facilitar la entrada y mantener una cuota estable.",
+        "investment": "Pensada para maximizar el ahorro acumulado y la rentabilidad a largo plazo."
+      },
+      "recommendation": {
+        "pageTitle": "RECOMENDACIÓN FINAL",
+        "header": "RECOMENDACIÓN SAPIENS",
+        "pendingTitle": "Recomendación pendiente",
+        "pendingDescription": "No se ha podido determinar una recomendación final con la información disponible.",
+        "investmentTitle": "Recomendamos la modalidad de inversión",
+        "investmentDescription": "La inversión ofrece un ahorro acumulado superior a largo plazo ({{totalSavings}}) y un retorno estimado de {{paybackYears}} años. La recomendamos cuando se prioriza la rentabilidad global del proyecto y la amortización de la instalación.",
+        "serviceTitle": "Recomendamos la modalidad de servicio",
+        "serviceDescription": "La diferencia de ahorro acumulado frente a la inversión es reducida ({{savingsGap}}), pero la modalidad de servicio evita un desembolso inicial elevado y mantiene una cuota mensual estimada de {{monthlyFee}}. La recomendamos cuando se prioriza una entrada más cómoda, mayor flexibilidad y una decisión de contratación más sencilla.",
+        "genericInvestmentTitle": "Recomendación: modalidad de inversión",
+        "genericServiceTitle": "Recomendación: modalidad de servicio",
+        "conclusionAndNextStep": "CONCLUSIÓN Y SIGUIENTE PASO",
+        "executiveConclusionTitle": "Conclusión ejecutiva",
+        "executiveInvestment": "Por perfil económico y ahorro acumulado, recomendamos avanzar con la modalidad de inversión. Es la opción que mejor capitaliza el consumo detectado y ofrece una rentabilidad más sólida en el horizonte analizado.",
+        "executiveService": "Por flexibilidad de entrada y equilibrio entre ahorro y facilidad de contratación, recomendamos valorar la modalidad de servicio como la vía más cómoda para iniciar el proyecto.",
+        "executivePending": "No se ha podido establecer una recomendación final automática.",
+        "nextStepTitle": "Siguiente paso recomendado",
+        "nextStepDescription": "Validar la propuesta seleccionada, revisar los datos del suministro y continuar con la reserva o contratación según la modalidad elegida."
+      }
     }
   }
 }

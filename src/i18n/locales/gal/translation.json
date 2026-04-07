@@ -20,15 +20,15 @@
     "name": "Nome",
     "lastName": "Apelidos",
     "dni": "DNI / NIF",
-    "email": "Correo electrónico",
+    "email": "Email",
     "phone": "Teléfono",
     "address": "Enderezo completo"
   },
   "placeholders": {
-    "name": "Ex. Xoán",
+    "name": "Ex. Juan",
     "lastName": "Ex. Pérez García",
     "dni": "12345678X",
-    "email": "ti@email.com",
+    "email": "tu@email.com",
     "phone": "600 000 000",
     "address": "Rúa, número, CP, cidade, provincia"
   },
@@ -50,7 +50,7 @@
   },
   "map": {
     "title": "Selecciona a túa comunidade",
-    "description": "Estas son as instalacións activas dispoñibles dentro do raio de 5 km da túa localización.",
+    "description": "Estas son as instalacións activas dispoñibles dentro do radio de 5 km da túa localización.",
     "clientLocation": "Localización do cliente",
     "yourLocation": "A túa localización",
     "availableInstallations_one": "1 instalación dispoñible",
@@ -70,10 +70,10 @@
   "fileUploader": {
     "disabledMessage": "Debes aceptar a política de privacidade e o tratamento de datos antes de subir a factura.",
     "titleDefault": "Sube a túa factura eléctrica",
-    "titleDragging": "Sóltaa aquí!",
+    "titleDragging": "Soltao aquí!",
     "titleDisabled": "Acepta a política antes de subir",
-    "description": "Arrastra o teu ficheiro PDF ou imaxe aquí para que a nosa IA analice o teu consumo automaticamente.",
-    "secureMessage": "Os teus datos están seguros e cifrados",
+    "description": "Arrastra o teu arquivo PDF ou imaxe aquí para que a nosa IA analice o teu consumo automaticamente.",
+    "secureMessage": "Os teus datos están seguros e encriptados",
     "removeFile": "Eliminar arquivo",
     "toasts": {
       "privacyRequiredTitle": "Debes aceptar a política de privacidade",
@@ -90,7 +90,7 @@
     "hero": {
       "titleLine1": "A túa proposta enerxética",
       "titleLine2": "xa está lista",
-      "compareDescription": "Compara ambas as modalidades e revisa cal encaixa mellor contigo.",
+      "compareDescription": "Compara ambas modalidades e revisa cal encaixa mellor contigo.",
       "singleModeInvestment": "Esta instalación só está dispoñible na modalidade de investimento.",
       "singleModeService": "Esta instalación só está dispoñible na modalidade de servizo."
     },
@@ -118,7 +118,7 @@
       "annualConsumptionEstimated": "Consumo anual estimado",
       "return": "Retorno",
       "investment": "Investimento",
-      "savings25Years": "Aforro a 25 anos",
+      "savings25Years": "Aforro 25 anos",
       "noFee": "Sen cota",
       "noInitialInvestment": "Sen investimento"
     },
@@ -154,7 +154,7 @@
         "points": [
           "Maior aforro acumulado en 25 anos",
           "Máis control sobre a rendibilidade do proxecto",
-          "Ideal se buscas un retorno económico sostido",
+          "Ideal se buscas retorno económico sostido",
           "Sen cota mensual recorrente"
         ]
       },
@@ -180,7 +180,7 @@
     "clientData": "Datos do cliente",
     "name": "Nome",
     "dni": "DNI",
-    "email": "Correo electrónico",
+    "email": "Email",
     "phone": "Teléfono",
     "address": "Enderezo",
     "installationData": "Datos da instalación",
@@ -197,25 +197,139 @@
       "service": "Servizo"
     }
   },
-  "paymentReceipt": {
-    "title": "Xustificante de pagamento",
-    "precontractLabel": "Precontrato",
-    "holderSection": "Titular",
-    "client": "Cliente",
-    "dni": "DNI",
-    "reservationSection": "Reserva",
-    "contractId": "ID do contrato",
-    "reservationId": "ID da reserva",
-    "installation": "Instalación",
-    "reservedPower": "Potencia reservada",
-    "paidAmount": "Importe aboado",
-    "currency": "Moeda",
-    "paymentDate": "Data de pagamento",
-    "stripeSection": "Referencia de Stripe",
-    "checkoutSessionId": "Checkout Session ID",
-    "paymentIntentId": "Payment Intent ID",
-    "footer": "Este documento acredita a recepción do sinal asociado ao precontrato de reserva/participación."
+"paymentReceipt": {
+  "title": "Xustificante de pagamento",
+  "precontractLabel": "Precontrato",
+  "holderSection": "Titular",
+  "client": "Cliente",
+  "dni": "DNI",
+  "reservationSection": "Reserva",
+  "contractId": "ID do contrato",
+  "reservationId": "ID da reserva",
+  "installation": "Instalación",
+  "reservedPower": "Potencia reservada",
+  "paidAmount": "Importe aboado",
+  "currency": "Moeda",
+  "paymentDate": "Data de pagamento",
+  "stripeSection": "Referencia Stripe",
+  "checkoutSessionId": "Checkout Session ID",
+  "paymentIntentId": "Payment Intent ID",
+  "footer": "Este documento acredita a recepción do sinal asociado ao precontrato de reserva/participación."
+},
+"proposalPdf": {
+  "pageTitle": "PROPOSTA ENERXÉTICA",
+  "header": {
+    "date": "DATA"
   },
+  "footer": {
+    "note": "Proposta xerada automaticamente por Sapiens Enerxía a partir da análise documental da factura do cliente."
+  },
+  "hero": {
+    "executiveReport": "INFORME EXECUTIVO",
+    "serviceTitle": "Proposta enerxética\nmodalidade servizo",
+    "investmentTitle": "Proposta enerxética\nmodalidade investimento",
+    "serviceSubtitle": "Modelo pensado para reducir a entrada inicial, simplificar a contratación e ofrecer unha cota máis previsible.",
+    "investmentSubtitle": "Modelo orientado a maximizar o aforro acumulado, acelerar a amortización e reforzar a rendibilidade a longo prazo."
+  },
+  "viability": {
+    "high": "Alta",
+    "medium": "Media",
+    "low": "Baixa"
+  },
+  "sections": {
+    "supplyData": "DATOS DA SUBMINISTRACIÓN",
+    "priorityRecommendations": "RECOMENDACIÓNS PRIORITARIAS",
+    "economicSummary": "RESUMO ECONÓMICO",
+    "technicalProfile": "PERFIL TÉCNICO",
+    "executiveConclusion": "CONCLUSIÓN EXECUTIVA"
+  },
+  "supply": {
+    "holder": "Titular",
+    "cups": "CUPS",
+    "tariff": "Tarifa",
+    "address": "Enderezo",
+    "email": "Email",
+    "iban": "IBAN",
+    "annualInvoiceConsumption": "Consumo anual da factura",
+    "contractedPower": "Potencia contratada"
+  },
+  "labels": {
+    "solarViability": "VIABILIDADE SOLAR",
+    "consumptionDistribution": "Distribución do consumo",
+    "powerAndProduction": "Potencia e produción",
+    "annualProduction": "Prod. anual",
+    "selfConsumption": "Autocons.",
+    "summary": "Resumo",
+    "estimated": "estimado",
+    "modality": "Modalidade",
+    "modalityUpper": "MODALIDADE",
+    "observation": "Observación",
+    "client": "Cliente"
+  },
+  "common": {
+    "consult": "Consultar",
+    "notAvailable": "N/D"
+  },
+  "highlights": {
+    "service": [
+      "Sen desembolso inicial elevado",
+      "Cota mensual fixa e previsible"
+    ],
+    "investment": [
+      "Maior aforro acumulado a longo prazo",
+      "Máis control sobre a rendibilidade do proxecto"
+    ]
+  },
+  "recommendations": {
+    "service": [
+      {
+        "title": "Reducir a barreira de entrada",
+        "description": "A modalidade de servizo permite empezar sen un desembolso inicial elevado e cunha cota máis previsible."
+      },
+      {
+        "title": "Equilibrar cota e aforro",
+        "description": "Convén revisar a relación entre cota mensual, aforro anual e horizonte esperado para validar a proposta."
+      }
+    ],
+    "investment": [
+      {
+        "title": "Maximizar o retorno do investimento",
+        "description": "O nivel de consumo detectado fai atractiva unha solución fotovoltaica orientada a captar máis aforro acumulado."
+      },
+      {
+        "title": "Priorizar a rendibilidade a longo prazo",
+        "description": "O investimento directo gaña valor cando se busca maior aforro total, control do activo e amortización sostida."
+      }
+    ]
+  },
+  "conclusion": {
+    "service": "A modalidade de servizo encaixa ben cando se busca unha entrada máis cómoda, unha cota mensual clara e unha decisión de contratación máis flexible.",
+    "investment": "A modalidade de investimento encaixa mellor cando se prioriza o aforro acumulado, a amortización da instalación e a rendibilidade a medio e longo prazo."
+  },
+  "observation": {
+    "service": "Pensada para facilitar a entrada e manter unha cota estable.",
+    "investment": "Pensada para maximizar o aforro acumulado e a rendibilidade a longo prazo."
+  },
+  "recommendation": {
+    "pageTitle": "RECOMENDACIÓN FINAL",
+    "header": "RECOMENDACIÓN SAPIENS",
+    "pendingTitle": "Recomendación pendente",
+    "pendingDescription": "Non se puido determinar unha recomendación final coa información dispoñible.",
+    "investmentTitle": "Recomendamos a modalidade de investimento",
+    "investmentDescription": "O investimento ofrece un aforro acumulado superior a longo prazo ({{totalSavings}}) e un retorno estimado de {{paybackYears}} anos. Recomendámolo cando se prioriza a rendibilidade global do proxecto e a amortización da instalación.",
+    "serviceTitle": "Recomendamos a modalidade de servizo",
+    "serviceDescription": "A diferenza de aforro acumulado fronte ao investimento é reducida ({{savingsGap}}), pero a modalidade de servizo evita un desembolso inicial elevado e mantén unha cota mensual estimada de {{monthlyFee}}. Recomendámola cando se prioriza unha entrada máis cómoda, maior flexibilidade e unha decisión de contratación máis sinxela.",
+    "genericInvestmentTitle": "Recomendación: modalidade de investimento",
+    "genericServiceTitle": "Recomendación: modalidade de servizo",
+    "conclusionAndNextStep": "CONCLUSIÓN E SEGUINTE PASO",
+    "executiveConclusionTitle": "Conclusión executiva",
+    "executiveInvestment": "Polo perfil económico e aforro acumulado, recomendamos avanzar coa modalidade de investimento. É a opción que mellor capitaliza o consumo detectado e ofrece unha rendibilidade máis sólida no horizonte analizado.",
+    "executiveService": "Pola flexibilidade de entrada e equilibrio entre aforro e facilidade de contratación, recomendamos valorar a modalidade de servizo como a vía máis cómoda para iniciar o proxecto.",
+    "executivePending": "Non se puido establecer unha recomendación final automática.",
+    "nextStepTitle": "Seguinte paso recomendado",
+    "nextStepDescription": "Validar a proposta seleccionada, revisar os datos da subministración e continuar coa reserva ou contratación segundo a modalidade elixida."
+  }
+},
   "emails": {
     "proposal": {
       "subject": "A túa proposta enerxética xa está dispoñible",
@@ -231,7 +345,7 @@
     "bankTransfer": {
       "subject": "Instrucións para completar a túa reserva por transferencia",
       "greeting": "Ola {{clientName}},",
-      "body1": "Adxuntámosche o teu precontrato asinado e os datos para completar a reserva mediante transferencia bancaria.",
+      "body1": "Adxuntamos o teu precontrato asinado e os datos para completar a reserva mediante transferencia bancaria.",
       "contractNumber": "Precontrato",
       "installation": "Instalación",
       "reservedPower": "Potencia reservada",
@@ -240,7 +354,7 @@
       "iban": "IBAN",
       "beneficiary": "Beneficiario",
       "concept": "Concepto",
-      "body2": "É importante que indiques exactamente o concepto na transferencia para poder identificar correctamente o pagamento.",
+      "body2": "É importante que indiques exactamente o concepto na transferencia para poder identificar o pagamento correctamente.",
       "body3": "Unha vez recibido e validado o pagamento, enviarémosche a confirmación por correo electrónico.",
       "farewell": "Un saúdo"
     },
@@ -253,18 +367,19 @@
       "reservedPower": "Potencia reservada",
       "signalAmount": "Sinal aboado",
       "paymentDate": "Data de pagamento",
-      "body2": "Adxuntámosche o precontrato e o xustificante de pagamento para a túa referencia.",
+      "body2": "Adxuntamos o precontrato e o xustificante de pagamento para a túa referencia.",
       "body3": "Grazas por confiar en nós.",
       "farewell": "Un saúdo"
     },
     "signedContract": {
-      "subject": "O teu contrato asinado e reserva provisional - Sapiens Energía",
+      "subject": "O teu contrato asinado e reserva provisional - Sapiens Enerxía",
       "greeting": "Ola {{clientName}},",
-      "body1": "Adxuntámosche unha copia do teu contrato asinado.",
+      "body1": "Adxuntamos unha copia do teu contrato asinado.",
       "body2": "Realizamos unha reserva provisional de {{reservedKwp}} kWp na planta {{installationName}}.",
       "body3": "Dispós dun prazo orientativo de 15 días, ata o {{formattedDate}}, para realizar a transferencia e confirmar a reserva.",
       "contractLink": "Tamén podes consultar o teu contrato aquí:",
       "farewell": "Grazas por confiar en nós."
     }
+    
   }
 }

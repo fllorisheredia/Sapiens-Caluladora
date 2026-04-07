@@ -3259,11 +3259,11 @@ const response = await axios.post<GeneratedContractResponse>(
                         </div>
                       </FormSection>
 
-                      <FormSection
+                      {/* <FormSection
                         title={t("validation.supplySection.title")}
                         subtitle={t("validation.supplySection.subtitle")}
                       >
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start"> */}
                           {/* <Controller
                             name="billType"
                             control={control}
@@ -3282,14 +3282,14 @@ const response = await axios.post<GeneratedContractResponse>(
                             )}
                           /> */}
 
-                        <Input
+                        {/* <Input
   label={t("fields.address")}
   {...register("address")}
   error={errors.address?.message}
   placeholder={t("placeholders.address")}
 />
                         </div>
-                      </FormSection>
+                      </FormSection> */}
 
                       <div className="flex justify-center pt-4">
                         <Button
