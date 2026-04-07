@@ -25,7 +25,7 @@
     "address": "Adreça completa"
   },
   "placeholders": {
-    "name": "Ex. Joan",
+    "name": "Ex. Juan",
     "lastName": "Ex. Pérez García",
     "dni": "12345678X",
     "email": "tu@email.com",
@@ -62,7 +62,7 @@
     "titleLine1": "Generant el teu estudi",
     "titleLine2": "d'alta precisió",
     "tasks": {
-      "validateBill": "Validant dades de factura",
+      "validateBill": "Validant dades de la factura",
       "analyzeSolar": "Analitzant radiació solar local",
       "calculateReturn": "Calculant retorn de la inversió"
     }
@@ -70,7 +70,7 @@
   "fileUploader": {
     "disabledMessage": "Has d'acceptar la política de privacitat i el tractament de dades abans de pujar la factura.",
     "titleDefault": "Puja la teua factura elèctrica",
-    "titleDragging": "Deixa-la ací!",
+    "titleDragging": "Solta-ho ací!",
     "titleDisabled": "Accepta la política abans de pujar",
     "description": "Arrossega el teu arxiu PDF o imatge ací perquè la nostra IA analitze el teu consum automàticament.",
     "secureMessage": "Les teues dades estan segures i encriptades",
@@ -89,7 +89,7 @@
     "badge": "Estudi finalitzat",
     "hero": {
       "titleLine1": "La teua proposta energètica",
-      "titleLine2": "ja està llesta",
+      "titleLine2": "ja està preparada",
       "compareDescription": "Compara les dos modalitats i revisa quina encaixa millor amb tu.",
       "singleModeInvestment": "Esta instal·lació només està disponible en modalitat d'inversió.",
       "singleModeService": "Esta instal·lació només està disponible en modalitat de servici."
@@ -124,8 +124,8 @@
     },
     "reserve": {
       "startedTitle": "Reserva iniciada",
-      "startedDescriptionInvestment": "La reserva ja ha sigut iniciada en modalitat d'inversió.",
-      "startedDescriptionService": "La reserva ja ha sigut iniciada en modalitat de servici.",
+      "startedDescriptionInvestment": "La reserva ja s'ha iniciat en modalitat d'inversió.",
+      "startedDescriptionService": "La reserva ja s'ha iniciat en modalitat de servici.",
       "reserved": "Reservat",
       "investment": {
         "title": "Reservar inversió",
@@ -140,7 +140,7 @@
     },
     "actions": {
       "title": "Accions",
-      "youWillHire": "Vas a contractar",
+      "youWillHire": "Contractaràs",
       "paymentStatus": "Estat del pagament",
       "pendingSignal": "Senyal pendent",
       "mode": "Modalitat",
@@ -154,7 +154,7 @@
         "points": [
           "Major estalvi acumulat en 25 anys",
           "Més control sobre la rendibilitat del projecte",
-          "Ideal si busques retorn econòmic sostingut",
+          "Ideal si busques un retorn econòmic sostingut",
           "Sense quota mensual recurrent"
         ]
       },
@@ -164,7 +164,7 @@
         "points": [
           "Sense desemborsament inicial",
           "Quota mensual fixa",
-          "Ideal si prioritzes no desemborsar directament"
+          "Ideal si priorititzes no desemborsar directament"
         ]
       }
     },
@@ -173,7 +173,7 @@
     }
   },
   "contractPdf": {
-    "htmlLang": "ca",
+    "htmlLang": "val",
     "title": "Contracte d'adhesió",
     "contractNumber": "Contracte núm.",
     "date": "Data",
@@ -188,7 +188,7 @@
     "mode": "Modalitat",
     "assignedKwp": "kWp assignats",
     "basicConditions": "Condicions bàsiques",
-    "condition1": "El client sol·licita la reserva de la potència indicada en la instal·lació seleccionada, quedant esta reserva pendent de confirmació econòmica.",
+    "condition1": "El client sol·licita la reserva de la potència indicada en la instal·lació seleccionada, i esta reserva queda pendent de confirmació econòmica.",
     "condition2": "S'informa el client d'un termini orientatiu de 15 dies per a realitzar la transferència corresponent.",
     "condition3": "Fins a la validació del pagament, la reserva tindrà caràcter provisional.",
     "clientSignature": "Firma del client",
@@ -216,118 +216,67 @@
     "paymentIntentId": "Payment Intent ID",
     "footer": "Este document acredita la recepció de la senyal associada al precontracte de reserva/participació."
   },
-  "proposalPdf": {
-    "pageTitle": "PROPOSTA ENERGÈTICA",
-    "header": {
-      "date": "DATA"
-    },
-    "footer": {
-      "note": "Proposta generada automàticament per Sapiens Energía a partir de l'anàlisi documental de la factura del client."
-    },
+  "continueContract": {
+    "badge": "Continuar contractació",
+    "accessBadge": "Accés a proposta",
     "hero": {
-      "executiveReport": "INFORME EXECUTIU",
-      "serviceTitle": "Proposta energètica\nmodalitat servici",
-      "investmentTitle": "Proposta energètica\nmodalitat inversió",
-      "serviceSubtitle": "Model pensat per a reduir l'entrada inicial, simplificar la contractació i oferir una quota més previsible.",
-      "investmentSubtitle": "Model orientat a maximitzar l'estalvi acumulat, accelerar l'amortització i reforçar la rendibilitat a llarg termini."
+      "titleLine1": "Reprén la teua proposta",
+      "titleLine2": "quan vulgues",
+      "description": "Accedix amb les teues dades per a continuar la contractació des de la proposta que t'hem enviat per correu i selecciona la modalitat amb la qual desitges seguir."
     },
-    "viability": {
-      "high": "Alta",
-      "medium": "Mitjana",
-      "low": "Baixa"
+    "cards": {
+      "secureAccess": {
+        "title": "Accés segur",
+        "description": "Validem les teues dades abans de continuar amb la contractació."
+      },
+      "modeChoice": {
+        "title": "Modalitat a triar",
+        "description": "Podràs continuar per inversió o per servici i generar el contracte segons l'opció triada."
+      },
+      "fastProcess": {
+        "title": "Procés ràpid",
+        "description": "Després de validar l'accés aniràs directament al flux de contractació."
+      }
     },
-    "sections": {
-      "supplyData": "DADES DEL SUBMINISTRAMENT",
-      "priorityRecommendations": "RECOMANACIONS PRIORITÀRIES",
-      "economicSummary": "RESUM ECONÒMIC",
-      "technicalProfile": "PERFIL TÈCNIC",
-      "executiveConclusion": "CONCLUSIÓ EXECUTIVA"
+    "linkStatus": {
+      "label": "Estat de l'enllaç",
+      "valid": "Token detectat correctament",
+      "missing": "Falta token"
     },
-    "supply": {
-      "holder": "Titular",
-      "cups": "CUPS",
-      "tariff": "Tarifa",
-      "address": "Adreça",
-      "email": "Email",
-      "iban": "IBAN",
-      "annualInvoiceConsumption": "Consum anual factura",
-      "contractedPower": "Potència contractada"
+    "form": {
+      "title": "Confirma les teues dades",
+      "description": "Introduïx les dades del titular i selecciona la modalitat amb la qual desitges continuar la contractació.",
+      "modeLabel": "Modalitat a contractar",
+      "namePlaceholder": "El teu nom",
+      "lastNamePlaceholder": "Els teus cognoms"
     },
-    "labels": {
-      "solarViability": "VIABILITAT SOLAR",
-      "consumptionDistribution": "Distribució del consum",
-      "powerAndProduction": "Potència i producció",
-      "annualProduction": "Prod. anual",
-      "selfConsumption": "Autocons.",
-      "summary": "Resum",
-      "estimated": "estimat",
-      "modality": "Modalitat",
-      "modalityUpper": "MODALITAT",
-      "observation": "Observació",
-      "client": "Client"
+    "modes": {
+      "investment": {
+        "subtitle": "Major rendibilitat a llarg termini",
+        "description": "Ideal si vols maximitzar l'estalvi i assumir la inversió inicial."
+      },
+      "service": {
+        "subtitle": "Menor barrera d'entrada",
+        "description": "Ideal si preferixes una quota mensual i evitar el desemborsament inicial."
+      }
     },
-    "common": {
-      "consult": "Consultar",
-      "notAvailable": "N/D"
+    "selectedMode": {
+      "title": "Modalitat seleccionada:",
+      "description": "Continuaràs el flux amb esta modalitat per a generar el contracte corresponent."
     },
-    "highlights": {
-      "service": [
-        "Sense desemborsament inicial elevat",
-        "Quota mensual fixa i previsible"
-      ],
-      "investment": [
-        "Major estalvi acumulat a llarg termini",
-        "Més control sobre la rendibilitat del projecte"
-      ]
+    "actions": {
+      "continue": "Continuar contractació",
+      "validating": "Validant accés..."
     },
-    "recommendations": {
-      "service": [
-        {
-          "title": "Reduir la barrera d'entrada",
-          "description": "La modalitat de servici permet començar sense un desemborsament inicial elevat i amb una quota més previsible."
-        },
-        {
-          "title": "Equilibrar quota i estalvi",
-          "description": "Convé revisar la relació entre quota mensual, estalvi anual i horitzó esperat per a validar la proposta."
-        }
-      ],
-      "investment": [
-        {
-          "title": "Maximitzar el retorn de la inversió",
-          "description": "El nivell de consum detectat fa atractiva una solució fotovoltaica orientada a captar més estalvi acumulat."
-        },
-        {
-          "title": "Prioritzar rendibilitat a llarg termini",
-          "description": "La inversió directa guanya valor quan es busca major estalvi total, control de l'actiu i amortització sostinguda."
-        }
-      ]
-    },
-    "conclusion": {
-      "service": "La modalitat de servici encaixa bé quan es busca una entrada més còmoda, una quota mensual clara i una decisió de contractació més flexible.",
-      "investment": "La modalitat d'inversió encaixa millor quan es prioritza l'estalvi acumulat, l'amortització de la instal·lació i la rendibilitat a mitjà i llarg termini."
-    },
-    "observation": {
-      "service": "Pensada per a facilitar l'entrada i mantindre una quota estable.",
-      "investment": "Pensada per a maximitzar l'estalvi acumulat i la rendibilitat a llarg termini."
-    },
-    "recommendation": {
-      "pageTitle": "RECOMANACIÓ FINAL",
-      "header": "RECOMANACIÓ SAPIENS",
-      "pendingTitle": "Recomanació pendent",
-      "pendingDescription": "No s'ha pogut determinar una recomanació final amb la informació disponible.",
-      "investmentTitle": "Recomanem la modalitat d'inversió",
-      "investmentDescription": "La inversió oferix un estalvi acumulat superior a llarg termini ({{totalSavings}}) i un retorn estimat de {{paybackYears}} anys. La recomanem quan es prioritza la rendibilitat global del projecte i l'amortització de la instal·lació.",
-      "serviceTitle": "Recomanem la modalitat de servici",
-      "serviceDescription": "La diferència d'estalvi acumulat respecte a la inversió és reduïda ({{savingsGap}}), però la modalitat de servici evita un desemborsament inicial elevat i manté una quota mensual estimada de {{monthlyFee}}. La recomanem quan es prioritza una entrada més còmoda, major flexibilitat i una decisió de contractació més senzilla.",
-      "genericInvestmentTitle": "Recomanació: modalitat d'inversió",
-      "genericServiceTitle": "Recomanació: modalitat de servici",
-      "conclusionAndNextStep": "CONCLUSIÓ I SEGÜENT PAS",
-      "executiveConclusionTitle": "Conclusió executiva",
-      "executiveInvestment": "Per perfil econòmic i estalvi acumulat, recomanem avançar amb la modalitat d'inversió. És l'opció que millor capitalitza el consum detectat i oferix una rendibilitat més sòlida en l'horitzó analitzat.",
-      "executiveService": "Per flexibilitat d'entrada i equilibri entre estalvi i facilitat de contractació, recomanem valorar la modalitat de servici com la via més còmoda per a iniciar el projecte.",
-      "executivePending": "No s'ha pogut establir una recomanació final automàtica.",
-      "nextStepTitle": "Següent pas recomanat",
-      "nextStepDescription": "Validar la proposta seleccionada, revisar les dades del subministrament i continuar amb la reserva o contractació segons la modalitat triada."
+    "toasts": {
+      "invalidLinkTitle": "Enllaç no vàlid",
+      "invalidLinkDescription": "No s'ha trobat el token d'accés.",
+      "missingDataTitle": "Falten dades",
+      "missingDataDescription": "Has de completar DNI, nom i cognoms.",
+      "accessValidatedTitle": "Accés validat",
+      "accessValidatedDescription": "Continuarem amb la teua contractació.",
+      "couldNotContinueTitle": "No s'ha pogut continuar",
+      "couldNotValidateDescription": "No s'ha pogut validar el teu accés."
     }
   },
   "emails": {
@@ -379,6 +328,120 @@
       "body3": "Disposes d'un termini orientatiu de 15 dies, fins al {{formattedDate}}, per a realitzar la transferència i confirmar la reserva.",
       "contractLink": "També pots consultar el teu contracte ací:",
       "farewell": "Gràcies per confiar en nosaltres."
+    },
+    "proposalPdf": {
+      "pageTitle": "PROPOSTA ENERGÈTICA",
+      "header": {
+        "date": "DATA"
+      },
+      "footer": {
+        "note": "Proposta generada automàticament per Sapiens Energía a partir de l'anàlisi documental de la factura del client."
+      },
+      "hero": {
+        "executiveReport": "INFORME EXECUTIU",
+        "serviceTitle": "Proposta energètica\nmodalitat servici",
+        "investmentTitle": "Proposta energètica\nmodalitat inversió",
+        "serviceSubtitle": "Model pensat per a reduir l'entrada inicial, simplificar la contractació i oferir una quota més previsible.",
+        "investmentSubtitle": "Model orientat a maximitzar l'estalvi acumulat, accelerar l'amortització i reforçar la rendibilitat a llarg termini."
+      },
+      "viability": {
+        "high": "Alta",
+        "medium": "Mitjana",
+        "low": "Baixa"
+      },
+      "sections": {
+        "supplyData": "DADES DEL SUBMINISTRAMENT",
+        "priorityRecommendations": "RECOMANACIONS PRIORITÀRIES",
+        "economicSummary": "RESUM ECONÒMIC",
+        "technicalProfile": "PERFIL TÈCNIC",
+        "executiveConclusion": "CONCLUSIÓ EXECUTIVA"
+      },
+      "supply": {
+        "holder": "Titular",
+        "cups": "CUPS",
+        "tariff": "Tarifa",
+        "address": "Adreça",
+        "email": "Email",
+        "iban": "IBAN",
+        "annualInvoiceConsumption": "Consum anual de la factura",
+        "contractedPower": "Potència contractada"
+      },
+      "labels": {
+        "solarViability": "VIABILITAT SOLAR",
+        "consumptionDistribution": "Distribució del consum",
+        "powerAndProduction": "Potència i producció",
+        "annualProduction": "Prod. anual",
+        "selfConsumption": "Autocons.",
+        "summary": "Resum",
+        "estimated": "estimat",
+        "modality": "Modalitat",
+        "modalityUpper": "MODALITAT",
+        "observation": "Observació",
+        "client": "Client"
+      },
+      "common": {
+        "consult": "Consultar",
+        "notAvailable": "N/D"
+      },
+      "highlights": {
+        "service": [
+          "Sense desemborsament inicial elevat",
+          "Quota mensual fixa i previsible"
+        ],
+        "investment": [
+          "Major estalvi acumulat a llarg termini",
+          "Més control sobre la rendibilitat del projecte"
+        ]
+      },
+      "recommendations": {
+        "service": [
+          {
+            "title": "Reduir la barrera d'entrada",
+            "description": "La modalitat de servici permet començar sense un desemborsament inicial elevat i amb una quota més previsible."
+          },
+          {
+            "title": "Equilibrar quota i estalvi",
+            "description": "Convé revisar la relació entre quota mensual, estalvi anual i horitzó esperat per a validar la proposta."
+          }
+        ],
+        "investment": [
+          {
+            "title": "Maximitzar el retorn de la inversió",
+            "description": "El nivell de consum detectat fa atractiva una solució fotovoltaica orientada a captar més estalvi acumulat."
+          },
+          {
+            "title": "Prioritzar la rendibilitat a llarg termini",
+            "description": "La inversió directa guanya valor quan es busca major estalvi total, control de l'actiu i amortització sostinguda."
+          }
+        ]
+      },
+      "conclusion": {
+        "service": "La modalitat de servici encaixa bé quan es busca una entrada més còmoda, una quota mensual clara i una decisió de contractació més flexible.",
+        "investment": "La modalitat d'inversió encaixa millor quan es prioritza l'estalvi acumulat, l'amortització de la instal·lació i la rendibilitat a mitjà i llarg termini."
+      },
+      "observation": {
+        "service": "Pensada per a facilitar l'entrada i mantindre una quota estable.",
+        "investment": "Pensada per a maximitzar l'estalvi acumulat i la rendibilitat a llarg termini."
+      },
+      "recommendation": {
+        "pageTitle": "RECOMANACIÓ FINAL",
+        "header": "RECOMANACIÓ SAPIENS",
+        "pendingTitle": "Recomanació pendent",
+        "pendingDescription": "No s'ha pogut determinar una recomanació final amb la informació disponible.",
+        "investmentTitle": "Recomanem la modalitat d'inversió",
+        "investmentDescription": "La inversió oferix un estalvi acumulat superior a llarg termini ({{totalSavings}}) i un retorn estimat de {{paybackYears}} anys. La recomanem quan es prioritza la rendibilitat global del projecte i l'amortització de la instal·lació.",
+        "serviceTitle": "Recomanem la modalitat de servici",
+        "serviceDescription": "La diferència d'estalvi acumulat respecte a la inversió és reduïda ({{savingsGap}}), però la modalitat de servici evita un desemborsament inicial elevat i manté una quota mensual estimada de {{monthlyFee}}. La recomanem quan es prioritza una entrada més còmoda, major flexibilitat i una decisió de contractació més senzilla.",
+        "genericInvestmentTitle": "Recomanació: modalitat d'inversió",
+        "genericServiceTitle": "Recomanació: modalitat de servici",
+        "conclusionAndNextStep": "CONCLUSIÓ I SEGÜENT PAS",
+        "executiveConclusionTitle": "Conclusió executiva",
+        "executiveInvestment": "Pel perfil econòmic i l'estalvi acumulat, recomanem avançar amb la modalitat d'inversió. És l'opció que millor capitalitza el consum detectat i oferix una rendibilitat més sòlida en l'horitzó analitzat.",
+        "executiveService": "Per la flexibilitat d'entrada i l'equilibri entre estalvi i facilitat de contractació, recomanem valorar la modalitat de servici com la via més còmoda per a iniciar el projecte.",
+        "executivePending": "No s'ha pogut establir una recomanació final automàtica.",
+        "nextStepTitle": "Següent pas recomanat",
+        "nextStepDescription": "Validar la proposta seleccionada, revisar les dades del subministrament i continuar amb la reserva o contractació segons la modalitat triada."
+      }
     }
   }
 }
