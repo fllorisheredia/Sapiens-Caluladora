@@ -1,0 +1,175 @@
+{
+  "common": {
+    "confirmAndContinue": "Confirmar e continuar",
+    "downloadPdf": "Descargar PDF",
+    "cancel": "Cancelar",
+    "close": "Pechar",
+    "processing": "Procesando..."
+  },
+  "steps": {
+    "upload": "Subida",
+    "validation": "Validación",
+    "location": "Localización",
+    "result": "Resultado"
+  },
+  "admin": {
+    "access": "Acceso Admin",
+    "backToSite": "Volver á web"
+  },
+  "fields": {
+    "name": "Nome",
+    "lastName": "Apelidos",
+    "dni": "DNI / NIF",
+    "email": "Correo electrónico",
+    "phone": "Teléfono",
+    "address": "Enderezo completo"
+  },
+  "placeholders": {
+    "name": "Ex. Xoán",
+    "lastName": "Ex. Pérez García",
+    "dni": "12345678X",
+    "email": "ti@email.com",
+    "phone": "600 000 000",
+    "address": "Rúa, número, CP, cidade, provincia"
+  },
+  "upload": {
+    "privacyConsent": "Lin e acepto a <privacyLink>Política de Privacidade</privacyLink> e o tratamento dos meus datos para xestionar a subida da miña factura e a elaboración do meu estudo enerxético.",
+    "disabledMessage": "Debes aceptar a política de privacidade e o tratamento de datos antes de subir a factura."
+  },
+  "validation": {
+    "title": "Verifica a túa información",
+    "description": "Analizamos a túa factura. Por favor, confirma que os datos extraídos son correctos.",
+    "ownerSection": {
+      "title": "Datos do titular",
+      "subtitle": "Confirma a información persoal detectada na factura."
+    },
+    "supplySection": {
+      "title": "Datos da subministración",
+      "subtitle": "Revisa o enderezo completo e o tipo de factura."
+    }
+  },
+  "map": {
+    "title": "Selecciona a túa comunidade",
+    "description": "Estas son as instalacións activas dispoñibles dentro do radio de 5 km da túa localización.",
+    "clientLocation": "Localización do cliente",
+    "yourLocation": "A túa localización",
+    "availableInstallations_one": "1 instalación dispoñible",
+    "availableInstallations_other": "{{count}} instalacións dispoñibles",
+    "recommendedPlants": "Plantas recomendadas",
+    "searchingPlants": "Buscando plantas..."
+  },
+  "calculation": {
+    "titleLine1": "Xerando o teu estudo",
+    "titleLine2": "de alta precisión",
+    "tasks": {
+      "validateBill": "Validando datos da factura",
+      "analyzeSolar": "Analizando a radiación solar local",
+      "calculateReturn": "Calculando o retorno do investimento"
+    }
+  },
+  "fileUploader": {
+    "disabledMessage": "Debes aceptar a política de privacidade e o tratamento de datos antes de subir a factura.",
+    "titleDefault": "Sube a túa factura eléctrica",
+    "titleDragging": "Sóltao aquí!",
+    "titleDisabled": "Acepta a política antes de subir",
+    "description": "Arrastra o teu ficheiro PDF ou imaxe aquí para que a nosa IA analice o teu consumo automaticamente.",
+    "secureMessage": "Os teus datos están seguros e cifrados",
+    "removeFile": "Eliminar arquivo",
+    "toasts": {
+      "privacyRequiredTitle": "Debes aceptar a política de privacidade",
+      "privacyRequiredDescription": "Para subir a factura, primeiro tes que aceptar o tratamento de datos.",
+      "viewPolicy": "Ver política",
+      "invalidFileTypeTitle": "Tipo de arquivo non permitido",
+      "invalidFileTypeDescription": "Só se aceptan: {{formats}}",
+      "fileTooLargeTitle": "Arquivo demasiado grande",
+      "fileTooLargeDescription": "O límite é de {{maxSize}}MB"
+    }
+  },
+  "result": {
+    "badge": "Estudo finalizado",
+    "hero": {
+      "titleLine1": "A túa proposta enerxética",
+      "titleLine2": "xa está lista",
+      "compareDescription": "Compara ambas modalidades e revisa cal encaixa mellor contigo.",
+      "singleModeInvestment": "Esta instalación só está dispoñible en modalidade de investimento.",
+      "singleModeService": "Esta instalación só está dispoñible en modalidade de servizo."
+    },
+    "modes": {
+      "investment": "Investimento",
+      "service": "Servizo"
+    },
+    "availableMode": "Modalidade dispoñible",
+    "activeOption": "Opción activa",
+    "selectedMode": "Modalidade seleccionada",
+    "units": {
+      "month": "mes",
+      "years": "anos"
+    },
+    "summary": {
+      "totalInvestment": "Investimento total",
+      "monthlyCost": "Custo mensual",
+      "annualSavings": "Aforro anual",
+      "monthlySavings": "Aforro mensual",
+      "monthlySavingsHelper": "Aforro mensual: {{value}}",
+      "initialCost": "Custo inicial",
+      "monthlyFee": "Cota mensual",
+      "recommendedPower": "Potencia recomendada",
+      "annualConsumption": "Consumo anual",
+      "annualConsumptionEstimated": "Consumo anual estimado",
+      "return": "Retorno",
+      "investment": "Investimento",
+      "savings25Years": "Aforro 25 anos",
+      "noFee": "Sen cota",
+      "noInitialInvestment": "Sen investimento"
+    },
+    "reserve": {
+      "startedTitle": "Reserva iniciada",
+      "startedDescriptionInvestment": "A reserva xa foi iniciada na modalidade de investimento.",
+      "startedDescriptionService": "A reserva xa foi iniciada na modalidade de servizo.",
+      "reserved": "Reservado",
+      "investment": {
+        "title": "Reservar investimento",
+        "description": "Inicia a reserva na modalidade de investimento e continúa co pago do sinal.",
+        "continue": "Continuar con investimento"
+      },
+      "service": {
+        "title": "Reservar servizo",
+        "description": "Inicia a reserva na modalidade de servizo e continúa co pago do sinal.",
+        "continue": "Continuar con servizo"
+      }
+    },
+    "actions": {
+      "title": "Accións",
+      "youWillHire": "Vas contratar",
+      "paymentStatus": "Estado do pago",
+      "pendingSignal": "Sinal pendente",
+      "mode": "Modalidade",
+      "power": "Potencia",
+      "reservedIn": "reservados en"
+    },
+    "proposals": {
+      "investment": {
+        "badge": "Maior rendibilidade",
+        "description": "Realizas o investimento e maximizas o aforro a longo prazo.",
+        "points": [
+          "Maior aforro acumulado en 25 anos",
+          "Máis control sobre a rendibilidade do proxecto",
+          "Ideal se buscas un retorno económico sostido",
+          "Sen cota mensual recorrente"
+        ]
+      },
+      "service": {
+        "badge": "Menor entrada",
+        "description": "Modelo que reduce a barreira de entrada.",
+        "points": [
+          "Sen desembolso inicial",
+          "Cota mensual fixa",
+          "Ideal se priorizas non desembolsar directamente"
+        ]
+      }
+    },
+    "cards": {
+      "mode": "Modalidade"
+    }
+  }
+}
