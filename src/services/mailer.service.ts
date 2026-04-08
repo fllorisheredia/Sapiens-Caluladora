@@ -3,6 +3,7 @@ import esTranslations from "../i18n/locales/es/translation.json";
 import caTranslations from "../i18n/locales/ca/translation.json";
 import valTranslations from "../i18n/locales/val/translation.json";
 import glTranslations from "../i18n/locales/gal/translation.json";
+
 const SMTP_HOST = process.env.SMTP_HOST || "";
 const SMTP_PORT = Number(process.env.SMTP_PORT || 587);
 const SMTP_USER = process.env.SMTP_USER || "";
@@ -19,7 +20,6 @@ const transporter = nodemailer.createTransport({
     pass: SMTP_PASS,
   },
 });
-
 
 type AppLanguage = "es" | "ca" | "val" | "gl";
 
@@ -57,7 +57,8 @@ function translate(
   fallback: string,
   replacements?: Record<string, string | number>,
 ): string {
-  const dictionary = translationsByLanguage[language] ?? translationsByLanguage.es;
+  const dictionary =
+    translationsByLanguage[language] ?? translationsByLanguage.es;
   const raw = getNestedValue(dictionary, key);
 
   const base =
@@ -155,9 +156,7 @@ export async function sendProposalEmail({
     "Un saludo",
   );
 
-  const proposalUrlText = proposalUrl
-    ? `\n${proposalUrl}`
-    : "";
+  const proposalUrlText = proposalUrl ? `\n${proposalUrl}` : "";
 
   const continueContractText = continueContractUrl
     ? `${continueText}\n${continueContractUrl}`
@@ -290,75 +289,127 @@ export async function sendReservationConfirmedEmail(params: {
     currency: "EUR",
   }).format(signalAmount);
 
+  const subject = translate(
+    lang,
+    "emails.reservationConfirmed.subject",
+    "Confirmación de tu reserva y justificante de pago",
+  );
+
+  const greeting = translate(
+    lang,
+    "emails.reservationConfirmed.greeting",
+    "Hola {{clientName}},",
+    { clientName },
+  );
+
+  const body1 = translate(
+    lang,
+    "emails.reservationConfirmed.body1",
+    "Hemos confirmado correctamente tu reserva.",
+  );
+
+  const contractNumberLabel = translate(
+    lang,
+    "emails.reservationConfirmed.contractNumber",
+    "Precontrato",
+  );
+
+  const installationLabel = translate(
+    lang,
+    "emails.reservationConfirmed.installation",
+    "Instalación",
+  );
+
+  const reservedPowerLabel = translate(
+    lang,
+    "emails.reservationConfirmed.reservedPower",
+    "Potencia reservada",
+  );
+
+  const signalAmountLabel = translate(
+    lang,
+    "emails.reservationConfirmed.signalAmount",
+    "Señal abonada",
+  );
+
+  const paymentDateLabel = translate(
+    lang,
+    "emails.reservationConfirmed.paymentDate",
+    "Fecha de pago",
+  );
+
+  const body2 = translate(
+    lang,
+    "emails.reservationConfirmed.body2",
+    "Adjuntamos el precontrato y el justificante de pago para tu referencia.",
+  );
+
+  const body3 = translate(
+    lang,
+    "emails.reservationConfirmed.body3",
+    "Gracias por confiar en nosotros.",
+  );
+
+  const farewell = translate(
+    lang,
+    "emails.reservationConfirmed.farewell",
+    "Un saludo",
+  );
+
+  const text = [
+    greeting,
+    "",
+    body1,
+    "",
+    `${contractNumberLabel}: ${contractNumber}`,
+    `${installationLabel}: ${installationName}`,
+    `${reservedPowerLabel}: ${reservedKwp} kWp`,
+    `${signalAmountLabel}: ${formattedAmount}`,
+    `${paymentDateLabel}: ${paymentDateFormatted}`,
+    "",
+    body2,
+    body3,
+    "",
+    farewell,
+    SMTP_FROM_NAME,
+  ].join("\n");
+
   await transporter.sendMail({
-    from: process.env.SMTP_FROM || process.env.SMTP_USER,
+    from: `"${SMTP_FROM_NAME}" <${SMTP_FROM}>`,
     to,
-    subject: translate(
-      lang,
-      "emails.reservationConfirmed.subject",
-      "Reserva confirmada y pago recibido - {{contractNumber}}",
-      { contractNumber },
-    ),
+    subject,
+    text,
     html: `
       <div style="font-family: Arial, sans-serif; color: #1f2937; line-height: 1.6;">
-        <h2 style="color: #07005f; margin-bottom: 16px;">
-          ${translate(
-            lang,
-            "emails.reservationConfirmed.title",
-            "Reserva confirmada",
-          )}
+        <h2 style="color:#07005f; margin-bottom: 16px;">
+          ${subject}
         </h2>
 
-        <p>${translate(
-          lang,
-          "emails.reservationConfirmed.greeting",
-          "Hola <strong>{{clientName}}</strong>,",
-          { clientName },
-        )}</p>
+        <p>${greeting}</p>
 
         <p>
-          ${translate(
-            lang,
-            "emails.reservationConfirmed.intro",
-            "Hemos recibido correctamente el pago de tu señal y tu reserva ha quedado registrada.",
-          )}
+          ${body1}
         </p>
 
         <div style="margin: 20px 0; padding: 16px; border: 1px solid #e5e7eb; border-radius: 12px; background: #f9fafb;">
-          <p style="margin: 0 0 8px 0;"><strong>${translate(lang, "emails.reservationConfirmed.labels.precontract", "Precontrato")}:</strong> ${contractNumber}</p>
-          <p style="margin: 0 0 8px 0;"><strong>${translate(lang, "emails.reservationConfirmed.labels.installation", "Instalación")}:</strong> ${installationName}</p>
-          <p style="margin: 0 0 8px 0;"><strong>${translate(lang, "emails.reservationConfirmed.labels.power", "Potencia reservada")}:</strong> ${reservedKwp} kWp</p>
-          <p style="margin: 0 0 8px 0;"><strong>${translate(lang, "emails.reservationConfirmed.labels.amount", "Señal abonada")}:</strong> ${formattedAmount}</p>
-          <p style="margin: 0;"><strong>${translate(lang, "emails.reservationConfirmed.labels.paymentDate", "Fecha de pago")}:</strong> ${paymentDateFormatted}</p>
+          <p style="margin: 0 0 8px 0;"><strong>${contractNumberLabel}:</strong> ${contractNumber}</p>
+          <p style="margin: 0 0 8px 0;"><strong>${installationLabel}:</strong> ${installationName}</p>
+          <p style="margin: 0 0 8px 0;"><strong>${reservedPowerLabel}:</strong> ${reservedKwp} kWp</p>
+          <p style="margin: 0 0 8px 0;"><strong>${signalAmountLabel}:</strong> ${formattedAmount}</p>
+          <p style="margin: 0;"><strong>${paymentDateLabel}:</strong> ${paymentDateFormatted}</p>
         </div>
 
         <p>
-          ${translate(
-            lang,
-            "emails.reservationConfirmed.attachmentsIntro",
-            "Te adjuntamos:",
-          )}
+          ${body2}
         </p>
 
-        <ul>
-          <li>${translate(
-            lang,
-            "emails.reservationConfirmed.attachments.precontract",
-            "Copia del precontrato firmado",
-          )}</li>
-          <li>${translate(
-            lang,
-            "emails.reservationConfirmed.attachments.receipt",
-            "Justificante del pago realizado",
-          )}</li>
-        </ul>
-
         <p>
-          ${translate(
-            lang,
-            "emails.reservationConfirmed.thanks",
-            "Gracias por confiar en Sapiens Energía.",
-          )}
+          ${body3}
+        </p>
+
+        <p style="margin-top: 24px;">
+          ${farewell}<br />
+          <strong>${SMTP_FROM_NAME}</strong>
         </p>
       </div>
     `,
@@ -400,79 +451,106 @@ export async function sendSignedContractEmail(params: {
     },
   );
 
+  const subject = translate(
+    lang,
+    "emails.signedContract.subject",
+    "Tu contrato firmado y reserva provisional - Sapiens Energía",
+  );
+
+  const greeting = translate(
+    lang,
+    "emails.signedContract.greeting",
+    "Hola {{clientName}},",
+    { clientName: params.clientName },
+  );
+
+  const body1 = translate(
+    lang,
+    "emails.signedContract.body1",
+    "Adjuntamos una copia de tu contrato firmado.",
+  );
+
+  const body2 = translate(
+    lang,
+    "emails.signedContract.body2",
+    "Hemos realizado una reserva provisional de {{reservedKwp}} kWp en la planta {{installationName}}.",
+    {
+      reservedKwp: params.reservedKwp,
+      installationName: params.installationName,
+    },
+  );
+
+  const body3 = translate(
+    lang,
+    "emails.signedContract.body3",
+    "Dispones de un plazo orientativo de 15 días, hasta el {{formattedDate}}, para realizar la transferencia y confirmar la reserva.",
+    { formattedDate },
+  );
+
+  const contractLinkLabel = translate(
+    lang,
+    "emails.signedContract.contractLink",
+    "Puedes consultar también tu contrato aquí:",
+  );
+
+  const farewell = translate(
+    lang,
+    "emails.signedContract.farewell",
+    "Gracias por confiar en nosotros.",
+  );
+
+  const contractLinkText = params.contractUrl
+    ? `${contractLinkLabel} ${params.contractUrl}`
+    : "";
+
+  const text = [
+    greeting,
+    "",
+    body1,
+    body2,
+    body3,
+    params.contractUrl ? "" : null,
+    contractLinkText,
+    "",
+    farewell,
+    SMTP_FROM_NAME,
+  ]
+    .filter(Boolean)
+    .join("\n");
+
   await transporter.sendMail({
     from: `"${SMTP_FROM_NAME}" <${SMTP_FROM}>`,
     to: params.to,
-    subject: translate(
-      lang,
-      "emails.signedContract.subject",
-      "Tu contrato firmado y reserva provisional - Sapiens Energía",
-    ),
+    subject,
+    text,
     html: `
       <div style="font-family: Arial, sans-serif; color: #1f2937; line-height: 1.6;">
-        <h2 style="color:#07005f;">
-          ${translate(
-            lang,
-            "emails.signedContract.title",
-            "Contrato firmado correctamente",
-          )}
+        <h2 style="color:#07005f; margin-bottom: 16px;">
+          ${subject}
         </h2>
 
-        <p>
-          ${translate(
-            lang,
-            "emails.signedContract.greeting",
-            "Hola {{clientName}},",
-            { clientName: params.clientName },
-          )}
-        </p>
+        <p>${greeting}</p>
 
-        <p>
-          ${translate(
-            lang,
-            "emails.signedContract.contractAttached",
-            "Adjuntamos una copia de tu contrato firmado.",
-          )}
-        </p>
+        <p>${body1}</p>
 
-        <p>
-          ${translate(
-            lang,
-            "emails.signedContract.reservationText",
-            "Hemos realizado una <strong>reserva provisional de {{reservedKwp}} kWp</strong> en la planta <strong>{{installationName}}</strong>.",
-            {
-              reservedKwp: params.reservedKwp,
-              installationName: params.installationName,
-            },
-          )}
-        </p>
+        <p>${body2}</p>
 
-        <p>
-          ${translate(
-            lang,
-            "emails.signedContract.deadlineText",
-            "Dispones de un plazo orientativo de <strong>15 días</strong>, hasta el <strong>{{formattedDate}}</strong>, para realizar la transferencia y confirmar la reserva.",
-            { formattedDate },
-          )}
-        </p>
+        <p>${body3}</p>
 
         ${
           params.contractUrl
-            ? `<p>${translate(
-                lang,
-                "emails.signedContract.contractUrlText",
-                'Puedes consultar también tu contrato aquí: <a href="{{contractUrl}}" target="_blank">{{contractUrl}}</a>',
-                { contractUrl: params.contractUrl },
-              )}</p>`
+            ? `
+              <p>
+                ${contractLinkLabel}
+                <a href="${params.contractUrl}" target="_blank">${params.contractUrl}</a>
+              </p>
+            `
             : ""
         }
 
-        <p>
-          ${translate(
-            lang,
-            "emails.signedContract.thanks",
-            "Gracias por confiar en Sapiens Energía.",
-          )}
+        <p style="margin-top: 24px;">
+          ${farewell}<br />
+          <strong>${SMTP_FROM_NAME}</strong>
         </p>
       </div>
     `,
@@ -485,6 +563,7 @@ export async function sendSignedContractEmail(params: {
     ],
   });
 }
+
 export async function sendBankTransferReservationEmail(params: {
   to: string;
   clientName: string;
@@ -535,134 +614,155 @@ export async function sendBankTransferReservationEmail(params: {
     currency: currency.toUpperCase(),
   }).format(signalAmount);
 
+  const subject = translate(
+    lang,
+    "emails.bankTransfer.subject",
+    "Instrucciones para completar tu reserva por transferencia",
+  );
+
+  const greeting = translate(
+    lang,
+    "emails.bankTransfer.greeting",
+    "Hola {{clientName}},",
+    { clientName },
+  );
+
+  const body1 = translate(
+    lang,
+    "emails.bankTransfer.body1",
+    "Adjuntamos tu precontrato firmado y los datos para completar la reserva mediante transferencia bancaria.",
+  );
+
+  const contractNumberLabel = translate(
+    lang,
+    "emails.bankTransfer.contractNumber",
+    "Precontrato",
+  );
+
+  const installationLabel = translate(
+    lang,
+    "emails.bankTransfer.installation",
+    "Instalación",
+  );
+
+  const reservedPowerLabel = translate(
+    lang,
+    "emails.bankTransfer.reservedPower",
+    "Potencia reservada",
+  );
+
+  const signalAmountLabel = translate(
+    lang,
+    "emails.bankTransfer.signalAmount",
+    "Importe de la señal",
+  );
+
+  const deadlineLabel = translate(
+    lang,
+    "emails.bankTransfer.deadline",
+    "Fecha límite",
+  );
+
+  const ibanLabel = translate(
+    lang,
+    "emails.bankTransfer.iban",
+    "IBAN",
+  );
+
+  const beneficiaryLabel = translate(
+    lang,
+    "emails.bankTransfer.beneficiary",
+    "Beneficiario",
+  );
+
+  const conceptLabel = translate(
+    lang,
+    "emails.bankTransfer.concept",
+    "Concepto",
+  );
+
+  const body2 = translate(
+    lang,
+    "emails.bankTransfer.body2",
+    "Es importante que indiques exactamente el concepto en la transferencia para poder identificar el pago correctamente.",
+  );
+
+  const body3 = translate(
+    lang,
+    "emails.bankTransfer.body3",
+    "Una vez recibido y validado el pago, te enviaremos la confirmación por correo electrónico.",
+  );
+
+  const farewell = translate(
+    lang,
+    "emails.bankTransfer.farewell",
+    "Un saludo",
+  );
+
   const text = [
-    translate(
-      lang,
-      "emails.bankTransfer.greeting",
-      "Hola {{clientName}},",
-      { clientName },
-    ),
+    greeting,
     "",
-    translate(
-      lang,
-      "emails.bankTransfer.signedIntro",
-      "Tu precontrato de reserva ya ha sido firmado correctamente.",
-    ),
-    translate(
-      lang,
-      "emails.bankTransfer.deadlineIntro",
-      "Para completar la reserva, debes realizar la transferencia bancaria de la señal en un plazo máximo de 15 días, hasta el {{formattedDeadline}}.",
-      { formattedDeadline },
-    ),
+    body1,
     "",
-    translate(
-      lang,
-      "emails.bankTransfer.summaryTitle",
-      "Resumen de la operación:",
-    ),
-    `${translate(lang, "emails.bankTransfer.labels.precontract", "Precontrato")}: ${contractNumber}`,
-    `${translate(lang, "emails.bankTransfer.labels.installation", "Instalación")}: ${installationName}`,
-    `${translate(lang, "emails.bankTransfer.labels.power", "Potencia reservada")}: ${reservedKwp} kWp`,
-    `${translate(lang, "emails.bankTransfer.labels.amount", "Importe de la señal")}: ${formattedAmount}`,
+    `${contractNumberLabel}: ${contractNumber}`,
+    `${installationLabel}: ${installationName}`,
+    `${reservedPowerLabel}: ${reservedKwp} kWp`,
+    `${signalAmountLabel}: ${formattedAmount}`,
+    `${deadlineLabel}: ${formattedDeadline}`,
     "",
-    translate(
-      lang,
-      "emails.bankTransfer.bankDataTitle",
-      "Datos bancarios para la transferencia:",
-    ),
-    `${translate(lang, "emails.bankTransfer.labels.beneficiary", "Beneficiario")}: ${bankBeneficiary}`,
-    `${translate(lang, "emails.bankTransfer.labels.iban", "IBAN")}: ${bankAccountIban}`,
-    `${translate(lang, "emails.bankTransfer.labels.concept", "Concepto")}: ${transferConcept}`,
+    `${beneficiaryLabel}: ${bankBeneficiary}`,
+    `${ibanLabel}: ${bankAccountIban}`,
+    `${conceptLabel}: ${transferConcept}`,
     "",
-    translate(
-      lang,
-      "emails.bankTransfer.attachmentNotice",
-      "Te adjuntamos el PDF del precontrato firmado.",
-    ),
+    body2,
+    body3,
     "",
-    `${SMTP_FROM_NAME}`,
+    farewell,
+    SMTP_FROM_NAME,
   ].join("\n");
 
   await transporter.sendMail({
     from: `"${SMTP_FROM_NAME}" <${SMTP_FROM}>`,
     to,
-    subject: translate(
-      lang,
-      "emails.bankTransfer.subject",
-      "Instrucciones de transferencia para tu reserva - {{contractNumber}}",
-      { contractNumber },
-    ),
+    subject,
     text,
     html: `
       <div style="font-family: Arial, sans-serif; color: #1f2937; line-height: 1.6;">
         <h2 style="color:#07005f; margin-bottom: 16px;">
-          ${translate(
-            lang,
-            "emails.bankTransfer.title",
-            "Reserva iniciada correctamente",
-          )}
+          ${subject}
         </h2>
 
-        <p>${translate(
-          lang,
-          "emails.bankTransfer.greeting",
-          "Hola <strong>{{clientName}}</strong>,",
-          { clientName },
-        )}</p>
+        <p>${greeting}</p>
 
         <p>
-          ${translate(
-            lang,
-            "emails.bankTransfer.signedIntro",
-            "Tu precontrato de reserva ha sido firmado correctamente.",
-          )}
-        </p>
-
-        <p>
-          ${translate(
-            lang,
-            "emails.bankTransfer.deadlineHtml",
-            "Para completar la reserva, debes realizar la transferencia bancaria de la señal en un plazo máximo de <strong>15 días</strong>, hasta el <strong>{{formattedDeadline}}</strong>.",
-            { formattedDeadline },
-          )}
+          ${body1}
         </p>
 
         <div style="margin: 20px 0; padding: 16px; border: 1px solid #e5e7eb; border-radius: 12px; background: #f9fafb;">
-          <p style="margin: 0 0 8px 0;"><strong>${translate(lang, "emails.bankTransfer.labels.precontract", "Precontrato")}:</strong> ${contractNumber}</p>
-          <p style="margin: 0 0 8px 0;"><strong>${translate(lang, "emails.bankTransfer.labels.installation", "Instalación")}:</strong> ${installationName}</p>
-          <p style="margin: 0 0 8px 0;"><strong>${translate(lang, "emails.bankTransfer.labels.power", "Potencia reservada")}:</strong> ${reservedKwp} kWp</p>
-          <p style="margin: 0;"><strong>${translate(lang, "emails.bankTransfer.labels.amount", "Importe de la señal")}:</strong> ${formattedAmount}</p>
+          <p style="margin: 0 0 8px 0;"><strong>${contractNumberLabel}:</strong> ${contractNumber}</p>
+          <p style="margin: 0 0 8px 0;"><strong>${installationLabel}:</strong> ${installationName}</p>
+          <p style="margin: 0 0 8px 0;"><strong>${reservedPowerLabel}:</strong> ${reservedKwp} kWp</p>
+          <p style="margin: 0 0 8px 0;"><strong>${signalAmountLabel}:</strong> ${formattedAmount}</p>
+          <p style="margin: 0;"><strong>${deadlineLabel}:</strong> ${formattedDeadline}</p>
         </div>
 
         <div style="margin: 20px 0; padding: 16px; border: 1px solid #dbeafe; border-radius: 12px; background: #eff6ff;">
-          <p style="margin: 0 0 8px 0;"><strong>${translate(lang, "emails.bankTransfer.labels.beneficiary", "Beneficiario")}:</strong> ${bankBeneficiary}</p>
-          <p style="margin: 0 0 8px 0;"><strong>${translate(lang, "emails.bankTransfer.labels.iban", "IBAN")}:</strong> ${bankAccountIban}</p>
-          <p style="margin: 0;"><strong>${translate(lang, "emails.bankTransfer.labels.concept", "Concepto")}:</strong> ${transferConcept}</p>
+          <p style="margin: 0 0 8px 0;"><strong>${beneficiaryLabel}:</strong> ${bankBeneficiary}</p>
+          <p style="margin: 0 0 8px 0;"><strong>${ibanLabel}:</strong> ${bankAccountIban}</p>
+          <p style="margin: 0;"><strong>${conceptLabel}:</strong> ${transferConcept}</p>
         </div>
 
         <p>
-          ${translate(
-            lang,
-            "emails.bankTransfer.attachmentNotice",
-            "Te adjuntamos una copia del precontrato firmado en PDF.",
-          )}
+          ${body2}
         </p>
 
         <p>
-          ${translate(
-            lang,
-            "emails.bankTransfer.confirmationNotice",
-            "Una vez recibida y validada la transferencia, confirmaremos tu reserva.",
-          )}
+          ${body3}
         </p>
 
         <p style="margin-top: 24px;">
-          ${translate(
-            lang,
-            "emails.bankTransfer.thanks",
-            "Gracias por confiar en <strong>{{companyName}}</strong>.",
-            { companyName: SMTP_FROM_NAME },
-          )}
+          ${farewell}<br />
+          <strong>${SMTP_FROM_NAME}</strong>
         </p>
       </div>
     `,
