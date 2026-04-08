@@ -62,9 +62,9 @@
     "titleLine1": "Generant el teu estudi",
     "titleLine2": "d'alta precisió",
     "tasks": {
-      "validateBill": "Validant dades de la factura",
+      "validateBill": "Validant dades de factura",
       "analyzeSolar": "Analitzant radiació solar local",
-      "calculateReturn": "Calculant retorn de la inversió"
+      "calculateReturn": "Calculant retorn d'inversió"
     }
   },
   "fileUploader": {
@@ -124,8 +124,8 @@
     },
     "reserve": {
       "startedTitle": "Reserva iniciada",
-      "startedDescriptionInvestment": "La reserva ja s'ha iniciat en modalitat d'inversió.",
-      "startedDescriptionService": "La reserva ja s'ha iniciat en modalitat de servici.",
+      "startedDescriptionInvestment": "La reserva ja ha sigut iniciada en modalitat d'inversió.",
+      "startedDescriptionService": "La reserva ja ha sigut iniciada en modalitat de servici.",
       "reserved": "Reservat",
       "investment": {
         "title": "Reservar inversió",
@@ -140,7 +140,7 @@
     },
     "actions": {
       "title": "Accions",
-      "youWillHire": "Contractaràs",
+      "youWillHire": "Vas a contractar",
       "paymentStatus": "Estat del pagament",
       "pendingSignal": "Senyal pendent",
       "mode": "Modalitat",
@@ -154,7 +154,7 @@
         "points": [
           "Major estalvi acumulat en 25 anys",
           "Més control sobre la rendibilitat del projecte",
-          "Ideal si busques un retorn econòmic sostingut",
+          "Ideal si busques retorn econòmic sostingut",
           "Sense quota mensual recurrent"
         ]
       },
@@ -188,7 +188,7 @@
     "mode": "Modalitat",
     "assignedKwp": "kWp assignats",
     "basicConditions": "Condicions bàsiques",
-    "condition1": "El client sol·licita la reserva de la potència indicada en la instal·lació seleccionada, i esta reserva queda pendent de confirmació econòmica.",
+    "condition1": "El client sol·licita la reserva de la potència indicada en la instal·lació seleccionada, quedant dita reserva pendent de confirmació econòmica.",
     "condition2": "S'informa el client d'un termini orientatiu de 15 dies per a realitzar la transferència corresponent.",
     "condition3": "Fins a la validació del pagament, la reserva tindrà caràcter provisional.",
     "clientSignature": "Firma del client",
@@ -204,8 +204,8 @@
     "client": "Client",
     "dni": "DNI",
     "reservationSection": "Reserva",
-    "contractId": "ID del contracte",
-    "reservationId": "ID de la reserva",
+    "contractId": "Contracte ID",
+    "reservationId": "Reserva ID",
     "installation": "Instal·lació",
     "reservedPower": "Potència reservada",
     "paidAmount": "Import abonat",
@@ -231,7 +231,7 @@
       },
       "modeChoice": {
         "title": "Modalitat a triar",
-        "description": "Podràs continuar per inversió o per servici i generar el contracte segons l'opció triada."
+        "description": "Podràs continuar per inversió o per servici i generar el contracte segons l'opció elegida."
       },
       "fastProcess": {
         "title": "Procés ràpid",
@@ -277,6 +277,110 @@
       "accessValidatedDescription": "Continuarem amb la teua contractació.",
       "couldNotContinueTitle": "No s'ha pogut continuar",
       "couldNotValidateDescription": "No s'ha pogut validar el teu accés."
+    }
+  },
+  "contractFlow": {
+    "loading": {
+      "title": "Preparant el teu contracte...",
+      "description": "Estem carregant la modalitat seleccionada."
+    },
+    "toasts": {
+      "invalidAccessTitle": "Accés no vàlid",
+      "invalidAccessDescription": "No s'ha trobat el token de continuació.",
+      "alreadySignedTitle": "Precontracte ja firmat",
+      "alreadySignedDescription": "Este precontracte ja va ser firmat anteriorment.",
+      "couldNotOpenTitle": "No s'ha pogut obrir el contracte",
+      "unknownError": "Error desconegut",
+      "contractUnavailableTitle": "Contracte no disponible",
+      "contractUnavailableDescription": "No s'ha pogut preparar el contracte per a firmar.",
+      "paymentContractUnavailableDescription": "No s'ha trobat el contracte per a iniciar el pagament.",
+      "missingSignatureTitle": "Falta la firma",
+      "missingSignatureDescription": "Has de firmar en el requadre abans de continuar.",
+      "signedSuccessTitle": "Precontracte firmat correctament",
+      "signedSuccessDescription": "Ara has de seleccionar la forma de pagament per a continuar amb la reserva.",
+      "couldNotSignTitle": "No s'ha pogut firmar el contracte",
+      "unexpectedError": "Ha ocorregut un error inesperat.",
+      "paymentUnavailableTitle": "Pagament no disponible",
+      "paymentUnavailableDescription": "No s'ha pogut obtindre l'URL de Stripe.",
+      "redirectingStripeTitle": "Redirigint a Stripe",
+      "redirectingStripeDescription": "Et portem al pagament segur amb targeta.",
+      "couldNotStartStripeTitle": "No s'ha pogut iniciar el pagament amb targeta",
+      "bankTransferSentTitle": "Instruccions enviades",
+      "bankTransferSentDescription": "Hem enviat l'email amb les instruccions de transferència a {{email}}.",
+      "couldNotPrepareBankTitle": "No s'ha pogut preparar el pagament per transferència"
+    },
+    "banner": {
+      "title": "Contracte firmat",
+      "description": "S'han reservat {{reservedKwp}} kWp en {{installationName}}."
+    },
+    "leftPanel": {
+      "badge": "Continuar contractació",
+      "titleLine1": "Revisa i firma",
+      "titleLine2": "el teu contracte",
+      "description": "Has accedit des d'una proposta enviada prèviament. Revisa la modalitat seleccionada, comprova el contracte i firma per a continuar amb la reserva.",
+      "holder": "Titular",
+      "installation": "Instal·lació",
+      "assignedPower": "Potència assignada",
+      "backHome": "Tornar a l'inici"
+    },
+    "selectedMode": {
+      "title": "Modalitat seleccionada:",
+      "description": "Esta és la modalitat elegida prèviament abans de firmar el contracte."
+    },
+    "contractCard": {
+      "title": "Contracte",
+      "dni": "DNI"
+    },
+    "signature": {
+      "title": "Firma",
+      "clear": "Netejar",
+      "help": "Firma dins del requadre. En confirmar, es generarà el PDF firmat, es crearà la reserva provisional i podràs elegir la forma de pagament.",
+      "detected": "Firma detectada correctament."
+    },
+    "reservation": {
+      "title": "Reserva provisional",
+      "description": "En firmar, es reservaran {{assignedKwp}} kWp en la instal·lació seleccionada sota modalitat de {{modeLabel}}."
+    },
+    "actions": {
+      "signing": "Firmant...",
+      "signed": "Contracte firmat",
+      "signAndContinue": "Firmar i continuar"
+    },
+    "modal": {
+      "badge": "Contractació",
+      "title": "Selecciona la forma de pagament",
+      "reservationSummary": "Resum de la reserva",
+      "installation": "Instal·lació",
+      "reservedPower": "Potència reservada",
+      "signal": "Senyal",
+      "deadline": "Data límit",
+      "bankTransferTitle": "Transferència bancària",
+      "bankTransferDescription": "Rebràs un correu amb l'IBAN, el concepte i el PDF del precontracte firmat. Tindràs 15 dies per a realitzar la transferència.",
+      "stripeTitle": "Targeta bancària",
+      "stripeDescription": "Et redirigirem a Stripe per a completar el pagament segur de la senyal amb targeta."
+    },
+    "iframe": {
+      "title": "Vista prèvia del contracte"
+    },
+    "pdf": {
+      "title": "Precontracte de reserva",
+      "contractNumber": "Contracte núm.",
+      "clientData": "Dades del client",
+      "name": "Nom",
+      "dni": "DNI",
+      "email": "Email",
+      "phone": "Telèfon",
+      "installationData": "Dades de la instal·lació",
+      "installation": "Instal·lació",
+      "address": "Adreça",
+      "mode": "Modalitat",
+      "assignedKwp": "kWp assignats",
+      "basicConditions": "Condicions bàsiques",
+      "condition1": "El client sol·licita la reserva de la potència indicada en la instal·lació seleccionada, quedant dita reserva pendent de confirmació econòmica.",
+      "condition2": "La reserva es formalitzarà mitjançant el pagament d'una senyal, ja siga per targeta o per transferència bancària.",
+      "condition3": "Fins a la validació del pagament, la reserva tindrà caràcter provisional.",
+      "clientSignature": "Firma del client",
+      "noData": "-"
     }
   },
   "emails": {
@@ -363,7 +467,7 @@
         "address": "Adreça",
         "email": "Email",
         "iban": "IBAN",
-        "annualInvoiceConsumption": "Consum anual de la factura",
+        "annualInvoiceConsumption": "Consum anual factura",
         "contractedPower": "Potència contractada"
       },
       "labels": {
