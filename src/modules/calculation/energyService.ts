@@ -23,6 +23,9 @@ export interface CalculationInput {
   vatRate?: number;
 
   invoiceVariableEnergyAmountEur?: number;
+
+  // Si llega > 0, esta potencia manda sobre la calculada automática
+  forcedPowerKwp?: number;
 }
 
 export interface ChartBarItem {
@@ -156,7 +159,7 @@ function averageValid(values?: number[]): number | undefined {
   if (!Array.isArray(values)) return undefined;
 
   const clean = values.filter(
-    (value) => typeof value === "number" && Number.isFinite(value) && value > 0
+    (value) => typeof value === "number" && Number.isFinite(value) && value > 0,
   );
 
   if (!clean.length) return undefined;
@@ -169,7 +172,7 @@ function resolveWeightedEnergyPrice(
   periodPrices?: Partial<Record<PeriodKey, number>>,
   periodConsumptions?: Partial<Record<PeriodKey, number>>,
   invoiceVariableEnergyAmountEur?: number,
-  invoiceConsumptionKwh?: number
+  invoiceConsumptionKwh?: number,
 ): number | undefined {
   const validInvoiceConsumption =
     typeof invoiceConsumptionKwh === "number" &&
@@ -240,7 +243,7 @@ function resolveWeightedEnergyPrice(
 
     const availablePrices = Object.values(periodPrices).filter(
       (value): value is number =>
-        typeof value === "number" && Number.isFinite(value) && value > 0
+        typeof value === "number" && Number.isFinite(value) && value > 0,
     );
 
     if (availablePrices.length) {
@@ -256,7 +259,7 @@ function resolveWeightedEnergyPrice(
 
 function buildPeriodDistribution(
   billType: BillType,
-  invoiceConsumptionKwh: number
+  invoiceConsumptionKwh: number,
 ): {
   distribution: Record<PeriodKey, number>;
   percentages: Record<PeriodKey, number>;
@@ -268,20 +271,20 @@ function buildPeriodDistribution(
       acc[period] = round(invoiceConsumptionKwh * percentages[period], 2);
       return acc;
     },
-    {} as Record<PeriodKey, number>
+    {} as Record<PeriodKey, number>,
   );
 
   return { distribution, percentages };
 }
 
 export const calculateEnergyStudy = (
-  input: CalculationInput
+  input: CalculationInput,
 ): CalculationResult => {
   const billType = input.billType;
 
   const effectiveHours = Math.max(1, normalizePositive(input.effectiveHours, 1));
   const selfConsumptionRatio = clampRatio(
-    normalizeRatio(input.selfConsumptionRatio)
+    normalizeRatio(input.selfConsumptionRatio),
   );
 
   const graphAverage = averageValid(input.monthlyChartConsumptions);
@@ -289,95 +292,98 @@ export const calculateEnergyStudy = (
   const averageMonthlyConsumptionKwh = round(
     graphAverage ??
       normalizePositive(input.monthlyConsumptionKwh, 0) ??
-      normalizePositive(input.invoiceConsumptionKwh, 0)
+      normalizePositive(input.invoiceConsumptionKwh, 0),
   );
 
   const invoiceConsumptionKwh = round(
-    normalizePositive(input.invoiceConsumptionKwh, averageMonthlyConsumptionKwh)
+    normalizePositive(input.invoiceConsumptionKwh, averageMonthlyConsumptionKwh),
   );
 
   const annualConsumptionKwh = round(averageMonthlyConsumptionKwh * 12);
 
-  // Potencia recomendada = consumo anual / horas efectivas
+  // Potencia recomendada automática
   const rawPower = annualConsumptionKwh / effectiveHours;
-  const recommendedPowerKwp = roundUpToHalf(rawPower);
+  const calculatedPowerKwp = roundUpToHalf(rawPower);
+
+  // Si llega una potencia fija > 0, manda sobre la calculada
+  const forcedPowerKwp = normalizePositive(input.forcedPowerKwp, 0);
+
+  const recommendedPowerKwp =
+    forcedPowerKwp > 0 ? round(forcedPowerKwp, 2) : calculatedPowerKwp;
 
   // Precio medio detectado en factura
-const weightedEnergyPriceKwh = round(
-  resolveWeightedEnergyPrice(
-    billType,
-    input.periodPrices,
-    input.periodConsumptions,
-    input.invoiceVariableEnergyAmountEur,
-    invoiceConsumptionKwh
-  ) ?? DEFAULT_WEIGHTED_ENERGY_PRICE_KWH,
-  5
-);
+  const weightedEnergyPriceKwh = round(
+    resolveWeightedEnergyPrice(
+      billType,
+      input.periodPrices,
+      input.periodConsumptions,
+      input.invoiceVariableEnergyAmountEur,
+      invoiceConsumptionKwh,
+    ) ?? DEFAULT_WEIGHTED_ENERGY_PRICE_KWH,
+    5,
+  );
 
   // Precio factura con IVA
   const vatRate = normalizePositive(input.vatRate, DEFAULT_VAT_RATE);
-  const invoicePriceWithVatKwh = round(
-    weightedEnergyPriceKwh * (1 + vatRate),
-    5
-  );
+  const invoicePriceWithVatKwh = round(weightedEnergyPriceKwh * (1 + vatRate), 5);
 
   // Precio excedentes
   const surplusCompensationPriceKwh = round(
     normalizePositive(
       input.surplusCompensationPriceKwh,
-      DEFAULT_SURPLUS_COMPENSATION_PRICE_KWH
+      DEFAULT_SURPLUS_COMPENSATION_PRICE_KWH,
     ),
-    5
+    5,
   );
 
   // Producción anual estimada
   const estimatedAnnualProductionKwh = round(
-    effectiveHours * recommendedPowerKwp
+    effectiveHours * recommendedPowerKwp,
   );
 
-const annualSelfConsumedEnergyKwh = round(
-  Math.min(
-    estimatedAnnualProductionKwh * selfConsumptionRatio,
-    annualConsumptionKwh
-  )
-);
+  const annualSelfConsumedEnergyKwh = round(
+    Math.min(
+      estimatedAnnualProductionKwh * selfConsumptionRatio,
+      annualConsumptionKwh,
+    ),
+  );
 
-const annualSurplusEnergyKwh = round(
-  Math.max(estimatedAnnualProductionKwh - annualSelfConsumedEnergyKwh, 0)
-);
+  const annualSurplusEnergyKwh = round(
+    Math.max(estimatedAnnualProductionKwh - annualSelfConsumedEnergyKwh, 0),
+  );
 
   // Valor económico bruto
   const annualSelfConsumptionValue = round(
-    annualSelfConsumedEnergyKwh * invoicePriceWithVatKwh
+    annualSelfConsumedEnergyKwh * invoicePriceWithVatKwh,
   );
 
   const annualSurplusValue = round(
-    annualSurplusEnergyKwh * surplusCompensationPriceKwh
+    annualSurplusEnergyKwh * surplusCompensationPriceKwh,
   );
 
   const annualGrossSolarValue = round(
-    annualSelfConsumptionValue + annualSurplusValue
+    annualSelfConsumptionValue + annualSurplusValue,
   );
 
   // Costes anuales
   const maintenanceAnnualPerKwp = normalizePositive(
     input.maintenanceAnnualPerKwp,
-    DEFAULT_MAINTENANCE_ANNUAL_PER_KWP
+    DEFAULT_MAINTENANCE_ANNUAL_PER_KWP,
   );
 
   const annualMaintenanceCost = round(
-    maintenanceAnnualPerKwp * recommendedPowerKwp
+    maintenanceAnnualPerKwp * recommendedPowerKwp,
   );
 
   // En servicio tomamos la cuota anual como producción anual * coste servicio €/kWh
   const annualServiceFee = round(
-    estimatedAnnualProductionKwh * normalizePositive(input.serviceCostKwh, 0)
+    estimatedAnnualProductionKwh * normalizePositive(input.serviceCostKwh, 0),
   );
 
   // Costes resumen
   // Inversión: mantenemos el base cost para referencia
   const investmentCost = round(
-    recommendedPowerKwp * normalizePositive(input.investmentCostKwh, 0)
+    recommendedPowerKwp * normalizePositive(input.investmentCostKwh, 0),
   );
 
   // Servicio: dejamos el coste anual del servicio
@@ -386,21 +392,21 @@ const annualSurplusEnergyKwh = round(
   // Ahorro anual inversión
   // valor anual generado - mantenimiento anual
   const annualSavingsInvestment = round(
-    Math.max(annualGrossSolarValue - annualMaintenanceCost, 0)
+    Math.max(annualGrossSolarValue - annualMaintenanceCost, 0),
   );
 
   // Ahorro anual servicio
   // Se compara contra lo que hoy paga de factura al año
   const estimatedMonthlyEnergyCost = round(
-    averageMonthlyConsumptionKwh * invoicePriceWithVatKwh
+    averageMonthlyConsumptionKwh * invoicePriceWithVatKwh,
   );
 
   const estimatedAnnualEnergyCost = round(
-    annualConsumptionKwh * invoicePriceWithVatKwh
+    annualConsumptionKwh * invoicePriceWithVatKwh,
   );
 
   const annualSavingsService = round(
-    Math.max(estimatedAnnualEnergyCost - annualServiceFee, 0)
+    Math.max(estimatedAnnualEnergyCost - annualServiceFee, 0),
   );
 
   const monthlySavingsInvestment = round(annualSavingsInvestment / 12);
@@ -426,7 +432,7 @@ const annualSurplusEnergyKwh = round(
 
   const { distribution, percentages } = buildPeriodDistribution(
     billType,
-    invoiceConsumptionKwh
+    invoiceConsumptionKwh,
   );
 
   const viabilityScore = Math.min(
@@ -434,8 +440,8 @@ const annualSurplusEnergyKwh = round(
     Math.round(
       Math.min(40, annualConsumptionKwh / 120) +
         Math.min(30, effectiveHours / 60) +
-        Math.min(30, selfConsumptionRatio * 100 * 0.3)
-    )
+        Math.min(30, selfConsumptionRatio * 100 * 0.3),
+    ),
   );
 
   return {
@@ -503,7 +509,7 @@ const annualSurplusEnergyKwh = round(
         { label: "Año", value: annualSavingsService },
       ],
       periodDistribution: ALL_PERIODS.filter(
-        (period) => percentages[period] > 0
+        (period) => percentages[period] > 0,
       ).map((period) => ({
         label: period,
         value: distribution[period],
@@ -511,6 +517,6 @@ const annualSurplusEnergyKwh = round(
       })),
     },
 
-    formulaVersion: "3.0.0",
+    formulaVersion: "3.1.0",
   };
 };

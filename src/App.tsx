@@ -112,6 +112,12 @@ interface ApiInstallation {
   available_kwp?: number;
   occupancy_percent?: number;
 
+  calculo_estudios?: "segun_factura" | "fijo" | string | null;
+  potencia_fija_kwp?: number | null;
+  reserva?: "segun_potencia" | "fija" | string | null;
+  reserva_fija_eur?: number | null;
+  iban_aportaciones?: string | null;
+
   required_kwp?: number;
 }
 
@@ -144,9 +150,34 @@ function roundUpToDecimals(value: number, decimals: number): number {
   const factor = Math.pow(10, decimals);
   return Math.ceil(value * factor) / factor;
 }
+function getFixedInstallationPower(
+  installation: ApiInstallation | null | undefined,
+): number | null {
+  const fixed = Number(installation?.potencia_fija_kwp ?? 0);
 
+  if (!Number.isFinite(fixed)) return null;
+  if (fixed === 0) return null;
 
+  return fixed;
+}
 
+function resolveEffectiveAssignedKwpForInstallation(
+  validatedData: ValidationBillData,
+  installation: ApiInstallation,
+  rawExtraction: ExtractedBillData | null,
+): number {
+  const fixedPower = getFixedInstallationPower(installation);
+
+  if (fixedPower !== null) {
+    return fixedPower;
+  }
+
+  return calculateRequiredKwpForInstallation(
+    validatedData,
+    installation,
+    rawExtraction,
+  );
+}
 function normalizeAndRoundUp(
   value: unknown,
   decimals: number,
@@ -477,10 +508,7 @@ function shouldHideFromValidation(field: string): boolean {
   ].some((token) => normalized.includes(token));
 }
 
-function showExtractionToasts(
-  extraction: ExtractedBillData,
-  t: TFunction,
-) {
+function showExtractionToasts(extraction: ExtractedBillData, t: TFunction) {
   let delay = 0;
 
   const queueInfo = (title: string, description?: string) => {
@@ -535,10 +563,7 @@ function showExtractionToasts(
     const fields = visibleManualReviewFields.slice(0, 4).join(", ");
 
     queueError(
-      t(
-        "toasts.extraction.manualReviewTitle",
-        "Campos que requieren revisión",
-      ),
+      t("toasts.extraction.manualReviewTitle", "Campos que requieren revisión"),
       t(
         "toasts.extraction.manualReviewDescription",
         "Comprueba manualmente estos campos: {{fields}}",
@@ -1053,9 +1078,10 @@ function buildProposalCardData(
   installation: ApiInstallation | null,
   t: TFunction,
 ): ProposalCardData {
-  const recommendedPowerKwp = getFirstNumericField(result, [
-    "recommendedPowerKwp",
-  ]);
+const recommendedPowerKwp = getDisplayedRecommendedPowerKwp(
+  result,
+  installation,
+);
 
   const annualConsumptionKwh = getFirstNumericField(result, [
     "annualConsumptionKwh",
@@ -1292,8 +1318,6 @@ function getInstallationModeLabel(
   return t("map.installationCard.modes.both", "Ambas");
 }
 
-
-
 function getDefaultProposalMode(
   modalidad: ApiInstallation["modalidad"] | null | undefined,
 ): ProposalMode {
@@ -1362,7 +1386,18 @@ function normalizeSelfConsumption(value: number | null | undefined): number {
 }
 
 
+function getDisplayedRecommendedPowerKwp(
+  result: CalculationResult | null,
+  installation: ApiInstallation | null,
+): number {
+  const fixedPower = getFixedInstallationPower(installation);
 
+  if (fixedPower !== null) {
+    return fixedPower;
+  }
+
+  return getFirstNumericField(result, ["recommendedPowerKwp"], 0);
+}
 
 function calculateRequiredKwpForInstallation(
   validatedData: ValidationBillData,
@@ -1583,9 +1618,9 @@ function MainAppContent() {
   const activeModeLabel = activeProposal.title;
   const activeModeLabelLower = activeModeLabel.toLowerCase();
   const contractPreviewModeLabel =
-  generatedContract?.preview?.proposalMode === "service"
-    ? t("result.modes.service", "Servicio").toLowerCase()
-    : t("result.modes.investment", "Inversión").toLowerCase();
+    generatedContract?.preview?.proposalMode === "service"
+      ? t("result.modes.service", "Servicio").toLowerCase()
+      : t("result.modes.investment", "Inversión").toLowerCase();
 
   const reserveCardTitle = contractAlreadySigned
     ? t("result.reserve.startedTitle")
@@ -1869,11 +1904,26 @@ function MainAppContent() {
           `Estudio_Solar_${billData.name || "cliente"}.pdf`,
         );
       })(),
-  {
-    loading: { title: t("toasts.pdf.generatingTitle", "Generando tu estudio en PDF...") },
-    success: { title: t("toasts.pdf.generatedTitle", "PDF generado y descargado con éxito") },
-    error: { title: t("toasts.pdf.generateErrorTitle", "No se pudo generar el PDF") },
-  },
+      {
+        loading: {
+          title: t(
+            "toasts.pdf.generatingTitle",
+            "Generando tu estudio en PDF...",
+          ),
+        },
+        success: {
+          title: t(
+            "toasts.pdf.generatedTitle",
+            "PDF generado y descargado con éxito",
+          ),
+        },
+        error: {
+          title: t(
+            "toasts.pdf.generateErrorTitle",
+            "No se pudo generar el PDF",
+          ),
+        },
+      },
     );
   };
   const persistStudyAutomatically = async (
@@ -2015,9 +2065,11 @@ function MainAppContent() {
 
     console.log("[front] ANTES de confirmStudy");
 
-    const assignedKwpForStudy = getFirstNumericField(result, [
-      "recommendedPowerKwp",
-    ]);
+   const assignedKwpForStudy = resolveEffectiveAssignedKwpForInstallation(
+  validatedData,
+  installation,
+  rawExtraction,
+);
     console.log("[FRONT] -  assignedKwpForStudy: ", assignedKwpForStudy);
 
     const response = await confirmStudy({
@@ -2184,126 +2236,126 @@ function MainAppContent() {
     signatureDrawingRef.current = false;
   };
 
-const buildSignedContractPdfFile = async (
-  preview: ContractPreviewData,
-  signatureDataUrl: string,
-  language: AppLanguage,
-) => {
-  const pdf = new jsPDF({
-    unit: "pt",
-    format: "a4",
-  });
+  const buildSignedContractPdfFile = async (
+    preview: ContractPreviewData,
+    signatureDataUrl: string,
+    language: AppLanguage,
+  ) => {
+    const pdf = new jsPDF({
+      unit: "pt",
+      format: "a4",
+    });
 
-  const locale = getDateLocale(language);
+    const locale = getDateLocale(language);
 
-  const contractTexts = {
-    title: t("contractPdf.title"),
-    contractNumber: t("contractPdf.contractNumber"),
-    date: t("contractPdf.date"),
-    clientData: t("contractPdf.clientData"),
-    name: t("contractPdf.name"),
-    dni: t("contractPdf.dni"),
-    email: t("contractPdf.email"),
-    phone: t("contractPdf.phone"),
-    installationData: t("contractPdf.installationData"),
-    installation: t("contractPdf.installation"),
-    mode: t("contractPdf.mode"),
-    assignedKwp: t("contractPdf.assignedKwp"),
-    basicConditions: t("contractPdf.basicConditions"),
-    condition1: t("contractPdf.condition1"),
-    condition2: t("contractPdf.condition2"),
-    condition3: t("contractPdf.condition3"),
-    clientSignature: t("contractPdf.clientSignature"),
-    investment: t("contractPdf.modes.investment"),
-    service: t("contractPdf.modes.service"),
-  };
+    const contractTexts = {
+      title: t("contractPdf.title"),
+      contractNumber: t("contractPdf.contractNumber"),
+      date: t("contractPdf.date"),
+      clientData: t("contractPdf.clientData"),
+      name: t("contractPdf.name"),
+      dni: t("contractPdf.dni"),
+      email: t("contractPdf.email"),
+      phone: t("contractPdf.phone"),
+      installationData: t("contractPdf.installationData"),
+      installation: t("contractPdf.installation"),
+      mode: t("contractPdf.mode"),
+      assignedKwp: t("contractPdf.assignedKwp"),
+      basicConditions: t("contractPdf.basicConditions"),
+      condition1: t("contractPdf.condition1"),
+      condition2: t("contractPdf.condition2"),
+      condition3: t("contractPdf.condition3"),
+      clientSignature: t("contractPdf.clientSignature"),
+      investment: t("contractPdf.modes.investment"),
+      service: t("contractPdf.modes.service"),
+    };
 
-  const margin = 48;
-  const pageWidth = pdf.internal.pageSize.getWidth();
-  const usableWidth = pageWidth - margin * 2;
-  let y = 56;
+    const margin = 48;
+    const pageWidth = pdf.internal.pageSize.getWidth();
+    const usableWidth = pageWidth - margin * 2;
+    let y = 56;
 
-  const writeSectionTitle = (title: string) => {
+    const writeSectionTitle = (title: string) => {
+      pdf.setFont("helvetica", "bold");
+      pdf.setFontSize(14);
+      pdf.setTextColor(7, 0, 95);
+      pdf.text(title, margin, y);
+      y += 20;
+    };
+
+    const writeParagraph = (text: string) => {
+      pdf.setFont("helvetica", "normal");
+      pdf.setFontSize(11);
+      pdf.setTextColor(40, 40, 40);
+
+      const lines = pdf.splitTextToSize(text, usableWidth);
+      pdf.text(lines, margin, y);
+      y += lines.length * 14 + 8;
+    };
+
     pdf.setFont("helvetica", "bold");
-    pdf.setFontSize(14);
+    pdf.setFontSize(22);
     pdf.setTextColor(7, 0, 95);
-    pdf.text(title, margin, y);
-    y += 20;
-  };
+    pdf.text(contractTexts.title, margin, y);
+    y += 24;
 
-  const writeParagraph = (text: string) => {
     pdf.setFont("helvetica", "normal");
     pdf.setFontSize(11);
-    pdf.setTextColor(40, 40, 40);
+    pdf.setTextColor(90, 90, 90);
+    pdf.text(
+      `${contractTexts.contractNumber} ${preview.contractNumber}`,
+      margin,
+      y,
+    );
+    y += 26;
 
-    const lines = pdf.splitTextToSize(text, usableWidth);
-    pdf.text(lines, margin, y);
-    y += lines.length * 14 + 8;
+    writeSectionTitle(contractTexts.clientData);
+    writeParagraph(
+      `${contractTexts.name}: ${preview.client.nombre} ${preview.client.apellidos}`,
+    );
+    writeParagraph(`${contractTexts.dni}: ${preview.client.dni}`);
+    writeParagraph(`${contractTexts.email}: ${preview.client.email || "-"}`);
+    writeParagraph(`${contractTexts.phone}: ${preview.client.telefono || "-"}`);
+
+    writeSectionTitle(contractTexts.installationData);
+    writeParagraph(
+      `${contractTexts.installation}: ${preview.installation.nombre_instalacion}`,
+    );
+    writeParagraph(`${t("fields.address")}: ${preview.installation.direccion}`);
+    writeParagraph(
+      `${contractTexts.mode}: ${
+        preview.proposalMode === "investment"
+          ? contractTexts.investment
+          : contractTexts.service
+      }`,
+    );
+    writeParagraph(`${contractTexts.assignedKwp}: ${preview.assignedKwp}`);
+
+    writeSectionTitle(contractTexts.basicConditions);
+    writeParagraph(contractTexts.condition1);
+    writeParagraph(contractTexts.condition2);
+    writeParagraph(contractTexts.condition3);
+
+    y += 12;
+    pdf.setFont("helvetica", "bold");
+    pdf.setFontSize(12);
+    pdf.setTextColor(7, 0, 95);
+    pdf.text(contractTexts.clientSignature, margin, y);
+    y += 12;
+
+    pdf.addImage(signatureDataUrl, "PNG", margin, y, 180, 70);
+
+    const safeDni = preview.client.dni.replace(/[^a-zA-Z0-9_-]/g, "");
+    const safeName = `${preview.client.nombre}_${preview.client.apellidos}`
+      .replace(/\s+/g, "_")
+      .replace(/[^a-zA-Z0-9_-]/g, "");
+
+    const blob = pdf.output("blob");
+
+    return new File([blob], `CONTRATO_${safeDni}_${safeName}.pdf`, {
+      type: "application/pdf",
+    });
   };
-
-  pdf.setFont("helvetica", "bold");
-  pdf.setFontSize(22);
-  pdf.setTextColor(7, 0, 95);
-  pdf.text(contractTexts.title, margin, y);
-  y += 24;
-
-  pdf.setFont("helvetica", "normal");
-  pdf.setFontSize(11);
-  pdf.setTextColor(90, 90, 90);
-  pdf.text(
-    `${contractTexts.contractNumber} ${preview.contractNumber}`,
-    margin,
-    y,
-  );
-  y += 26;
-
-  writeSectionTitle(contractTexts.clientData);
-  writeParagraph(
-    `${contractTexts.name}: ${preview.client.nombre} ${preview.client.apellidos}`,
-  );
-  writeParagraph(`${contractTexts.dni}: ${preview.client.dni}`);
-  writeParagraph(`${contractTexts.email}: ${preview.client.email || "-"}`);
-  writeParagraph(`${contractTexts.phone}: ${preview.client.telefono || "-"}`);
-
-  writeSectionTitle(contractTexts.installationData);
-  writeParagraph(
-    `${contractTexts.installation}: ${preview.installation.nombre_instalacion}`,
-  );
-  writeParagraph(`${t("fields.address")}: ${preview.installation.direccion}`);
-  writeParagraph(
-    `${contractTexts.mode}: ${
-      preview.proposalMode === "investment"
-        ? contractTexts.investment
-        : contractTexts.service
-    }`,
-  );
-  writeParagraph(`${contractTexts.assignedKwp}: ${preview.assignedKwp}`);
-
-  writeSectionTitle(contractTexts.basicConditions);
-  writeParagraph(contractTexts.condition1);
-  writeParagraph(contractTexts.condition2);
-  writeParagraph(contractTexts.condition3);
-
-  y += 12;
-  pdf.setFont("helvetica", "bold");
-  pdf.setFontSize(12);
-  pdf.setTextColor(7, 0, 95);
-  pdf.text(contractTexts.clientSignature, margin, y);
-  y += 12;
-
-  pdf.addImage(signatureDataUrl, "PNG", margin, y, 180, 70);
-
-  const safeDni = preview.client.dni.replace(/[^a-zA-Z0-9_-]/g, "");
-  const safeName = `${preview.client.nombre}_${preview.client.apellidos}`
-    .replace(/\s+/g, "_")
-    .replace(/[^a-zA-Z0-9_-]/g, "");
-
-  const blob = pdf.output("blob");
-
-  return new File([blob], `CONTRATO_${safeDni}_${safeName}.pdf`, {
-    type: "application/pdf",
-  });
-};
 
   const handleGenerateContract = async () => {
     const studyId = savedStudy?.study?.id;
@@ -2320,13 +2372,13 @@ const buildSignedContractPdfFile = async (
     setIsGeneratingContract(true);
 
     try {
-const response = await axios.post<GeneratedContractResponse>(
-  `/api/contracts/generate-from-study/${studyId}`,
-  {
-    proposalMode: activeProposal.id,
-    language: currentAppLanguage,
-  },
-);
+      const response = await axios.post<GeneratedContractResponse>(
+        `/api/contracts/generate-from-study/${studyId}`,
+        {
+          proposalMode: activeProposal.id,
+          language: currentAppLanguage,
+        },
+      );
 
       setGeneratedContract(response.data);
       setIsContractModalOpen(true);
@@ -2375,11 +2427,11 @@ const response = await axios.post<GeneratedContractResponse>(
       const signatureDataUrl =
         signatureCanvasRef.current.toDataURL("image/png");
 
-     const signedPdfFile = await buildSignedContractPdfFile(
-  generatedContract.preview,
-  signatureDataUrl,
-  currentAppLanguage,
-);
+      const signedPdfFile = await buildSignedContractPdfFile(
+        generatedContract.preview,
+        signatureDataUrl,
+        currentAppLanguage,
+      );
 
       const formData = new FormData();
       formData.append("signed_contract", signedPdfFile);
@@ -2399,20 +2451,20 @@ const response = await axios.post<GeneratedContractResponse>(
       setSignedContractResult(response.data);
       setIsContractModalOpen(false);
       setIsPaymentMethodModalOpen(true);
-sileo.success({
-  title: t(
-    "contractFlow.toasts.signedSuccessTitle",
-    "Precontrato firmado correctamente",
-  ),
-  description: t(
-    "contractFlow.toasts.signedSuccessDescription",
-    "Se han reservado {{reservedKwp}} kWp en {{installationName}}. Ahora debes seleccionar la forma de pago para continuar.",
-    {
-      reservedKwp: response.data.reservation.reservedKwp,
-      installationName: response.data.reservation.installationName,
-    },
-  ),
-});
+      sileo.success({
+        title: t(
+          "contractFlow.toasts.signedSuccessTitle",
+          "Precontrato firmado correctamente",
+        ),
+        description: t(
+          "contractFlow.toasts.signedSuccessDescription",
+          "Se han reservado {{reservedKwp}} kWp en {{installationName}}. Ahora debes seleccionar la forma de pago para continuar.",
+          {
+            reservedKwp: response.data.reservation.reservedKwp,
+            installationName: response.data.reservation.installationName,
+          },
+        ),
+      });
     } catch (error: any) {
       console.error("Error firmando precontrato:", error);
       console.error("status:", error?.response?.status);
@@ -2433,16 +2485,16 @@ sileo.success({
 
   const handleSelectStripePayment = async () => {
     if (!currentContractId) {
-sileo.error({
-  title: t(
-    "contractFlow.toasts.contractUnavailableTitle",
-    "Contrato no disponible",
-  ),
-  description: t(
-    "contractFlow.toasts.paymentContractUnavailableDescription",
-    "No se ha encontrado el contrato para iniciar el pago.",
-  ),
-});
+      sileo.error({
+        title: t(
+          "contractFlow.toasts.contractUnavailableTitle",
+          "Contrato no disponible",
+        ),
+        description: t(
+          "contractFlow.toasts.paymentContractUnavailableDescription",
+          "No se ha encontrado el contrato para iniciar el pago.",
+        ),
+      });
       return;
     }
 
@@ -2456,48 +2508,48 @@ sileo.error({
       const checkoutUrl = response.data?.stripe?.checkoutUrl;
 
       if (!checkoutUrl) {
-   sileo.error({
-  title: t(
-    "contractFlow.toasts.paymentUnavailableTitle",
-    "Pago no disponible",
-  ),
-  description: t(
-    "contractFlow.toasts.paymentUnavailableDescription",
-    "No se pudo obtener la URL de Stripe.",
-  ),
-});
+        sileo.error({
+          title: t(
+            "contractFlow.toasts.paymentUnavailableTitle",
+            "Pago no disponible",
+          ),
+          description: t(
+            "contractFlow.toasts.paymentUnavailableDescription",
+            "No se pudo obtener la URL de Stripe.",
+          ),
+        });
         return;
       }
 
-   sileo.success({
-  title: t(
-    "contractFlow.toasts.redirectingStripeTitle",
-    "Redirigiendo a Stripe",
-  ),
-  description: t(
-    "contractFlow.toasts.redirectingStripeDescription",
-    "Te llevamos al pago seguro con tarjeta.",
-  ),
-});
+      sileo.success({
+        title: t(
+          "contractFlow.toasts.redirectingStripeTitle",
+          "Redirigiendo a Stripe",
+        ),
+        description: t(
+          "contractFlow.toasts.redirectingStripeDescription",
+          "Te llevamos al pago seguro con tarjeta.",
+        ),
+      });
 
       window.location.href = checkoutUrl;
     } catch (error: any) {
       console.error("Error iniciando pago con Stripe:", error);
 
-sileo.error({
-  title: t(
-    "contractFlow.toasts.couldNotStartStripeTitle",
-    "No se pudo iniciar el pago con tarjeta",
-  ),
-  description:
-    error?.response?.data?.details ||
-    error?.response?.data?.error ||
-    error?.message ||
-    t(
-      "contractFlow.toasts.unexpectedError",
-      "Ha ocurrido un error inesperado.",
-    ),
-});
+      sileo.error({
+        title: t(
+          "contractFlow.toasts.couldNotStartStripeTitle",
+          "No se pudo iniciar el pago con tarjeta",
+        ),
+        description:
+          error?.response?.data?.details ||
+          error?.response?.data?.error ||
+          error?.message ||
+          t(
+            "contractFlow.toasts.unexpectedError",
+            "Ha ocurrido un error inesperado.",
+          ),
+      });
     } finally {
       setIsSelectingPaymentMethod(false);
     }
@@ -2505,16 +2557,16 @@ sileo.error({
 
   const handleSelectBankTransferPayment = async () => {
     if (!currentContractId) {
-sileo.error({
-  title: t(
-    "contractFlow.toasts.contractUnavailableTitle",
-    "Contrato no disponible",
-  ),
-  description: t(
-    "contractFlow.toasts.paymentContractUnavailableDescription",
-    "No se ha encontrado el contrato para iniciar el pago.",
-  ),
-});
+      sileo.error({
+        title: t(
+          "contractFlow.toasts.contractUnavailableTitle",
+          "Contrato no disponible",
+        ),
+        description: t(
+          "contractFlow.toasts.paymentContractUnavailableDescription",
+          "No se ha encontrado el contrato para iniciar el pago.",
+        ),
+      });
       return;
     }
 
@@ -2527,17 +2579,17 @@ sileo.error({
 
       setIsPaymentMethodModalOpen(false);
 
-sileo.success({
-  title: t(
-    "contractFlow.toasts.bankTransferSentTitle",
-    "Instrucciones enviadas",
-  ),
-  description: t(
-    "contractFlow.toasts.bankTransferSentDescription",
-    "Hemos enviado el email con las instrucciones de transferencia a {{email}}.",
-    { email: response.data.bankTransfer.emailSentTo },
-  ),
-});
+      sileo.success({
+        title: t(
+          "contractFlow.toasts.bankTransferSentTitle",
+          "Instrucciones enviadas",
+        ),
+        description: t(
+          "contractFlow.toasts.bankTransferSentDescription",
+          "Hemos enviado el email con las instrucciones de transferencia a {{email}}.",
+          { email: response.data.bankTransfer.emailSentTo },
+        ),
+      });
     } catch (error: any) {
       console.error("Error seleccionando transferencia bancaria:", error);
 
@@ -2556,13 +2608,16 @@ sileo.success({
 
   const handleFileSelect = async (file: File) => {
     if (!privacyAccepted) {
-sileo.warning({
-  title: t("toasts.upload.privacyRequiredTitle", "Debes aceptar la política de privacidad"),
-  description: t(
-    "toasts.upload.privacyRequiredDescription",
-    "Para subir la factura y continuar, debes aceptar el tratamiento de datos.",
-  ),
-});
+      sileo.warning({
+        title: t(
+          "toasts.upload.privacyRequiredTitle",
+          "Debes aceptar la política de privacidad",
+        ),
+        description: t(
+          "toasts.upload.privacyRequiredDescription",
+          "Para subir la factura y continuar, debes aceptar el tratamiento de datos.",
+        ),
+      });
       return;
     }
 
@@ -2701,7 +2756,7 @@ sileo.warning({
         }
 
         setCurrentStep("validation");
-        showExtractionToasts(extraction,t);
+        showExtractionToasts(extraction, t);
 
         console.log(
           "[EXTRACTION] invoice_data completo:",
@@ -2717,11 +2772,23 @@ sileo.warning({
 
         return extraction;
       })(),
-  {
-    loading: { title: t("toasts.upload.processingInvoice", "Procesando factura...") },
-    success: { title: t("toasts.upload.invoiceProcessedSuccess", "Factura procesada con éxito") },
-    error: { title: t("toasts.upload.invoiceProcessedError", "No se pudo extraer la información de la factura") },
-  },
+      {
+        loading: {
+          title: t("toasts.upload.processingInvoice", "Procesando factura..."),
+        },
+        success: {
+          title: t(
+            "toasts.upload.invoiceProcessedSuccess",
+            "Factura procesada con éxito",
+          ),
+        },
+        error: {
+          title: t(
+            "toasts.upload.invoiceProcessedError",
+            "No se pudo extraer la información de la factura",
+          ),
+        },
+      },
     );
   };
 
@@ -2752,13 +2819,16 @@ sileo.warning({
           setInstallations([]);
           setCurrentStep("map");
 
-sileo.error({
-  title: t("toasts.map.geocodeErrorTitle", "No se pudo localizar la dirección"),
-  description: t(
-    "toasts.map.geocodeErrorDescription",
-    "No hemos podido obtener las coordenadas de la dirección indicada.",
-  ),
-});
+          sileo.error({
+            title: t(
+              "toasts.map.geocodeErrorTitle",
+              "No se pudo localizar la dirección",
+            ),
+            description: t(
+              "toasts.map.geocodeErrorDescription",
+              "No hemos podido obtener las coordenadas de la dirección indicada.",
+            ),
+          });
 
           return;
         }
@@ -2769,26 +2839,26 @@ sileo.error({
 
         sileo.success({ title: "Datos validados correctamente" });
       })(),
-  {
-    loading: {
-      title: t(
-        "toasts.validation.validatingLocationLoading",
-        "Validando dirección y buscando instalaciones...",
-      ),
-    },
-    success: {
-      title: t(
-        "toasts.validation.validatedSuccess",
-        "Datos validados correctamente",
-      ),
-    },
-    error: {
-      title: t(
-        "toasts.validation.validationError",
-        "No se pudo validar la ubicación del cliente",
-      ),
-    },
-  },
+      {
+        loading: {
+          title: t(
+            "toasts.validation.validatingLocationLoading",
+            "Validando dirección y buscando instalaciones...",
+          ),
+        },
+        success: {
+          title: t(
+            "toasts.validation.validatedSuccess",
+            "Datos validados correctamente",
+          ),
+        },
+        error: {
+          title: t(
+            "toasts.validation.validationError",
+            "No se pudo validar la ubicación del cliente",
+          ),
+        },
+      },
     );
   };
 
@@ -2803,25 +2873,28 @@ sileo.error({
     if (!coords) {
       setInstallations([]);
       setInstallationAvailabilityError("no_installations_in_radius");
-sileo.error({
-  title: t("toasts.map.locationUnavailableTitle", "Ubicación no disponible"),
-  description: t(
-    "toasts.map.locationUnavailableDescription",
-    "No se ha podido obtener la latitud y longitud del cliente.",
-  ),
-});
+      sileo.error({
+        title: t(
+          "toasts.map.locationUnavailableTitle",
+          "Ubicación no disponible",
+        ),
+        description: t(
+          "toasts.map.locationUnavailableDescription",
+          "No se ha podido obtener la latitud y longitud del cliente.",
+        ),
+      });
       return;
     }
 
     if (!validatedData) {
       setInstallations([]);
-sileo.error({
-  title: t("toasts.map.insufficientDataTitle", "Datos insuficientes"),
-  description: t(
-    "toasts.map.insufficientDataDescription",
-    "No se han encontrado los datos validados del cliente para calcular la potencia necesaria.",
-  ),
-});
+      sileo.error({
+        title: t("toasts.map.insufficientDataTitle", "Datos insuficientes"),
+        description: t(
+          "toasts.map.insufficientDataDescription",
+          "No se han encontrado los datos validados del cliente para calcular la potencia necesaria.",
+        ),
+      });
       return;
     }
 
@@ -2859,19 +2932,19 @@ sileo.error({
         return;
       }
 
-      const eligibleInstallations = installationsInRadius
-        .map((item) => {
-          const requiredKwp = calculateRequiredKwpForInstallation(
-            validatedData,
-            item,
-            rawExtraction,
-          );
+const eligibleInstallations = installationsInRadius
+  .map((item) => {
+    const requiredKwp = resolveEffectiveAssignedKwpForInstallation(
+      validatedData,
+      item,
+      rawExtraction,
+    );
 
-          return {
-            ...item,
-            required_kwp: requiredKwp,
-          };
-        })
+    return {
+      ...item,
+      required_kwp: requiredKwp,
+    };
+  })
         .filter((item) => {
           const availableKwp = Number(item.available_kwp ?? 0);
           const requiredKwp = Number(item.required_kwp ?? 0);
@@ -2892,13 +2965,16 @@ sileo.error({
       setInstallations(eligibleInstallations);
     } catch (error) {
       console.error("Error fetching installations:", error);
-sileo.error({
-  title: t("toasts.map.loadInstallationsErrorTitle", "Error al cargar instalaciones"),
-  description: t(
-    "toasts.map.loadInstallationsErrorDescription",
-    "Inténtalo de nuevo más tarde",
-  ),
-});
+      sileo.error({
+        title: t(
+          "toasts.map.loadInstallationsErrorTitle",
+          "Error al cargar instalaciones",
+        ),
+        description: t(
+          "toasts.map.loadInstallationsErrorDescription",
+          "Inténtalo de nuevo más tarde",
+        ),
+      });
       setInstallations([]);
       setInstallationAvailabilityError(null);
     } finally {
@@ -2915,13 +2991,16 @@ sileo.error({
     const requiredKwp = Number(normalizedInst.required_kwp ?? 0);
 
     if (requiredKwp > 0 && availableKwp < requiredKwp) {
-sileo.error({
-  title: t("toasts.map.insufficientCapacityTitle", "Capacidad insuficiente"),
-  description: t(
-    "toasts.map.insufficientCapacityDescription",
-    "Esta instalación no dispone de potencia suficiente para cubrir la recomendación del estudio.",
-  ),
-});
+      sileo.error({
+        title: t(
+          "toasts.map.insufficientCapacityTitle",
+          "Capacidad insuficiente",
+        ),
+        description: t(
+          "toasts.map.insufficientCapacityDescription",
+          "Esta instalación no dispone de potencia suficiente para cubrir la recomendación del estudio.",
+        ),
+      });
       return;
     }
 
@@ -2930,103 +3009,126 @@ sileo.error({
     setCurrentStep("calculation");
   };
 
-  useEffect(() => {
-    if (currentStep !== "calculation") return;
-    if (!extractedData || !selectedInstallation) return;
+useEffect(() => {
+  if (currentStep !== "calculation") return;
+  if (!extractedData || !selectedInstallation) return;
 
-    const timer = window.setTimeout(() => {
-      const validatedData = extractedData as ValidationBillData;
+  const timer = window.setTimeout(() => {
+    const validatedData = extractedData as ValidationBillData;
 
-      const result = calculateEnergyStudy({
-        monthlyConsumptionKwh:
-          validatedData.averageMonthlyConsumptionKwh ??
-          validatedData.monthlyConsumption ??
-          0,
-        invoiceConsumptionKwh:
-          validatedData.currentInvoiceConsumptionKwh ??
-          validatedData.averageMonthlyConsumptionKwh ??
-          validatedData.monthlyConsumption ??
-          0,
-        billType:
-          (validatedData.billType as BillData["billType"] | undefined) || "2TD",
-        effectiveHours: selectedInstallation.horas_efectivas,
-        investmentCostKwh: selectedInstallation.coste_kwh_inversion,
-        serviceCostKwh: selectedInstallation.coste_kwh_servicio,
-        selfConsumptionRatio: normalizeSelfConsumption(
-          selectedInstallation.porcentaje_autoconsumo,
-        ),
-        periodPrices: {
-          P1: validatedData.periodPriceP1,
-          P2: validatedData.periodPriceP2,
-          P3: validatedData.periodPriceP3,
-          P4: validatedData.periodPriceP4,
-          P5: validatedData.periodPriceP5,
-          P6: validatedData.periodPriceP6,
-        },
-        surplusCompensationPriceKwh:
-          selectedInstallation.precio_excedentes_eur_kwh ?? 0,
-        maintenanceAnnualPerKwp:
-          selectedInstallation.coste_anual_mantenimiento_por_kwp ??
-          INVESTMENT_MAINTENANCE_EUR_PER_KWP_YEAR,
-        vatRate: 0.21,
-      });
+    const periodConsumptions = {
+      P1: validatedData.periodConsumptionP1,
+      P2: validatedData.periodConsumptionP2,
+      P3: validatedData.periodConsumptionP3,
+      P4: validatedData.periodConsumptionP4,
+      P5: validatedData.periodConsumptionP5,
+      P6: validatedData.periodConsumptionP6,
+    };
 
-      setProposalResults({
-        investment: result,
-        service: result,
-      });
-      setSelectedProposalView(
-        getDefaultProposalMode(selectedInstallation.modalidad),
-      );
-      setCurrentStep("result");
-      sileo.success({ title: "Estudio generado con éxito" });
-      console.log("[front] entrando en persistencia automática");
-      void (async () => {
-        if (studyPersistLock.current) return;
-        studyPersistLock.current = true;
+    const periodPrices = {
+      P1: validatedData.periodPriceP1,
+      P2: validatedData.periodPriceP2,
+      P3: validatedData.periodPriceP3,
+      P4: validatedData.periodPriceP4,
+      P5: validatedData.periodPriceP5,
+      P6: validatedData.periodPriceP6,
+    };
 
-        try {
-          console.log("[front] llamando a persistStudyAutomatically...");
-          await persistStudyAutomatically(
-            validatedData,
-            result,
-            selectedInstallation,
-          );
+    const invoiceVariableEnergyAmountEur =
+      getInvoiceVariableEnergyAmountFromExtraction(rawExtraction);
 
-      sileo.success({
-  title: t("toasts.study.savedTitle", "Propuesta guardada automáticamente"),
-  description: t(
-    "toasts.study.savedDescription",
-    "Cliente, factura, propuesta y estudio registrados.",
-  ),
-});
-        } catch (error: any) {
-          console.error("Error guardando estudio confirmado:", error);
-          console.error("error.message:", error?.message);
-          console.error("error.response?.data:", error?.response?.data);
-          console.error("error.response?.status:", error?.response?.status);
+    const fixedPower = getFixedInstallationPower(selectedInstallation);
 
-      sileo.error({
-  title: t(
-    "toasts.study.saveErrorTitle",
-    "El estudio se generó, pero no se pudo guardar",
-  ),
-  description:
-    error?.response?.data?.details ||
-    error?.message ||
-    t(
-      "toasts.study.saveErrorDescription",
-      "Revisa la configuración del servidor.",
-    ),
-});
-        } finally {
-          studyPersistLock.current = false;
-        }
-      })();
-    }, 2500);
+    const result = calculateEnergyStudy({
+      monthlyConsumptionKwh:
+        validatedData.averageMonthlyConsumptionKwh ??
+        validatedData.monthlyConsumption ??
+        0,
+      invoiceConsumptionKwh:
+        validatedData.currentInvoiceConsumptionKwh ??
+        validatedData.averageMonthlyConsumptionKwh ??
+        validatedData.monthlyConsumption ??
+        0,
+      billType:
+        (validatedData.billType as BillData["billType"] | undefined) || "2TD",
+      effectiveHours: selectedInstallation.horas_efectivas,
+      investmentCostKwh: selectedInstallation.coste_kwh_inversion,
+      serviceCostKwh: selectedInstallation.coste_kwh_servicio,
+      selfConsumptionRatio: normalizeSelfConsumption(
+        selectedInstallation.porcentaje_autoconsumo,
+      ),
+      periodPrices,
+      periodConsumptions,
+      invoiceVariableEnergyAmountEur,
+      surplusCompensationPriceKwh:
+        selectedInstallation.precio_excedentes_eur_kwh ?? 0,
+      maintenanceAnnualPerKwp:
+        selectedInstallation.coste_anual_mantenimiento_por_kwp ??
+        INVESTMENT_MAINTENANCE_EUR_PER_KWP_YEAR,
+      vatRate: 0.21,
+      forcedPowerKwp: fixedPower ?? undefined,
+    });
 
-    return () => window.clearTimeout(timer);
-  }, [currentStep, extractedData, selectedInstallation]);
+    setProposalResults({
+      investment: result,
+      service: result,
+    });
+    setSelectedProposalView(
+      getDefaultProposalMode(selectedInstallation.modalidad),
+    );
+    setCurrentStep("result");
+    sileo.success({ title: "Estudio generado con éxito" });
+    console.log("[front] entrando en persistencia automática");
+
+    void (async () => {
+      if (studyPersistLock.current) return;
+      studyPersistLock.current = true;
+
+      try {
+        console.log("[front] llamando a persistStudyAutomatically...");
+        await persistStudyAutomatically(
+          validatedData,
+          result,
+          selectedInstallation,
+        );
+
+        sileo.success({
+          title: t(
+            "toasts.study.savedTitle",
+            "Propuesta guardada automáticamente",
+          ),
+          description: t(
+            "toasts.study.savedDescription",
+            "Cliente, factura, propuesta y estudio registrados.",
+          ),
+        });
+      } catch (error: any) {
+        console.error("Error guardando estudio confirmado:", error);
+        console.error("error.message:", error?.message);
+        console.error("error.response?.data:", error?.response?.data);
+        console.error("error.response?.status:", error?.response?.status);
+
+        sileo.error({
+          title: t(
+            "toasts.study.saveErrorTitle",
+            "El estudio se generó, pero no se pudo guardar",
+          ),
+          description:
+            error?.response?.data?.details ||
+            error?.message ||
+            t(
+              "toasts.study.saveErrorDescription",
+              "Revisa la configuración del servidor.",
+            ),
+        });
+      } finally {
+        studyPersistLock.current = false;
+      }
+    })();
+  }, 2500);
+
+  return () => window.clearTimeout(timer);
+}, [currentStep, extractedData, selectedInstallation, rawExtraction, t]);
 
   return (
     <Layout>
@@ -3237,21 +3339,7 @@ sileo.error({
                   exit={{ opacity: 0, y: -30 }}
                   className="text-center"
                 >
-                  {/* <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-brand-sky/10 text-brand-navy text-[10px] font-bold uppercase tracking-widest mb-6 border border-brand-sky/20">
-                    <Sparkles className="w-3 h-3 text-brand-sky" />
-                    Estudio Gratuito en 2 Minutos
-                  </div>
 
-                  <h1 className="text-5xl md:text-7xl font-bold tracking-tight mb-6 leading-[1.1]">
-                    Tu futuro energético <br />
-                    <span className="brand-gradient-text">empieza aquí</span>
-                  </h1>
-
-                  <p className="text-brand-gray text-lg mb-16 max-w-2xl mx-auto leading-relaxed">
-                    Sube tu última factura eléctrica y deja que nuestra
-                    inteligencia artificial diseñe la solución de ahorro
-                    perfecta para tu hogar.
-                  </p> */}
 
                   <div className="max-w-2xl mx-auto mb-8 text-left">
                     <label className="flex items-start gap-3 rounded-2xl border border-brand-navy/10 bg-white p-4 shadow-sm">
@@ -3262,21 +3350,21 @@ sileo.error({
                         className="mt-1 h-5 w-5 rounded border-brand-navy/20 text-brand-mint focus:ring-brand-mint"
                       />
 
-<span className="text-sm text-brand-gray leading-relaxed">
-  <Trans
-    i18nKey="upload.privacyConsent"
-    components={{
-      privacyLink: (
-        <a
-          href={`/politica-privacidad.html?lang=${currentAppLanguage}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="font-semibold text-brand-navy underline underline-offset-4 hover:text-brand-mint"
-        />
-      ),
-    }}
-  />
-</span>
+                      <span className="text-sm text-brand-gray leading-relaxed">
+                        <Trans
+                          i18nKey="upload.privacyConsent"
+                          components={{
+                            privacyLink: (
+                              <a
+                                href={`/politica-privacidad.html?lang=${currentAppLanguage}`}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="font-semibold text-brand-navy underline underline-offset-4 hover:text-brand-mint"
+                              />
+                            ),
+                          }}
+                        />
+                      </span>
                     </label>
                   </div>
 
@@ -3285,40 +3373,7 @@ sileo.error({
                     disabled={!privacyAccepted}
                     disabledMessage={t("upload.disabledMessage")}
                   />
-                  {/* <div className="mt-20 grid grid-cols-1 md:grid-cols-3 gap-8 text-left">
-                    {[
-                      {
-                        icon: ShieldCheck,
-                        title: "100% Seguro",
-                        desc: "Tus datos están protegidos por encriptación de grado bancario.",
-                      },
-                      {
-                        icon: Zap,
-                        title: "Ahorro Real",
-                        desc: "Cálculos precisos basados en tu consumo histórico real.",
-                      },
-                      {
-                        icon: Leaf,
-                        title: "Sostenible",
-                        desc: "Reduce tu huella de carbono con energía local certificada.",
-                      },
-                    ].map((item, i) => (
-                      <div
-                        key={i}
-                        className="p-6 rounded-3xl bg-white border border-brand-navy/5 shadow-sm hover:shadow-md transition-all"
-                      >
-                        <div className="w-10 h-10 rounded-xl bg-brand-navy/5 flex items-center justify-center mb-4 text-brand-navy">
-                          <item.icon className="w-5 h-5" />
-                        </div>
-                        <h3 className="font-bold text-brand-navy mb-2">
-                          {item.title}
-                        </h3>
-                        <p className="text-brand-gray text-xs leading-relaxed">
-                          {item.desc}
-                        </p>
-                      </div>
-                    ))}
-                  </div> */}
+
                 </motion.div>
               )}
 
@@ -3393,37 +3448,7 @@ sileo.error({
                         </div>
                       </FormSection>
 
-                      {/* <FormSection
-                        title={t("validation.supplySection.title")}
-                        subtitle={t("validation.supplySection.subtitle")}
-                      >
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-start"> */}
-                          {/* <Controller
-                            name="billType"
-                            control={control}
-                            render={({ field }) => (
-                              <SelectField
-                                label="Tipo de factura"
-                                value={field.value}
-                                onChange={field.onChange}
-                                error={errors.billType?.message}
-                                options={[
-                                  { value: "2TD", label: "2TD" },
-                                  { value: "3TD", label: "3TD" },
-                                ]}
-                                placeholder="Selecciona una opción"
-                              />
-                            )}
-                          /> */}
 
-                        {/* <Input
-  label={t("fields.address")}
-  {...register("address")}
-  error={errors.address?.message}
-  placeholder={t("placeholders.address")}
-/>
-                        </div>
-                      </FormSection> */}
 
                       <div className="flex justify-center pt-4">
                         <Button
@@ -3489,27 +3514,33 @@ sileo.error({
                               key={inst.id}
                               position={[Number(inst.lat), Number(inst.lng)]}
                             >
-<Popup>
-  <div className="text-sm">
-    <p className="font-bold">{inst.nombre_instalacion}</p>
-    <p>{inst.direccion}</p>
-    <p className="mt-1">
-      {t("map.distanceLabel", "Distancia: {{value}} m", {
-        value: inst.distance_meters ?? "-",
-      })}
-    </p>
-  </div>
-</Popup>
+                              <Popup>
+                                <div className="text-sm">
+                                  <p className="font-bold">
+                                    {inst.nombre_instalacion}
+                                  </p>
+                                  <p>{inst.direccion}</p>
+                                  <p className="mt-1">
+                                    {t(
+                                      "map.distanceLabel",
+                                      "Distancia: {{value}} m",
+                                      {
+                                        value: inst.distance_meters ?? "-",
+                                      },
+                                    )}
+                                  </p>
+                                </div>
+                              </Popup>
                             </Marker>
                           ))}
                         </MapContainer>
                       ) : (
-                    <div className="absolute inset-0 flex items-center justify-center bg-brand-navy/[0.02] text-brand-navy/40 font-bold">
-  {t(
-    "map.missingCoordinates",
-    "No se ha podido cargar el mapa porque faltan coordenadas.",
-  )}
-</div>
+                        <div className="absolute inset-0 flex items-center justify-center bg-brand-navy/[0.02] text-brand-navy/40 font-bold">
+                          {t(
+                            "map.missingCoordinates",
+                            "No se ha podido cargar el mapa porque faltan coordenadas.",
+                          )}
+                        </div>
                       )}
 
                       <div className="absolute bottom-8 left-8 right-8 glass-card p-6 rounded-3xl flex items-center justify-between z-[400]">
@@ -3521,9 +3552,13 @@ sileo.error({
                             <p className="text-xs font-bold uppercase tracking-widest text-brand-navy/40">
                               {t("map.yourLocation")}
                             </p>
-                           <p className="font-bold text-brand-navy">
-  {extractedData?.address || t("map.loadingAddress", "Cargando dirección...")}
-</p>
+                            <p className="font-bold text-brand-navy">
+                              {extractedData?.address ||
+                                t(
+                                  "map.loadingAddress",
+                                  "Cargando dirección...",
+                                )}
+                            </p>
                           </div>
                         </div>
 
@@ -3549,36 +3584,43 @@ sileo.error({
                           </p>
                         </div>
                       ) : installations.length === 0 ? (
-                       <div className="rounded-[2rem] border border-amber-200 bg-amber-50 px-6 py-6 text-left">
-  <p className="text-sm font-bold uppercase tracking-widest text-amber-700">
-    {installationAvailabilityError === "insufficient_capacity"
-      ? t(
-          "map.availability.noCapacityTitle",
-          "No hay capacidad suficiente disponible",
-        )
-      : t(
-          "map.availability.noInstallationsTitle",
-          "No hay instalaciones disponibles",
-        )}
-  </p>
+                        <div className="rounded-[2rem] border border-amber-200 bg-amber-50 px-6 py-6 text-left">
+                          <p className="text-sm font-bold uppercase tracking-widest text-amber-700">
+                            {installationAvailabilityError ===
+                            "insufficient_capacity"
+                              ? t(
+                                  "map.availability.noCapacityTitle",
+                                  "No hay capacidad suficiente disponible",
+                                )
+                              : t(
+                                  "map.availability.noInstallationsTitle",
+                                  "No hay instalaciones disponibles",
+                                )}
+                          </p>
 
-  <p className="text-sm text-amber-700/80 mt-3 leading-relaxed">
-    {installationAvailabilityError === "insufficient_capacity"
-      ? t(
-          "map.availability.noCapacityDescription",
-          "Hemos encontrado instalaciones cercanas, pero ninguna dispone ahora mismo de la potencia necesaria para cubrir la recomendación de tu estudio. Contacta con Sapiens para revisar tu caso.",
-        )
-      : t(
-          "map.availability.noInstallationsDescription",
-          "No hemos encontrado instalaciones activas dentro del radio configurado para esta dirección. Contacta con Sapiens para revisar tu caso.",
-        )}
-  </p>
+                          <p className="text-sm text-amber-700/80 mt-3 leading-relaxed">
+                            {installationAvailabilityError ===
+                            "insufficient_capacity"
+                              ? t(
+                                  "map.availability.noCapacityDescription",
+                                  "Hemos encontrado instalaciones cercanas, pero ninguna dispone ahora mismo de la potencia necesaria para cubrir la recomendación de tu estudio. Contacta con Sapiens para revisar tu caso.",
+                                )
+                              : t(
+                                  "map.availability.noInstallationsDescription",
+                                  "No hemos encontrado instalaciones activas dentro del radio configurado para esta dirección. Contacta con Sapiens para revisar tu caso.",
+                                )}
+                          </p>
 
-  <div className="mt-4 space-y-1 text-sm font-semibold text-brand-navy">
-    <p>{t("map.contactPhone", "Teléfono")}: 960 99 27 77</p>
-    <p>{t("map.contactEmail", "Email")}: info@sapiensenergia.es</p>
-  </div>
-</div>
+                          <div className="mt-4 space-y-1 text-sm font-semibold text-brand-navy">
+                            <p>
+                              {t("map.contactPhone", "Teléfono")}: 960 99 27 77
+                            </p>
+                            <p>
+                              {t("map.contactEmail", "Email")}:
+                              info@sapiensenergia.es
+                            </p>
+                          </div>
+                        </div>
                       ) : (
                         installations.map((inst, i) => (
                           <motion.div
@@ -3597,73 +3639,84 @@ sileo.error({
                               </p>
 
                               <span className="text-[10px] font-bold text-brand-mint bg-brand-mint/10 px-2 py-1 rounded-lg uppercase">
-  {getInstallationModeLabel(inst.modalidad, t)}
-</span>
+                                {getInstallationModeLabel(inst.modalidad, t)}
+                              </span>
                             </div>
 
                             <p className="text-xs font-semibold text-brand-gray flex items-center gap-2 mb-2">
                               <MapPin className="w-3 h-3" />
                               {inst.direccion}
                             </p>
-{/*  */}
-<div className="grid grid-cols-2 gap-3 mt-6">
-  <div className="rounded-2xl bg-brand-navy/[0.03] p-4">
-    <div className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-brand-navy/40 font-bold leading-none">
-      <Icon
-        icon="mdi:solar-panel-large"
-        className="w-3.5 h-3.5 shrink-0"
-      />
-      <span>{t("map.installationCard.solar", "Fotovoltaica")}</span>
-    </div>
+                            {/*  */}
+                            <div className="grid grid-cols-2 gap-3 mt-6">
+                              <div className="rounded-2xl bg-brand-navy/[0.03] p-4">
+                                <div className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-brand-navy/40 font-bold leading-none">
+                                  <Icon
+                                    icon="mdi:solar-panel-large"
+                                    className="w-3.5 h-3.5 shrink-0"
+                                  />
+                                  <span>
+                                    {t(
+                                      "map.installationCard.solar",
+                                      "Fotovoltaica",
+                                    )}
+                                  </span>
+                                </div>
 
-    <p className="font-bold text-brand-navy">
-      {formatNumber(inst.available_kwp ?? 0)} kWp
-    </p>
-  </div>
+                                <p className="font-bold text-brand-navy">
+                                  {formatNumber(inst.available_kwp ?? 0)} kWp
+                                </p>
+                              </div>
 
-  <div className="rounded-2xl bg-brand-navy/[0.03] p-4">
-    <div className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-brand-navy/40 font-bold leading-none">
-      <Icon
-        icon="mdi:battery-charging-medium"
-        className="w-3.5 h-3.5 shrink-0"
-      />
-      <span>{t("map.installationCard.storage", "Almacenamiento")}</span>
-    </div>
+                              <div className="rounded-2xl bg-brand-navy/[0.03] p-4">
+                                <div className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-brand-navy/40 font-bold leading-none">
+                                  <Icon
+                                    icon="mdi:battery-charging-medium"
+                                    className="w-3.5 h-3.5 shrink-0"
+                                  />
+                                  <span>
+                                    {t(
+                                      "map.installationCard.storage",
+                                      "Almacenamiento",
+                                    )}
+                                  </span>
+                                </div>
 
-    <p className="font-bold text-brand-navy">
-      {formatNumber(inst.almacenamiento_kwh)} kWh
-    </p>
-  </div>
-</div>
+                                <p className="font-bold text-brand-navy">
+                                  {formatNumber(inst.almacenamiento_kwh)} kWh
+                                </p>
+                              </div>
+                            </div>
 
-<div className="mt-5 flex items-center gap-3 text-xs text-brand-gray">
-  <Building2 className="w-4 h-4" />
-  <span>
-    {t("map.installationCard.effectiveHours", "{{value}} h efectivas", {
-      value: formatNumber(inst.horas_efectivas),
-    })}
-  </span>
-</div>
-
-<div className="mt-2 flex items-center gap-3 text-xs text-brand-gray">
-  <Icon
-    icon="solar:chart-bold-duotone"
-    className="w-4 h-4 text-brand-mint"
-  />
-  <span>
-    {t("map.installationCard.reserved", "Reservados: {{value}} kWp", {
-      value: formatNumber(inst.reserved_kwp ?? 0),
-    })}
-  </span>
-</div>
-{/*  */}
-                            {/* <div className="mt-2 flex items-center gap-3 text-xs text-brand-gray">
-                              <BatteryCharging className="w-4 h-4" />
+                            <div className="mt-5 flex items-center gap-3 text-xs text-brand-gray">
+                              <Building2 className="w-4 h-4" />
                               <span>
-                                {formatNumber(inst.almacenamiento_kwh)} kWh
-                                almacenamiento
+                                {t(
+                                  "map.installationCard.effectiveHours",
+                                  "{{value}} h efectivas",
+                                  {
+                                    value: formatNumber(inst.horas_efectivas),
+                                  },
+                                )}
                               </span>
-                            </div> */}
+                            </div>
+
+                            <div className="mt-2 flex items-center gap-3 text-xs text-brand-gray">
+                              <Icon
+                                icon="solar:chart-bold-duotone"
+                                className="w-4 h-4 text-brand-mint"
+                              />
+                              <span>
+                                {t(
+                                  "map.installationCard.reserved",
+                                  "Reservados: {{value}} kWp",
+                                  {
+                                    value: formatNumber(inst.reserved_kwp ?? 0),
+                                  },
+                                )}
+                              </span>
+                            </div>
+         
                           </motion.div>
                         ))
                       )}
@@ -4444,339 +4497,346 @@ sileo.error({
         )}
       </div>
 
-<AnimatePresence>
-  {isContractModalOpen && generatedContract ? (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[200] bg-brand-navy/50 backdrop-blur-sm overflow-y-auto"
-    >
-      <div className="min-h-full px-4 py-4 md:px-8 md:py-8 flex items-start md:items-center justify-center">
-        <motion.div
-          initial={{ opacity: 0, y: 24, scale: 0.98 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          exit={{ opacity: 0, y: 12, scale: 0.98 }}
-          className="w-full max-w-5xl rounded-[2rem] md:rounded-[2.5rem] bg-white border border-brand-navy/5 shadow-2xl overflow-hidden"
-        >
-          <div className="max-h-[calc(100vh-2rem)] md:max-h-[92vh] overflow-y-auto">
-            <div className="sticky top-0 z-20 px-5 md:px-8 py-5 border-b border-brand-navy/5 bg-white/95 backdrop-blur-md flex items-center justify-between gap-4">
-              <div>
-                <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-brand-navy/40 mb-1">
-                  {t("contractFlow.modal.badge", "Contratación")}
-                </p>
-                <h3 className="text-xl md:text-2xl font-bold text-brand-navy">
-                  {t("contractFlow.leftPanel.titleLine1", "Revisa y firma")}{" "}
-                  {t("contractFlow.leftPanel.titleLine2", "tu contrato")}
-                </h3>
-              </div>
-
-              <button
-                type="button"
-                onClick={() => setIsContractModalOpen(false)}
-                className="w-11 h-11 rounded-2xl bg-brand-navy/5 hover:bg-brand-navy/10 text-brand-navy transition shrink-0"
-                aria-label={t("common.close", "Cerrar")}
+      <AnimatePresence>
+        {isContractModalOpen && generatedContract ? (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[200] bg-brand-navy/50 backdrop-blur-sm overflow-y-auto"
+          >
+            <div className="min-h-full px-4 py-4 md:px-8 md:py-8 flex items-start md:items-center justify-center">
+              <motion.div
+                initial={{ opacity: 0, y: 24, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 12, scale: 0.98 }}
+                className="w-full max-w-5xl rounded-[2rem] md:rounded-[2.5rem] bg-white border border-brand-navy/5 shadow-2xl overflow-hidden"
               >
-                ✕
-              </button>
-            </div>
-
-            <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_340px]">
-              <div className="p-4 md:p-8 border-b lg:border-b-0 lg:border-r border-brand-navy/5">
-                <div className="rounded-[1.5rem] overflow-hidden border border-brand-navy/5 bg-brand-sky/5">
-                  <iframe
-                    title={t(
-                      "contractFlow.iframe.title",
-                      "Vista previa del contrato",
-                    )}
-                    srcDoc={generatedContract.previewHtml}
-                    className="w-full h-[320px] sm:h-[420px] md:h-[560px] bg-white"
-                  />
-                </div>
-              </div>
-
-              <div className="p-4 md:p-6 space-y-5 bg-brand-navy/[0.02]">
-                <div className="rounded-[1.4rem] bg-white border border-brand-navy/5 p-4">
-                  <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-brand-navy/40 mb-2">
-                    {t("contractFlow.contractCard.title", "Contrato")}
-                  </p>
-                  <p className="font-bold text-brand-navy">
-                    {generatedContract.preview.contractNumber}
-                  </p>
-                  <p className="text-sm text-brand-gray mt-2">
-                    {generatedContract.preview.client.nombre}{" "}
-                    {generatedContract.preview.client.apellidos}
-                  </p>
-                  <p className="text-sm text-brand-gray">
-                    {t("contractFlow.contractCard.dni", "DNI")}:{" "}
-                    {generatedContract.preview.client.dni}
-                  </p>
-                </div>
-
-                <div className="rounded-[1.4rem] bg-white border border-brand-navy/5 p-4">
-                  <div className="flex items-center justify-between mb-3">
-                    <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-brand-navy/40">
-                      {t("contractFlow.signature.title", "Firma")}
-                    </p>
+                <div className="max-h-[calc(100vh-2rem)] md:max-h-[92vh] overflow-y-auto">
+                  <div className="sticky top-0 z-20 px-5 md:px-8 py-5 border-b border-brand-navy/5 bg-white/95 backdrop-blur-md flex items-center justify-between gap-4">
+                    <div>
+                      <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-brand-navy/40 mb-1">
+                        {t("contractFlow.modal.badge", "Contratación")}
+                      </p>
+                      <h3 className="text-xl md:text-2xl font-bold text-brand-navy">
+                        {t(
+                          "contractFlow.leftPanel.titleLine1",
+                          "Revisa y firma",
+                        )}{" "}
+                        {t("contractFlow.leftPanel.titleLine2", "tu contrato")}
+                      </h3>
+                    </div>
 
                     <button
                       type="button"
-                      onClick={clearSignature}
-                      className="text-sm font-semibold text-brand-navy hover:text-brand-mint transition"
+                      onClick={() => setIsContractModalOpen(false)}
+                      className="w-11 h-11 rounded-2xl bg-brand-navy/5 hover:bg-brand-navy/10 text-brand-navy transition shrink-0"
+                      aria-label={t("common.close", "Cerrar")}
                     >
-                      {t("contractFlow.signature.clear", "Limpiar")}
+                      ✕
                     </button>
                   </div>
 
-                  <canvas
-                    ref={signatureCanvasRef}
-                    width={600}
-                    height={180}
-                    className="w-full h-40 rounded-[1.2rem] border border-dashed border-brand-navy/20 bg-white touch-none"
-                    onMouseDown={startSignatureDraw}
-                    onMouseMove={moveSignatureDraw}
-                    onMouseUp={endSignatureDraw}
-                    onMouseLeave={endSignatureDraw}
-                    onTouchStart={startSignatureDraw}
-                    onTouchMove={moveSignatureDraw}
-                    onTouchEnd={endSignatureDraw}
-                  />
+                  <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_340px]">
+                    <div className="p-4 md:p-8 border-b lg:border-b-0 lg:border-r border-brand-navy/5">
+                      <div className="rounded-[1.5rem] overflow-hidden border border-brand-navy/5 bg-brand-sky/5">
+                        <iframe
+                          title={t(
+                            "contractFlow.iframe.title",
+                            "Vista previa del contrato",
+                          )}
+                          srcDoc={generatedContract.previewHtml}
+                          className="w-full h-[320px] sm:h-[420px] md:h-[560px] bg-white"
+                        />
+                      </div>
+                    </div>
 
-                  <p className="text-xs text-brand-gray mt-3 leading-relaxed">
-                    {t(
-                      "contractFlow.signature.help",
-                      "Firma dentro del recuadro. Al confirmar, se generará el PDF firmado, se creará tu reserva provisional y podrás elegir la forma de pago.",
-                    )}
-                  </p>
+                    <div className="p-4 md:p-6 space-y-5 bg-brand-navy/[0.02]">
+                      <div className="rounded-[1.4rem] bg-white border border-brand-navy/5 p-4">
+                        <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-brand-navy/40 mb-2">
+                          {t("contractFlow.contractCard.title", "Contrato")}
+                        </p>
+                        <p className="font-bold text-brand-navy">
+                          {generatedContract.preview.contractNumber}
+                        </p>
+                        <p className="text-sm text-brand-gray mt-2">
+                          {generatedContract.preview.client.nombre}{" "}
+                          {generatedContract.preview.client.apellidos}
+                        </p>
+                        <p className="text-sm text-brand-gray">
+                          {t("contractFlow.contractCard.dni", "DNI")}:{" "}
+                          {generatedContract.preview.client.dni}
+                        </p>
+                      </div>
+
+                      <div className="rounded-[1.4rem] bg-white border border-brand-navy/5 p-4">
+                        <div className="flex items-center justify-between mb-3">
+                          <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-brand-navy/40">
+                            {t("contractFlow.signature.title", "Firma")}
+                          </p>
+
+                          <button
+                            type="button"
+                            onClick={clearSignature}
+                            className="text-sm font-semibold text-brand-navy hover:text-brand-mint transition"
+                          >
+                            {t("contractFlow.signature.clear", "Limpiar")}
+                          </button>
+                        </div>
+
+                        <canvas
+                          ref={signatureCanvasRef}
+                          width={600}
+                          height={180}
+                          className="w-full h-40 rounded-[1.2rem] border border-dashed border-brand-navy/20 bg-white touch-none"
+                          onMouseDown={startSignatureDraw}
+                          onMouseMove={moveSignatureDraw}
+                          onMouseUp={endSignatureDraw}
+                          onMouseLeave={endSignatureDraw}
+                          onTouchStart={startSignatureDraw}
+                          onTouchMove={moveSignatureDraw}
+                          onTouchEnd={endSignatureDraw}
+                        />
+
+                        <p className="text-xs text-brand-gray mt-3 leading-relaxed">
+                          {t(
+                            "contractFlow.signature.help",
+                            "Firma dentro del recuadro. Al confirmar, se generará el PDF firmado, se creará tu reserva provisional y podrás elegir la forma de pago.",
+                          )}
+                        </p>
+                      </div>
+
+                      <div className="rounded-[1.4rem] bg-brand-mint/10 border border-brand-mint/20 p-4 text-brand-navy">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Icon
+                            icon="solar:bolt-bold-duotone"
+                            className="h-5 w-5"
+                          />
+                          <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-brand-navy/60">
+                            {t(
+                              "contractFlow.reservation.title",
+                              "Reserva provisional",
+                            )}
+                          </p>
+                        </div>
+
+                        <p className="text-sm leading-relaxed">
+                          {t(
+                            "contractFlow.reservation.description",
+                            "Al firmar, se reservarán {{assignedKwp}} kWp en la instalación seleccionada bajo la modalidad de {{modeLabel}}.",
+                            {
+                              assignedKwp:
+                                generatedContract.preview.assignedKwp,
+                              modeLabel: contractPreviewModeLabel,
+                            },
+                          )}
+                        </p>
+                      </div>
+
+                      <div className="sticky bottom-0 bg-brand-navy/[0.02] pt-2">
+                        <div className="space-y-3">
+                          <Button
+                            className="w-full py-5 rounded-[1.2rem] brand-gradient text-brand-navy border-none"
+                            onClick={handleSubmitSignedContract}
+                            disabled={isSigningContract}
+                          >
+                            {isSigningContract ? (
+                              <Loader2 className="mr-3 h-5 w-5 animate-spin" />
+                            ) : (
+                              <Icon
+                                icon="solar:shield-check-bold-duotone"
+                                className="mr-3 h-5 w-5"
+                              />
+                            )}
+                            {isSigningContract
+                              ? t("contractFlow.actions.signing", "Firmando...")
+                              : t(
+                                  "contractFlow.actions.signAndContinue",
+                                  "Firmar y continuar",
+                                )}
+                          </Button>
+
+                          <Button
+                            variant="outline"
+                            className="w-full py-5 rounded-[1.2rem] border-brand-navy/10 text-brand-navy"
+                            onClick={() => setIsContractModalOpen(false)}
+                          >
+                            {t("common.cancel", "Cancelar")}
+                          </Button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
                 </div>
+              </motion.div>
+            </div>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
 
-                <div className="rounded-[1.4rem] bg-brand-mint/10 border border-brand-mint/20 p-4 text-brand-navy">
-                  <div className="flex items-center gap-2 mb-2">
-                    <Icon
-                      icon="solar:bolt-bold-duotone"
-                      className="h-5 w-5"
-                    />
-                    <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-brand-navy/60">
-                      {t("contractFlow.reservation.title", "Reserva provisional")}
+      <AnimatePresence>
+        {isPaymentMethodModalOpen && signedContractResult ? (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[210] bg-brand-navy/50 backdrop-blur-sm overflow-y-auto"
+          >
+            <div className="min-h-full px-4 py-4 md:px-8 md:py-8 flex items-start md:items-center justify-center">
+              <motion.div
+                initial={{ opacity: 0, y: 24, scale: 0.98 }}
+                animate={{ opacity: 1, y: 0, scale: 1 }}
+                exit={{ opacity: 0, y: 12, scale: 0.98 }}
+                className="w-full max-w-3xl rounded-[2rem] md:rounded-[2.5rem] bg-white border border-brand-navy/5 shadow-2xl overflow-hidden"
+              >
+                <div className="p-5 md:p-8 border-b border-brand-navy/5 flex items-center justify-between gap-4">
+                  <div>
+                    <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-brand-navy/40 mb-1">
+                      {t("contractFlow.modal.badge", "Contratación")}
                     </p>
+                    <h3 className="text-xl md:text-2xl font-bold text-brand-navy">
+                      {t(
+                        "contractFlow.modal.title",
+                        "Selecciona la forma de pago",
+                      )}
+                    </h3>
                   </div>
 
-<p className="text-sm leading-relaxed">
-  {t(
-    "contractFlow.reservation.description",
-    "Al firmar, se reservarán {{assignedKwp}} kWp en la instalación seleccionada bajo la modalidad de {{modeLabel}}.",
-    {
-      assignedKwp: generatedContract.preview.assignedKwp,
-      modeLabel: contractPreviewModeLabel,
-    },
-  )}
-</p>
+                  <button
+                    type="button"
+                    onClick={() => setIsPaymentMethodModalOpen(false)}
+                    className="w-11 h-11 rounded-2xl bg-brand-navy/5 hover:bg-brand-navy/10 text-brand-navy transition shrink-0"
+                    disabled={isSelectingPaymentMethod}
+                    aria-label={t("common.close", "Cerrar")}
+                  >
+                    ✕
+                  </button>
                 </div>
 
-                <div className="sticky bottom-0 bg-brand-navy/[0.02] pt-2">
-                  <div className="space-y-3">
-                    <Button
-                      className="w-full py-5 rounded-[1.2rem] brand-gradient text-brand-navy border-none"
-                      onClick={handleSubmitSignedContract}
-                      disabled={isSigningContract}
-                    >
-                      {isSigningContract ? (
-                        <Loader2 className="mr-3 h-5 w-5 animate-spin" />
-                      ) : (
-                        <Icon
-                          icon="solar:shield-check-bold-duotone"
-                          className="mr-3 h-5 w-5"
-                        />
+                <div className="p-5 md:p-8 space-y-6 bg-brand-navy/[0.02]">
+                  <div className="rounded-[1.4rem] bg-white border border-brand-navy/5 p-5">
+                    <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-brand-navy/40 mb-3">
+                      {t(
+                        "contractFlow.modal.reservationSummary",
+                        "Resumen de la reserva",
                       )}
-                      {isSigningContract
-                        ? t("contractFlow.actions.signing", "Firmando...")
-                        : t(
-                            "contractFlow.actions.signAndContinue",
-                            "Firmar y continuar",
-                          )}
-                    </Button>
+                    </p>
 
+                    <div className="space-y-2 text-sm text-brand-navy/80">
+                      <p>
+                        <span className="font-bold text-brand-navy">
+                          {t("contractFlow.modal.installation", "Instalación")}:
+                        </span>{" "}
+                        {signedContractResult.reservation.installationName}
+                      </p>
+                      <p>
+                        <span className="font-bold text-brand-navy">
+                          {t(
+                            "contractFlow.modal.reservedPower",
+                            "Potencia reservada",
+                          )}
+                          :
+                        </span>{" "}
+                        {signedContractResult.reservation.reservedKwp} kWp
+                      </p>
+                      <p>
+                        <span className="font-bold text-brand-navy">
+                          {t("contractFlow.modal.signal", "Señal")}:
+                        </span>{" "}
+                        {formatCurrency(
+                          signedContractResult.reservation.signalAmount,
+                        )}
+                      </p>
+                      <p>
+                        <span className="font-bold text-brand-navy">
+                          {t("contractFlow.modal.deadline", "Fecha límite")}:
+                        </span>{" "}
+                        {new Date(
+                          signedContractResult.reservation.paymentDeadlineAt,
+                        ).toLocaleDateString(getDateLocale(currentAppLanguage))}
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    <button
+                      type="button"
+                      onClick={handleSelectBankTransferPayment}
+                      disabled={isSelectingPaymentMethod}
+                      className="rounded-[1.5rem] border border-brand-navy/10 bg-white p-6 text-left shadow-sm hover:shadow-md transition disabled:opacity-60"
+                    >
+                      <div className="w-12 h-12 rounded-2xl bg-brand-navy/5 flex items-center justify-center mb-4">
+                        <Icon
+                          icon="solar:card-transfer-bold-duotone"
+                          className="h-6 w-6 text-brand-navy"
+                        />
+                      </div>
+
+                      <p className="text-lg font-bold text-brand-navy">
+                        {t(
+                          "contractFlow.modal.bankTransferTitle",
+                          "Transferencia bancaria",
+                        )}
+                      </p>
+                      <p className="mt-2 text-sm text-brand-gray leading-relaxed">
+                        {t(
+                          "contractFlow.modal.bankTransferDescription",
+                          "Recibirás un correo con el IBAN, el concepto y el PDF del precontrato firmado. Tendrás 15 días para realizar la transferencia.",
+                        )}
+                      </p>
+                    </button>
+
+                    <button
+                      type="button"
+                      onClick={handleSelectStripePayment}
+                      disabled={isSelectingPaymentMethod}
+                      className="rounded-[1.5rem] border border-brand-mint/20 bg-brand-mint/10 p-6 text-left shadow-sm hover:shadow-md transition disabled:opacity-60"
+                    >
+                      <div className="w-12 h-12 rounded-2xl bg-brand-navy text-white flex items-center justify-center mb-4">
+                        <Icon
+                          icon="solar:card-send-bold-duotone"
+                          className="h-6 w-6"
+                        />
+                      </div>
+
+                      <p className="text-lg font-bold text-brand-navy">
+                        {t(
+                          "contractFlow.modal.stripeTitle",
+                          "Tarjeta bancaria",
+                        )}
+                      </p>
+                      <p className="mt-2 text-sm text-brand-gray leading-relaxed">
+                        {t(
+                          "contractFlow.modal.stripeDescription",
+                          "Te redirigiremos a Stripe para completar el pago seguro de la señal con tarjeta.",
+                        )}
+                      </p>
+                    </button>
+                  </div>
+
+                  <div className="pt-2">
                     <Button
                       variant="outline"
                       className="w-full py-5 rounded-[1.2rem] border-brand-navy/10 text-brand-navy"
-                      onClick={() => setIsContractModalOpen(false)}
+                      onClick={() => setIsPaymentMethodModalOpen(false)}
+                      disabled={isSelectingPaymentMethod}
                     >
-                      {t("common.cancel", "Cancelar")}
+                      {isSelectingPaymentMethod ? (
+                        <>
+                          <Loader2 className="mr-3 h-5 w-5 animate-spin" />
+                          {t("common.processing", "Procesando...")}
+                        </>
+                      ) : (
+                        t("common.close", "Cerrar")
+                      )}
                     </Button>
                   </div>
                 </div>
-              </div>
+              </motion.div>
             </div>
-          </div>
-        </motion.div>
-      </div>
-    </motion.div>
-  ) : null}
-</AnimatePresence>
-
-<AnimatePresence>
-  {isPaymentMethodModalOpen && signedContractResult ? (
-    <motion.div
-      initial={{ opacity: 0 }}
-      animate={{ opacity: 1 }}
-      exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[210] bg-brand-navy/50 backdrop-blur-sm overflow-y-auto"
-    >
-      <div className="min-h-full px-4 py-4 md:px-8 md:py-8 flex items-start md:items-center justify-center">
-        <motion.div
-          initial={{ opacity: 0, y: 24, scale: 0.98 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          exit={{ opacity: 0, y: 12, scale: 0.98 }}
-          className="w-full max-w-3xl rounded-[2rem] md:rounded-[2.5rem] bg-white border border-brand-navy/5 shadow-2xl overflow-hidden"
-        >
-          <div className="p-5 md:p-8 border-b border-brand-navy/5 flex items-center justify-between gap-4">
-            <div>
-              <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-brand-navy/40 mb-1">
-                {t("contractFlow.modal.badge", "Contratación")}
-              </p>
-              <h3 className="text-xl md:text-2xl font-bold text-brand-navy">
-                {t(
-                  "contractFlow.modal.title",
-                  "Selecciona la forma de pago",
-                )}
-              </h3>
-            </div>
-
-            <button
-              type="button"
-              onClick={() => setIsPaymentMethodModalOpen(false)}
-              className="w-11 h-11 rounded-2xl bg-brand-navy/5 hover:bg-brand-navy/10 text-brand-navy transition shrink-0"
-              disabled={isSelectingPaymentMethod}
-              aria-label={t("common.close", "Cerrar")}
-            >
-              ✕
-            </button>
-          </div>
-
-          <div className="p-5 md:p-8 space-y-6 bg-brand-navy/[0.02]">
-            <div className="rounded-[1.4rem] bg-white border border-brand-navy/5 p-5">
-              <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-brand-navy/40 mb-3">
-                {t(
-                  "contractFlow.modal.reservationSummary",
-                  "Resumen de la reserva",
-                )}
-              </p>
-
-              <div className="space-y-2 text-sm text-brand-navy/80">
-                <p>
-                  <span className="font-bold text-brand-navy">
-                    {t("contractFlow.modal.installation", "Instalación")}:
-                  </span>{" "}
-                  {signedContractResult.reservation.installationName}
-                </p>
-                <p>
-                  <span className="font-bold text-brand-navy">
-                    {t(
-                      "contractFlow.modal.reservedPower",
-                      "Potencia reservada",
-                    )}
-                    :
-                  </span>{" "}
-                  {signedContractResult.reservation.reservedKwp} kWp
-                </p>
-                <p>
-                  <span className="font-bold text-brand-navy">
-                    {t("contractFlow.modal.signal", "Señal")}:
-                  </span>{" "}
-                  {formatCurrency(
-                    signedContractResult.reservation.signalAmount,
-                  )}
-                </p>
-                <p>
-                  <span className="font-bold text-brand-navy">
-                    {t("contractFlow.modal.deadline", "Fecha límite")}:
-                  </span>{" "}
-                  {new Date(
-                    signedContractResult.reservation.paymentDeadlineAt,
-                  ).toLocaleDateString(getDateLocale(currentAppLanguage))}
-                </p>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-              <button
-                type="button"
-                onClick={handleSelectBankTransferPayment}
-                disabled={isSelectingPaymentMethod}
-                className="rounded-[1.5rem] border border-brand-navy/10 bg-white p-6 text-left shadow-sm hover:shadow-md transition disabled:opacity-60"
-              >
-                <div className="w-12 h-12 rounded-2xl bg-brand-navy/5 flex items-center justify-center mb-4">
-                  <Icon
-                    icon="solar:card-transfer-bold-duotone"
-                    className="h-6 w-6 text-brand-navy"
-                  />
-                </div>
-
-                <p className="text-lg font-bold text-brand-navy">
-                  {t(
-                    "contractFlow.modal.bankTransferTitle",
-                    "Transferencia bancaria",
-                  )}
-                </p>
-                <p className="mt-2 text-sm text-brand-gray leading-relaxed">
-                  {t(
-                    "contractFlow.modal.bankTransferDescription",
-                    "Recibirás un correo con el IBAN, el concepto y el PDF del precontrato firmado. Tendrás 15 días para realizar la transferencia.",
-                  )}
-                </p>
-              </button>
-
-              <button
-                type="button"
-                onClick={handleSelectStripePayment}
-                disabled={isSelectingPaymentMethod}
-                className="rounded-[1.5rem] border border-brand-mint/20 bg-brand-mint/10 p-6 text-left shadow-sm hover:shadow-md transition disabled:opacity-60"
-              >
-                <div className="w-12 h-12 rounded-2xl bg-brand-navy text-white flex items-center justify-center mb-4">
-                  <Icon
-                    icon="solar:card-send-bold-duotone"
-                    className="h-6 w-6"
-                  />
-                </div>
-
-                <p className="text-lg font-bold text-brand-navy">
-                  {t(
-                    "contractFlow.modal.stripeTitle",
-                    "Tarjeta bancaria",
-                  )}
-                </p>
-                <p className="mt-2 text-sm text-brand-gray leading-relaxed">
-                  {t(
-                    "contractFlow.modal.stripeDescription",
-                    "Te redirigiremos a Stripe para completar el pago seguro de la señal con tarjeta.",
-                  )}
-                </p>
-              </button>
-            </div>
-
-            <div className="pt-2">
-              <Button
-                variant="outline"
-                className="w-full py-5 rounded-[1.2rem] border-brand-navy/10 text-brand-navy"
-                onClick={() => setIsPaymentMethodModalOpen(false)}
-                disabled={isSelectingPaymentMethod}
-              >
-                {isSelectingPaymentMethod ? (
-                  <>
-                    <Loader2 className="mr-3 h-5 w-5 animate-spin" />
-                    {t("common.processing", "Procesando...")}
-                  </>
-                ) : (
-                  t("common.close", "Cerrar")
-                )}
-              </Button>
-            </div>
-          </div>
-        </motion.div>
-      </div>
-    </motion.div>
-  ) : null}
-</AnimatePresence>
+          </motion.div>
+        ) : null}
+      </AnimatePresence>
     </Layout>
   );
 }
