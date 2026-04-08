@@ -29,7 +29,8 @@
         font-size: 1.2rem;
       }
 
-      p, li {
+      p,
+      li {
         line-height: 1.7;
         color: #334155;
       }
@@ -55,70 +56,71 @@
   </head>
   <body>
     <div class="container">
-      <a class="back" href="/">← Volver</a>
+      <a class="back" id="backLink" href="/">← Volver</a>
 
       <div class="card">
-        <h1>Política de Privacidad</h1>
+        <h1 id="pageTitle">Política de Privacidad</h1>
 
-        <p>
+        <p id="intro">
           En Sapiens Energía tratamos los datos personales que nos facilitas
           para gestionar la subida de tu factura, analizar tu consumo energético,
           elaborar un estudio personalizado y, en su caso, contactar contigo
           para enviarte la propuesta correspondiente.
         </p>
 
-        <h2>Responsable del tratamiento</h2>
-        <p>
+        <h2 id="controllerTitle">Responsable del tratamiento</h2>
+        <p id="controllerText">
           Sapiens Energía<br />
           Email: info@sapiensenergia.es<br />
           Teléfono: 960 99 27 77
         </p>
 
-        <h2>Finalidad del tratamiento</h2>
-        <p>
+        <h2 id="purposeTitle">Finalidad del tratamiento</h2>
+        <p id="purposeText">
           Gestionar la documentación aportada por el usuario, analizar la factura
           eléctrica, elaborar un estudio energético personalizado, guardar la
           propuesta generada y contactar con el interesado en relación con su solicitud.
         </p>
 
-        <h2>Base jurídica</h2>
-        <p>
+        <h2 id="legalBasisTitle">Base jurídica</h2>
+        <p id="legalBasisText">
           La base jurídica del tratamiento es la aplicación de medidas
           precontractuales a petición del interesado y, en su caso, el
           consentimiento prestado mediante la aceptación de esta política.
         </p>
 
-        <h2>Datos tratados</h2>
-        <p>
+        <h2 id="dataTitle">Datos tratados</h2>
+        <p id="dataText">
           Podremos tratar datos identificativos, de contacto, dirección del punto
           de suministro, datos de consumo energético, IBAN si aparece en la factura
           y cualquier otra información incluida en la documentación aportada.
         </p>
 
-        <h2>Conservación</h2>
-        <p>
+        <h2 id="retentionTitle">Conservación</h2>
+        <p id="retentionText">
           Los datos se conservarán durante el tiempo necesario para gestionar la
           solicitud y cumplir con las obligaciones legales aplicables.
         </p>
 
-        <h2>Destinatarios</h2>
-        <p>
+        <h2 id="recipientsTitle">Destinatarios</h2>
+        <p id="recipientsText">
           No se cederán datos a terceros salvo obligación legal o cuando sea
           necesario para la prestación del servicio mediante proveedores encargados
           del tratamiento.
         </p>
 
-        <h2>Derechos</h2>
-        <p>
+        <h2 id="rightsTitle">Derechos</h2>
+        <p id="rightsText">
           Puedes ejercer tus derechos de acceso, rectificación, supresión,
           oposición, limitación y portabilidad enviando una solicitud a
-          info@sapiensenergia.com.
+          info@sapiensenergia.es.
         </p>
 
-        <h2>Normativa aplicable</h2>
+        <h2 id="lawTitle">Normativa aplicable</h2>
         <ul>
           <li>
             <a
+              id="rgpdLink"
               href="https://www.boe.es/doue/2016/119/L00001-00088.pdf"
               target="_blank"
               rel="noopener noreferrer"
@@ -128,6 +130,7 @@
           </li>
           <li>
             <a
+              id="lopdLink"
               href="https://www.boe.es/buscar/act.php?id=BOE-A-2018-16673"
               target="_blank"
               rel="noopener noreferrer"
@@ -138,5 +141,190 @@
         </ul>
       </div>
     </div>
+
+    <script>
+      const translations = {
+        es: {
+          htmlLang: "es",
+          title: "Política de Privacidad | Sapiens Energía",
+          back: "← Volver",
+          pageTitle: "Política de Privacidad",
+          intro:
+            "En Sapiens Energía tratamos los datos personales que nos facilitas para gestionar la subida de tu factura, analizar tu consumo energético, elaborar un estudio personalizado y, en su caso, contactar contigo para enviarte la propuesta correspondiente.",
+          controllerTitle: "Responsable del tratamiento",
+          controllerText:
+            "Sapiens Energía<br />Email: info@sapiensenergia.es<br />Teléfono: 960 99 27 77",
+          purposeTitle: "Finalidad del tratamiento",
+          purposeText:
+            "Gestionar la documentación aportada por el usuario, analizar la factura eléctrica, elaborar un estudio energético personalizado, guardar la propuesta generada y contactar con el interesado en relación con su solicitud.",
+          legalBasisTitle: "Base jurídica",
+          legalBasisText:
+            "La base jurídica del tratamiento es la aplicación de medidas precontractuales a petición del interesado y, en su caso, el consentimiento prestado mediante la aceptación de esta política.",
+          dataTitle: "Datos tratados",
+          dataText:
+            "Podremos tratar datos identificativos, de contacto, dirección del punto de suministro, datos de consumo energético, IBAN si aparece en la factura y cualquier otra información incluida en la documentación aportada.",
+          retentionTitle: "Conservación",
+          retentionText:
+            "Los datos se conservarán durante el tiempo necesario para gestionar la solicitud y cumplir con las obligaciones legales aplicables.",
+          recipientsTitle: "Destinatarios",
+          recipientsText:
+            "No se cederán datos a terceros salvo obligación legal o cuando sea necesario para la prestación del servicio mediante proveedores encargados del tratamiento.",
+          rightsTitle: "Derechos",
+          rightsText:
+            "Puedes ejercer tus derechos de acceso, rectificación, supresión, oposición, limitación y portabilidad enviando una solicitud a info@sapiensenergia.es.",
+          lawTitle: "Normativa aplicable",
+          rgpd: "Reglamento General de Protección de Datos (RGPD)",
+          lopd: "Ley Orgánica 3/2018 (LOPDGDD)",
+        },
+        ca: {
+          htmlLang: "ca",
+          title: "Política de Privacitat | Sapiens Energía",
+          back: "← Tornar",
+          pageTitle: "Política de Privacitat",
+          intro:
+            "A Sapiens Energía tractem les dades personals que ens facilites per gestionar la pujada de la teua factura, analitzar el teu consum energètic, elaborar un estudi personalitzat i, si és el cas, contactar amb tu per enviar-te la proposta corresponent.",
+          controllerTitle: "Responsable del tractament",
+          controllerText:
+            "Sapiens Energía<br />Email: info@sapiensenergia.es<br />Telèfon: 960 99 27 77",
+          purposeTitle: "Finalitat del tractament",
+          purposeText:
+            "Gestionar la documentació aportada per l’usuari, analitzar la factura elèctrica, elaborar un estudi energètic personalitzat, guardar la proposta generada i contactar amb l’interessat en relació amb la seua sol·licitud.",
+          legalBasisTitle: "Base jurídica",
+          legalBasisText:
+            "La base jurídica del tractament és l’aplicació de mesures precontractuals a petició de l’interessat i, si és el cas, el consentiment prestat mitjançant l’acceptació d’aquesta política.",
+          dataTitle: "Dades tractades",
+          dataText:
+            "Podrem tractar dades identificatives, de contacte, adreça del punt de subministrament, dades de consum energètic, IBAN si apareix a la factura i qualsevol altra informació inclosa en la documentació aportada.",
+          retentionTitle: "Conservació",
+          retentionText:
+            "Les dades es conservaran durant el temps necessari per gestionar la sol·licitud i complir amb les obligacions legals aplicables.",
+          recipientsTitle: "Destinataris",
+          recipientsText:
+            "No se cediran dades a tercers llevat d’obligació legal o quan siga necessari per a la prestació del servei mitjançant proveïdors encarregats del tractament.",
+          rightsTitle: "Drets",
+          rightsText:
+            "Pots exercir els teus drets d’accés, rectificació, supressió, oposició, limitació i portabilitat enviant una sol·licitud a info@sapiensenergia.es.",
+          lawTitle: "Normativa aplicable",
+          rgpd: "Reglament General de Protecció de Dades (RGPD)",
+          lopd: "Llei Orgànica 3/2018 (LOPDGDD)",
+        },
+        val: {
+          htmlLang: "val",
+          title: "Política de Privacitat | Sapiens Energía",
+          back: "← Tornar",
+          pageTitle: "Política de Privacitat",
+          intro:
+            "En Sapiens Energía tractem les dades personals que ens facilites per a gestionar la pujada de la teua factura, analitzar el teu consum energètic, elaborar un estudi personalitzat i, si és el cas, contactar amb tu per a enviar-te la proposta corresponent.",
+          controllerTitle: "Responsable del tractament",
+          controllerText:
+            "Sapiens Energía<br />Email: info@sapiensenergia.es<br />Telèfon: 960 99 27 77",
+          purposeTitle: "Finalitat del tractament",
+          purposeText:
+            "Gestionar la documentació aportada per l’usuari, analitzar la factura elèctrica, elaborar un estudi energètic personalitzat, guardar la proposta generada i contactar amb l’interessat en relació amb la seua sol·licitud.",
+          legalBasisTitle: "Base jurídica",
+          legalBasisText:
+            "La base jurídica del tractament és l’aplicació de mesures precontractuals a petició de l’interessat i, si és el cas, el consentiment prestat mitjançant l’acceptació d’esta política.",
+          dataTitle: "Dades tractades",
+          dataText:
+            "Podrem tractar dades identificatives, de contacte, adreça del punt de subministrament, dades de consum energètic, IBAN si apareix en la factura i qualsevol altra informació inclosa en la documentació aportada.",
+          retentionTitle: "Conservació",
+          retentionText:
+            "Les dades es conservaran durant el temps necessari per a gestionar la sol·licitud i complir amb les obligacions legals aplicables.",
+          recipientsTitle: "Destinataris",
+          recipientsText:
+            "No se cediran dades a tercers excepte obligació legal o quan siga necessari per a la prestació del servici mitjançant proveïdors encarregats del tractament.",
+          rightsTitle: "Drets",
+          rightsText:
+            "Pots exercir els teus drets d’accés, rectificació, supressió, oposició, limitació i portabilitat enviant una sol·licitud a info@sapiensenergia.es.",
+          lawTitle: "Normativa aplicable",
+          rgpd: "Reglament General de Protecció de Dades (RGPD)",
+          lopd: "Llei Orgànica 3/2018 (LOPDGDD)",
+        },
+        gl: {
+          htmlLang: "gl",
+          title: "Política de Privacidade | Sapiens Energía",
+          back: "← Volver",
+          pageTitle: "Política de Privacidade",
+          intro:
+            "En Sapiens Energía tratamos os datos persoais que nos facilitas para xestionar a subida da túa factura, analizar o teu consumo enerxético, elaborar un estudo personalizado e, se é o caso, contactar contigo para enviarche a proposta correspondente.",
+          controllerTitle: "Responsable do tratamento",
+          controllerText:
+            "Sapiens Energía<br />Email: info@sapiensenergia.es<br />Teléfono: 960 99 27 77",
+          purposeTitle: "Finalidade do tratamento",
+          purposeText:
+            "Xestionar a documentación achegada polo usuario, analizar a factura eléctrica, elaborar un estudo enerxético personalizado, gardar a proposta xerada e contactar co interesado en relación coa súa solicitude.",
+          legalBasisTitle: "Base xurídica",
+          legalBasisText:
+            "A base xurídica do tratamento é a aplicación de medidas precontractuais por petición do interesado e, se é o caso, o consentimento prestado mediante a aceptación desta política.",
+          dataTitle: "Datos tratados",
+          dataText:
+            "Poderemos tratar datos identificativos, de contacto, enderezo do punto de subministración, datos de consumo enerxético, IBAN se aparece na factura e calquera outra información incluída na documentación achegada.",
+          retentionTitle: "Conservación",
+          retentionText:
+            "Os datos conservaranse durante o tempo necesario para xestionar a solicitude e cumprir coas obrigas legais aplicables.",
+          recipientsTitle: "Destinatarios",
+          recipientsText:
+            "Non se cederán datos a terceiros salvo obriga legal ou cando sexa necesario para a prestación do servizo mediante provedores encargados do tratamento.",
+          rightsTitle: "Dereitos",
+          rightsText:
+            "Podes exercer os teus dereitos de acceso, rectificación, supresión, oposición, limitación e portabilidade enviando unha solicitude a info@sapiensenergia.es.",
+          lawTitle: "Normativa aplicable",
+          rgpd: "Regulamento Xeral de Protección de Datos (RXPD)",
+          lopd: "Lei Orgánica 3/2018 (LOPDGDD)",
+        },
+      };
+
+      function normalizeLanguage(value) {
+        const lang = String(value || "").trim().toLowerCase();
+
+        if (lang === "ca") return "ca";
+        if (lang === "val") return "val";
+        if (lang === "gl" || lang === "gal") return "gl";
+        return "es";
+      }
+
+      function detectLanguage() {
+        const params = new URLSearchParams(window.location.search);
+        const langFromQuery = params.get("lang");
+        if (langFromQuery) return normalizeLanguage(langFromQuery);
+
+        const langFromStorage =
+          localStorage.getItem("i18nextLng") ||
+          localStorage.getItem("language");
+        if (langFromStorage) return normalizeLanguage(langFromStorage);
+
+        return normalizeLanguage(navigator.language);
+      }
+
+      function applyTranslations(lang) {
+        const tr = translations[lang] || translations.es;
+
+        document.documentElement.lang = tr.htmlLang;
+        document.title = tr.title;
+
+        document.getElementById("backLink").textContent = tr.back;
+        document.getElementById("pageTitle").textContent = tr.pageTitle;
+        document.getElementById("intro").textContent = tr.intro;
+        document.getElementById("controllerTitle").textContent = tr.controllerTitle;
+        document.getElementById("controllerText").innerHTML = tr.controllerText;
+        document.getElementById("purposeTitle").textContent = tr.purposeTitle;
+        document.getElementById("purposeText").textContent = tr.purposeText;
+        document.getElementById("legalBasisTitle").textContent = tr.legalBasisTitle;
+        document.getElementById("legalBasisText").textContent = tr.legalBasisText;
+        document.getElementById("dataTitle").textContent = tr.dataTitle;
+        document.getElementById("dataText").textContent = tr.dataText;
+        document.getElementById("retentionTitle").textContent = tr.retentionTitle;
+        document.getElementById("retentionText").textContent = tr.retentionText;
+        document.getElementById("recipientsTitle").textContent = tr.recipientsTitle;
+        document.getElementById("recipientsText").textContent = tr.recipientsText;
+        document.getElementById("rightsTitle").textContent = tr.rightsTitle;
+        document.getElementById("rightsText").textContent = tr.rightsText;
+        document.getElementById("lawTitle").textContent = tr.lawTitle;
+        document.getElementById("rgpdLink").textContent = tr.rgpd;
+        document.getElementById("lopdLink").textContent = tr.lopd;
+      }
+
+      applyTranslations(detectLanguage());
+    </script>
   </body>
 </html>

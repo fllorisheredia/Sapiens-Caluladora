@@ -3132,21 +3132,21 @@ const response = await axios.post<GeneratedContractResponse>(
                         className="mt-1 h-5 w-5 rounded border-brand-navy/20 text-brand-mint focus:ring-brand-mint"
                       />
 
-                      <span className="text-sm text-brand-gray leading-relaxed">
-                        <Trans
-                          i18nKey="upload.privacyConsent"
-                          components={{
-                            privacyLink: (
-                              <a
-                                href="../public/politica-privacidad.html"
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="font-semibold text-brand-navy underline underline-offset-4 hover:text-brand-mint"
-                              />
-                            ),
-                          }}
-                        />
-                      </span>
+<span className="text-sm text-brand-gray leading-relaxed">
+  <Trans
+    i18nKey="upload.privacyConsent"
+    components={{
+      privacyLink: (
+        <a
+          href={`/politica-privacidad.html?lang=${currentAppLanguage}`}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="font-semibold text-brand-navy underline underline-offset-4 hover:text-brand-mint"
+        />
+      ),
+    }}
+  />
+</span>
                     </label>
                   </div>
 
