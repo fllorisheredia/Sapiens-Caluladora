@@ -1535,6 +1535,10 @@ function MainAppContent() {
     activeProposalMode === "service" ? serviceProposal : investmentProposal;
   const activeModeLabel = activeProposal.title;
   const activeModeLabelLower = activeModeLabel.toLowerCase();
+  const contractPreviewModeLabel =
+  generatedContract?.preview?.proposalMode === "service"
+    ? t("result.modes.service", "Servicio").toLowerCase()
+    : t("result.modes.investment", "Inversión").toLowerCase();
 
   const reserveCardTitle = contractAlreadySigned
     ? t("result.reserve.startedTitle")
@@ -4295,305 +4299,339 @@ const response = await axios.post<GeneratedContractResponse>(
         )}
       </div>
 
-      <AnimatePresence>
-        {isContractModalOpen && generatedContract ? (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[200] bg-brand-navy/50 backdrop-blur-sm overflow-y-auto"
-          >
-            <div className="min-h-full px-4 py-4 md:px-8 md:py-8 flex items-start md:items-center justify-center">
-              <motion.div
-                initial={{ opacity: 0, y: 24, scale: 0.98 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: 12, scale: 0.98 }}
-                className="w-full max-w-5xl rounded-[2rem] md:rounded-[2.5rem] bg-white border border-brand-navy/5 shadow-2xl overflow-hidden"
+<AnimatePresence>
+  {isContractModalOpen && generatedContract ? (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[200] bg-brand-navy/50 backdrop-blur-sm overflow-y-auto"
+    >
+      <div className="min-h-full px-4 py-4 md:px-8 md:py-8 flex items-start md:items-center justify-center">
+        <motion.div
+          initial={{ opacity: 0, y: 24, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: 12, scale: 0.98 }}
+          className="w-full max-w-5xl rounded-[2rem] md:rounded-[2.5rem] bg-white border border-brand-navy/5 shadow-2xl overflow-hidden"
+        >
+          <div className="max-h-[calc(100vh-2rem)] md:max-h-[92vh] overflow-y-auto">
+            <div className="sticky top-0 z-20 px-5 md:px-8 py-5 border-b border-brand-navy/5 bg-white/95 backdrop-blur-md flex items-center justify-between gap-4">
+              <div>
+                <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-brand-navy/40 mb-1">
+                  {t("contractFlow.modal.badge", "Contratación")}
+                </p>
+                <h3 className="text-xl md:text-2xl font-bold text-brand-navy">
+                  {t("contractFlow.leftPanel.titleLine1", "Revisa y firma")}{" "}
+                  {t("contractFlow.leftPanel.titleLine2", "tu contrato")}
+                </h3>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => setIsContractModalOpen(false)}
+                className="w-11 h-11 rounded-2xl bg-brand-navy/5 hover:bg-brand-navy/10 text-brand-navy transition shrink-0"
+                aria-label={t("common.close", "Cerrar")}
               >
-                <div className="max-h-[calc(100vh-2rem)] md:max-h-[92vh] overflow-y-auto">
-                  <div className="sticky top-0 z-20 px-5 md:px-8 py-5 border-b border-brand-navy/5 bg-white/95 backdrop-blur-md flex items-center justify-between gap-4">
-                    <div>
-                      <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-brand-navy/40 mb-1">
-                        Contratación
-                      </p>
-                      <h3 className="text-xl md:text-2xl font-bold text-brand-navy">
-                        Revisa y firma tu precontrato
-                      </h3>
-                    </div>
-
-                    <button
-                      type="button"
-                      onClick={() => setIsContractModalOpen(false)}
-                      className="w-11 h-11 rounded-2xl bg-brand-navy/5 hover:bg-brand-navy/10 text-brand-navy transition shrink-0"
-                    >
-                      ✕
-                    </button>
-                  </div>
-
-                  <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_340px]">
-                    <div className="p-4 md:p-8 border-b lg:border-b-0 lg:border-r border-brand-navy/5">
-                      <div className="rounded-[1.5rem] overflow-hidden border border-brand-navy/5 bg-brand-sky/5">
-                        <iframe
-                          title="Vista previa del contrato"
-                          srcDoc={generatedContract.previewHtml}
-                          className="w-full h-[320px] sm:h-[420px] md:h-[560px] bg-white"
-                        />
-                      </div>
-                    </div>
-
-                    <div className="p-4 md:p-6 space-y-5 bg-brand-navy/[0.02]">
-                      <div className="rounded-[1.4rem] bg-white border border-brand-navy/5 p-4">
-                        <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-brand-navy/40 mb-2">
-                          Contrato
-                        </p>
-                        <p className="font-bold text-brand-navy">
-                          {generatedContract.preview.contractNumber}
-                        </p>
-                        <p className="text-sm text-brand-gray mt-2">
-                          {generatedContract.preview.client.nombre}{" "}
-                          {generatedContract.preview.client.apellidos}
-                        </p>
-                        <p className="text-sm text-brand-gray">
-                          DNI: {generatedContract.preview.client.dni}
-                        </p>
-                      </div>
-
-                      <div className="rounded-[1.4rem] bg-white border border-brand-navy/5 p-4">
-                        <div className="flex items-center justify-between mb-3">
-                          <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-brand-navy/40">
-                            Firma
-                          </p>
-
-                          <button
-                            type="button"
-                            onClick={clearSignature}
-                            className="text-sm font-semibold text-brand-navy hover:text-brand-mint transition"
-                          >
-                            Limpiar
-                          </button>
-                        </div>
-
-                        <canvas
-                          ref={signatureCanvasRef}
-                          width={600}
-                          height={180}
-                          className="w-full h-40 rounded-[1.2rem] border border-dashed border-brand-navy/20 bg-white touch-none"
-                          onMouseDown={startSignatureDraw}
-                          onMouseMove={moveSignatureDraw}
-                          onMouseUp={endSignatureDraw}
-                          onMouseLeave={endSignatureDraw}
-                          onTouchStart={startSignatureDraw}
-                          onTouchMove={moveSignatureDraw}
-                          onTouchEnd={endSignatureDraw}
-                        />
-
-                        <p className="text-xs text-brand-gray mt-3 leading-relaxed">
-                          Firma dentro del recuadro. Al confirmar, se generará
-                          el PDF firmado, se creará tu reserva provisional y
-                          podrás elegir la forma de pago.
-                        </p>
-                      </div>
-
-                      <div className="rounded-[1.4rem] bg-brand-mint/10 border border-brand-mint/20 p-4 text-brand-navy">
-                        <div className="flex items-center gap-2 mb-2">
-                          <Icon
-                            icon="solar:bolt-bold-duotone"
-                            className="h-5 w-5"
-                          />
-                          <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-brand-navy/60">
-                            Reserva pendiente de Pago
-                          </p>
-                        </div>
-
-                        <p className="text-sm leading-relaxed">
-                          Al firmar, se creará una reserva de{" "}
-                          <span className="font-bold">
-                            {generatedContract.preview.assignedKwp} kWp
-                          </span>{" "}
-                          en la instalación seleccionada. La reserva se
-                          registrará definitivamente cuando completes el pago de
-                          la señal.
-                        </p>
-                      </div>
-
-                      <div className="sticky bottom-0 bg-brand-navy/[0.02] pt-2">
-                        <div className="space-y-3">
-                          <Button
-                            className="w-full py-5 rounded-[1.2rem] brand-gradient text-brand-navy border-none"
-                            onClick={handleSubmitSignedContract}
-                            disabled={isSigningContract}
-                          >
-                            {isSigningContract ? (
-                              <Loader2 className="mr-3 h-5 w-5 animate-spin" />
-                            ) : (
-                              <Icon
-                                icon="solar:shield-check-bold-duotone"
-                                className="mr-3 h-5 w-5"
-                              />
-                            )}
-                            Firmar y continuar{" "}
-                          </Button>
-
-                          <Button
-                            variant="outline"
-                            className="w-full py-5 rounded-[1.2rem] border-brand-navy/10 text-brand-navy"
-                            onClick={() => setIsContractModalOpen(false)}
-                          >
-                            Cancelar
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </motion.div>
+                ✕
+              </button>
             </div>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
-      <AnimatePresence>
-        {isPaymentMethodModalOpen && signedContractResult ? (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[210] bg-brand-navy/50 backdrop-blur-sm overflow-y-auto"
-          >
-            <div className="min-h-full px-4 py-4 md:px-8 md:py-8 flex items-start md:items-center justify-center">
-              <motion.div
-                initial={{ opacity: 0, y: 24, scale: 0.98 }}
-                animate={{ opacity: 1, y: 0, scale: 1 }}
-                exit={{ opacity: 0, y: 12, scale: 0.98 }}
-                className="w-full max-w-3xl rounded-[2rem] md:rounded-[2.5rem] bg-white border border-brand-navy/5 shadow-2xl overflow-hidden"
-              >
-                <div className="p-5 md:p-8 border-b border-brand-navy/5 flex items-center justify-between gap-4">
-                  <div>
-                    <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-brand-navy/40 mb-1">
-                      Contratación
-                    </p>
-                    <h3 className="text-xl md:text-2xl font-bold text-brand-navy">
-                      Selecciona la forma de pago
-                    </h3>
-                  </div>
 
-                  <button
-                    type="button"
-                    onClick={() => setIsPaymentMethodModalOpen(false)}
-                    className="w-11 h-11 rounded-2xl bg-brand-navy/5 hover:bg-brand-navy/10 text-brand-navy transition shrink-0"
-                    disabled={isSelectingPaymentMethod}
-                  >
-                    ✕
-                  </button>
+            <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_340px]">
+              <div className="p-4 md:p-8 border-b lg:border-b-0 lg:border-r border-brand-navy/5">
+                <div className="rounded-[1.5rem] overflow-hidden border border-brand-navy/5 bg-brand-sky/5">
+                  <iframe
+                    title={t(
+                      "contractFlow.iframe.title",
+                      "Vista previa del contrato",
+                    )}
+                    srcDoc={generatedContract.previewHtml}
+                    className="w-full h-[320px] sm:h-[420px] md:h-[560px] bg-white"
+                  />
+                </div>
+              </div>
+
+              <div className="p-4 md:p-6 space-y-5 bg-brand-navy/[0.02]">
+                <div className="rounded-[1.4rem] bg-white border border-brand-navy/5 p-4">
+                  <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-brand-navy/40 mb-2">
+                    {t("contractFlow.contractCard.title", "Contrato")}
+                  </p>
+                  <p className="font-bold text-brand-navy">
+                    {generatedContract.preview.contractNumber}
+                  </p>
+                  <p className="text-sm text-brand-gray mt-2">
+                    {generatedContract.preview.client.nombre}{" "}
+                    {generatedContract.preview.client.apellidos}
+                  </p>
+                  <p className="text-sm text-brand-gray">
+                    {t("contractFlow.contractCard.dni", "DNI")}:{" "}
+                    {generatedContract.preview.client.dni}
+                  </p>
                 </div>
 
-                <div className="p-5 md:p-8 space-y-6 bg-brand-navy/[0.02]">
-                  <div className="rounded-[1.4rem] bg-white border border-brand-navy/5 p-5">
-                    <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-brand-navy/40 mb-3">
-                      Resumen de la reserva
+                <div className="rounded-[1.4rem] bg-white border border-brand-navy/5 p-4">
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-brand-navy/40">
+                      {t("contractFlow.signature.title", "Firma")}
                     </p>
 
-                    <div className="space-y-2 text-sm text-brand-navy/80">
-                      <p>
-                        <span className="font-bold text-brand-navy">
-                          Instalación:
-                        </span>{" "}
-                        {signedContractResult.reservation.installationName}
-                      </p>
-                      <p>
-                        <span className="font-bold text-brand-navy">
-                          Potencia reservada:
-                        </span>{" "}
-                        {signedContractResult.reservation.reservedKwp} kWp
-                      </p>
-                      <p>
-                        <span className="font-bold text-brand-navy">
-                          Señal:
-                        </span>{" "}
-                        {formatCurrency(
-                          signedContractResult.reservation.signalAmount,
-                        )}
-                      </p>
-                      <p>
-                        <span className="font-bold text-brand-navy">
-                          Fecha límite:
-                        </span>{" "}
-                        {new Date(
-  signedContractResult.reservation.paymentDeadlineAt,
-).toLocaleDateString(getDateLocale(currentAppLanguage))}
-                      </p>
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                     <button
                       type="button"
-                      onClick={handleSelectBankTransferPayment}
-                      disabled={isSelectingPaymentMethod}
-                      className="rounded-[1.5rem] border border-brand-navy/10 bg-white p-6 text-left shadow-sm hover:shadow-md transition disabled:opacity-60"
+                      onClick={clearSignature}
+                      className="text-sm font-semibold text-brand-navy hover:text-brand-mint transition"
                     >
-                      <div className="w-12 h-12 rounded-2xl bg-brand-navy/5 flex items-center justify-center mb-4">
-                        <Icon
-                          icon="solar:card-transfer-bold-duotone"
-                          className="h-6 w-6 text-brand-navy"
-                        />
-                      </div>
-
-                      <p className="text-lg font-bold text-brand-navy">
-                        Transferencia bancaria
-                      </p>
-                      <p className="mt-2 text-sm text-brand-gray leading-relaxed">
-                        Recibirás un correo con el IBAN, el concepto y el PDF
-                        del precontrato firmado. Tendrás 15 días para realizar
-                        la transferencia.
-                      </p>
-                    </button>
-
-                    <button
-                      type="button"
-                      onClick={handleSelectStripePayment}
-                      disabled={isSelectingPaymentMethod}
-                      className="rounded-[1.5rem] border border-brand-mint/20 bg-brand-mint/10 p-6 text-left shadow-sm hover:shadow-md transition disabled:opacity-60"
-                    >
-                      <div className="w-12 h-12 rounded-2xl bg-brand-navy text-white flex items-center justify-center mb-4">
-                        <Icon
-                          icon="solar:card-send-bold-duotone"
-                          className="h-6 w-6"
-                        />
-                      </div>
-
-                      <p className="text-lg font-bold text-brand-navy">
-                        Tarjeta bancaria
-                      </p>
-                      <p className="mt-2 text-sm text-brand-gray leading-relaxed">
-                        Te redirigiremos a Stripe para completar el pago seguro
-                        de la señal con tarjeta.
-                      </p>
+                      {t("contractFlow.signature.clear", "Limpiar")}
                     </button>
                   </div>
 
-                  <div className="pt-2">
+                  <canvas
+                    ref={signatureCanvasRef}
+                    width={600}
+                    height={180}
+                    className="w-full h-40 rounded-[1.2rem] border border-dashed border-brand-navy/20 bg-white touch-none"
+                    onMouseDown={startSignatureDraw}
+                    onMouseMove={moveSignatureDraw}
+                    onMouseUp={endSignatureDraw}
+                    onMouseLeave={endSignatureDraw}
+                    onTouchStart={startSignatureDraw}
+                    onTouchMove={moveSignatureDraw}
+                    onTouchEnd={endSignatureDraw}
+                  />
+
+                  <p className="text-xs text-brand-gray mt-3 leading-relaxed">
+                    {t(
+                      "contractFlow.signature.help",
+                      "Firma dentro del recuadro. Al confirmar, se generará el PDF firmado, se creará tu reserva provisional y podrás elegir la forma de pago.",
+                    )}
+                  </p>
+                </div>
+
+                <div className="rounded-[1.4rem] bg-brand-mint/10 border border-brand-mint/20 p-4 text-brand-navy">
+                  <div className="flex items-center gap-2 mb-2">
+                    <Icon
+                      icon="solar:bolt-bold-duotone"
+                      className="h-5 w-5"
+                    />
+                    <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-brand-navy/60">
+                      {t("contractFlow.reservation.title", "Reserva provisional")}
+                    </p>
+                  </div>
+
+<p className="text-sm leading-relaxed">
+  {t(
+    "contractFlow.reservation.description",
+    "Al firmar, se reservarán {{assignedKwp}} kWp en la instalación seleccionada bajo la modalidad de {{modeLabel}}.",
+    {
+      assignedKwp: generatedContract.preview.assignedKwp,
+      modeLabel: contractPreviewModeLabel,
+    },
+  )}
+</p>
+                </div>
+
+                <div className="sticky bottom-0 bg-brand-navy/[0.02] pt-2">
+                  <div className="space-y-3">
+                    <Button
+                      className="w-full py-5 rounded-[1.2rem] brand-gradient text-brand-navy border-none"
+                      onClick={handleSubmitSignedContract}
+                      disabled={isSigningContract}
+                    >
+                      {isSigningContract ? (
+                        <Loader2 className="mr-3 h-5 w-5 animate-spin" />
+                      ) : (
+                        <Icon
+                          icon="solar:shield-check-bold-duotone"
+                          className="mr-3 h-5 w-5"
+                        />
+                      )}
+                      {isSigningContract
+                        ? t("contractFlow.actions.signing", "Firmando...")
+                        : t(
+                            "contractFlow.actions.signAndContinue",
+                            "Firmar y continuar",
+                          )}
+                    </Button>
+
                     <Button
                       variant="outline"
                       className="w-full py-5 rounded-[1.2rem] border-brand-navy/10 text-brand-navy"
-                      onClick={() => setIsPaymentMethodModalOpen(false)}
-                      disabled={isSelectingPaymentMethod}
+                      onClick={() => setIsContractModalOpen(false)}
                     >
-                      {isSelectingPaymentMethod ? (
-                        <>
-                          <Loader2 className="mr-3 h-5 w-5 animate-spin" />
-                          Procesando...
-                        </>
-                      ) : (
-                        "Cerrar"
-                      )}
+                      {t("common.cancel", "Cancelar")}
                     </Button>
                   </div>
                 </div>
-              </motion.div>
+              </div>
             </div>
-          </motion.div>
-        ) : null}
-      </AnimatePresence>
+          </div>
+        </motion.div>
+      </div>
+    </motion.div>
+  ) : null}
+</AnimatePresence>
+
+<AnimatePresence>
+  {isPaymentMethodModalOpen && signedContractResult ? (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      className="fixed inset-0 z-[210] bg-brand-navy/50 backdrop-blur-sm overflow-y-auto"
+    >
+      <div className="min-h-full px-4 py-4 md:px-8 md:py-8 flex items-start md:items-center justify-center">
+        <motion.div
+          initial={{ opacity: 0, y: 24, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: 12, scale: 0.98 }}
+          className="w-full max-w-3xl rounded-[2rem] md:rounded-[2.5rem] bg-white border border-brand-navy/5 shadow-2xl overflow-hidden"
+        >
+          <div className="p-5 md:p-8 border-b border-brand-navy/5 flex items-center justify-between gap-4">
+            <div>
+              <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-brand-navy/40 mb-1">
+                {t("contractFlow.modal.badge", "Contratación")}
+              </p>
+              <h3 className="text-xl md:text-2xl font-bold text-brand-navy">
+                {t(
+                  "contractFlow.modal.title",
+                  "Selecciona la forma de pago",
+                )}
+              </h3>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setIsPaymentMethodModalOpen(false)}
+              className="w-11 h-11 rounded-2xl bg-brand-navy/5 hover:bg-brand-navy/10 text-brand-navy transition shrink-0"
+              disabled={isSelectingPaymentMethod}
+              aria-label={t("common.close", "Cerrar")}
+            >
+              ✕
+            </button>
+          </div>
+
+          <div className="p-5 md:p-8 space-y-6 bg-brand-navy/[0.02]">
+            <div className="rounded-[1.4rem] bg-white border border-brand-navy/5 p-5">
+              <p className="text-[10px] uppercase tracking-[0.18em] font-bold text-brand-navy/40 mb-3">
+                {t(
+                  "contractFlow.modal.reservationSummary",
+                  "Resumen de la reserva",
+                )}
+              </p>
+
+              <div className="space-y-2 text-sm text-brand-navy/80">
+                <p>
+                  <span className="font-bold text-brand-navy">
+                    {t("contractFlow.modal.installation", "Instalación")}:
+                  </span>{" "}
+                  {signedContractResult.reservation.installationName}
+                </p>
+                <p>
+                  <span className="font-bold text-brand-navy">
+                    {t(
+                      "contractFlow.modal.reservedPower",
+                      "Potencia reservada",
+                    )}
+                    :
+                  </span>{" "}
+                  {signedContractResult.reservation.reservedKwp} kWp
+                </p>
+                <p>
+                  <span className="font-bold text-brand-navy">
+                    {t("contractFlow.modal.signal", "Señal")}:
+                  </span>{" "}
+                  {formatCurrency(
+                    signedContractResult.reservation.signalAmount,
+                  )}
+                </p>
+                <p>
+                  <span className="font-bold text-brand-navy">
+                    {t("contractFlow.modal.deadline", "Fecha límite")}:
+                  </span>{" "}
+                  {new Date(
+                    signedContractResult.reservation.paymentDeadlineAt,
+                  ).toLocaleDateString(getDateLocale(currentAppLanguage))}
+                </p>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <button
+                type="button"
+                onClick={handleSelectBankTransferPayment}
+                disabled={isSelectingPaymentMethod}
+                className="rounded-[1.5rem] border border-brand-navy/10 bg-white p-6 text-left shadow-sm hover:shadow-md transition disabled:opacity-60"
+              >
+                <div className="w-12 h-12 rounded-2xl bg-brand-navy/5 flex items-center justify-center mb-4">
+                  <Icon
+                    icon="solar:card-transfer-bold-duotone"
+                    className="h-6 w-6 text-brand-navy"
+                  />
+                </div>
+
+                <p className="text-lg font-bold text-brand-navy">
+                  {t(
+                    "contractFlow.modal.bankTransferTitle",
+                    "Transferencia bancaria",
+                  )}
+                </p>
+                <p className="mt-2 text-sm text-brand-gray leading-relaxed">
+                  {t(
+                    "contractFlow.modal.bankTransferDescription",
+                    "Recibirás un correo con el IBAN, el concepto y el PDF del precontrato firmado. Tendrás 15 días para realizar la transferencia.",
+                  )}
+                </p>
+              </button>
+
+              <button
+                type="button"
+                onClick={handleSelectStripePayment}
+                disabled={isSelectingPaymentMethod}
+                className="rounded-[1.5rem] border border-brand-mint/20 bg-brand-mint/10 p-6 text-left shadow-sm hover:shadow-md transition disabled:opacity-60"
+              >
+                <div className="w-12 h-12 rounded-2xl bg-brand-navy text-white flex items-center justify-center mb-4">
+                  <Icon
+                    icon="solar:card-send-bold-duotone"
+                    className="h-6 w-6"
+                  />
+                </div>
+
+                <p className="text-lg font-bold text-brand-navy">
+                  {t(
+                    "contractFlow.modal.stripeTitle",
+                    "Tarjeta bancaria",
+                  )}
+                </p>
+                <p className="mt-2 text-sm text-brand-gray leading-relaxed">
+                  {t(
+                    "contractFlow.modal.stripeDescription",
+                    "Te redirigiremos a Stripe para completar el pago seguro de la señal con tarjeta.",
+                  )}
+                </p>
+              </button>
+            </div>
+
+            <div className="pt-2">
+              <Button
+                variant="outline"
+                className="w-full py-5 rounded-[1.2rem] border-brand-navy/10 text-brand-navy"
+                onClick={() => setIsPaymentMethodModalOpen(false)}
+                disabled={isSelectingPaymentMethod}
+              >
+                {isSelectingPaymentMethod ? (
+                  <>
+                    <Loader2 className="mr-3 h-5 w-5 animate-spin" />
+                    {t("common.processing", "Procesando...")}
+                  </>
+                ) : (
+                  t("common.close", "Cerrar")
+                )}
+              </Button>
+            </div>
+          </div>
+        </motion.div>
+      </div>
+    </motion.div>
+  ) : null}
+</AnimatePresence>
     </Layout>
   );
 }
