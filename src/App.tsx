@@ -477,7 +477,10 @@ function shouldHideFromValidation(field: string): boolean {
   ].some((token) => normalized.includes(token));
 }
 
-function showExtractionToasts(extraction: ExtractedBillData) {
+function showExtractionToasts(
+  extraction: ExtractedBillData,
+  t: TFunction,
+) {
   let delay = 0;
 
   const queueInfo = (title: string, description?: string) => {
@@ -508,28 +511,50 @@ function showExtractionToasts(extraction: ExtractedBillData) {
 
   if (extraction.extraction.fallbackUsed) {
     queueInfo(
-      "Extracción completada con apoyo del fallback",
-      "Revisa los datos detectados antes de continuar.",
+      t(
+        "toasts.extraction.fallbackTitle",
+        "Extracción completada con apoyo del fallback",
+      ),
+      t(
+        "toasts.extraction.fallbackDescription",
+        "Revisa los datos detectados antes de continuar.",
+      ),
     );
   }
 
   visibleWarnings.slice(0, 4).forEach((warning, index) => {
-    queueInfo(`Aviso ${index + 1}`, warning);
+    queueInfo(
+      t("toasts.extraction.warningTitle", "Aviso {{index}}", {
+        index: index + 1,
+      }),
+      warning,
+    );
   });
 
   if (visibleManualReviewFields.length) {
     const fields = visibleManualReviewFields.slice(0, 4).join(", ");
 
     queueError(
-      "Campos que requieren revisión",
-      `Comprueba manualmente estos campos: ${fields}`,
+      t(
+        "toasts.extraction.manualReviewTitle",
+        "Campos que requieren revisión",
+      ),
+      t(
+        "toasts.extraction.manualReviewDescription",
+        "Comprueba manualmente estos campos: {{fields}}",
+        { fields },
+      ),
     );
   }
 
   if (visibleMissingFields.length) {
     queueInfo(
-      "Campos incompletos",
-      `Hay ${visibleMissingFields.length} campos que pueden necesitar revisión manual.`,
+      t("toasts.extraction.missingFieldsTitle", "Campos incompletos"),
+      t(
+        "toasts.extraction.missingFieldsDescription",
+        "Hay {{count}} campos que pueden necesitar revisión manual.",
+        { count: visibleMissingFields.length },
+      ),
     );
   }
 }
@@ -1250,6 +1275,25 @@ function normalizeInstallationModalidad(
 
   return "ambas";
 }
+function getInstallationModeLabel(
+  modalidad: ApiInstallation["modalidad"] | string | null | undefined,
+  t: TFunction,
+): string {
+  const normalized = normalizeInstallationModalidad(modalidad);
+
+  if (normalized === "inversion") {
+    return t("map.installationCard.modes.investment", "Inversión");
+  }
+
+  if (normalized === "servicio") {
+    return t("map.installationCard.modes.service", "Servicio");
+  }
+
+  return t("map.installationCard.modes.both", "Ambas");
+}
+
+
+
 function getDefaultProposalMode(
   modalidad: ApiInstallation["modalidad"] | null | undefined,
 ): ProposalMode {
@@ -1316,6 +1360,9 @@ function normalizeSelfConsumption(value: number | null | undefined): number {
   if (typeof value !== "number" || Number.isNaN(value)) return 0.7;
   return value > 1 ? value / 100 : value;
 }
+
+
+
 
 function calculateRequiredKwpForInstallation(
   validatedData: ValidationBillData,
@@ -1822,11 +1869,11 @@ function MainAppContent() {
           `Estudio_Solar_${billData.name || "cliente"}.pdf`,
         );
       })(),
-      {
-        loading: { title: "Generando tu estudio en PDF..." },
-        success: { title: "PDF generado y descargado con éxito" },
-        error: { title: "No se pudo generar el PDF" },
-      },
+  {
+    loading: { title: t("toasts.pdf.generatingTitle", "Generando tu estudio en PDF...") },
+    success: { title: t("toasts.pdf.generatedTitle", "PDF generado y descargado con éxito") },
+    error: { title: t("toasts.pdf.generateErrorTitle", "No se pudo generar el PDF") },
+  },
     );
   };
   const persistStudyAutomatically = async (
@@ -2352,11 +2399,20 @@ const response = await axios.post<GeneratedContractResponse>(
       setSignedContractResult(response.data);
       setIsContractModalOpen(false);
       setIsPaymentMethodModalOpen(true);
-
-      sileo.success({
-        title: "Precontrato firmado correctamente",
-        description: `Se han reservado ${response.data.reservation.reservedKwp} kWp en ${response.data.reservation.installationName}. Ahora debes seleccionar la forma de pago para continuar.`,
-      });
+sileo.success({
+  title: t(
+    "contractFlow.toasts.signedSuccessTitle",
+    "Precontrato firmado correctamente",
+  ),
+  description: t(
+    "contractFlow.toasts.signedSuccessDescription",
+    "Se han reservado {{reservedKwp}} kWp en {{installationName}}. Ahora debes seleccionar la forma de pago para continuar.",
+    {
+      reservedKwp: response.data.reservation.reservedKwp,
+      installationName: response.data.reservation.installationName,
+    },
+  ),
+});
     } catch (error: any) {
       console.error("Error firmando precontrato:", error);
       console.error("status:", error?.response?.status);
@@ -2377,10 +2433,16 @@ const response = await axios.post<GeneratedContractResponse>(
 
   const handleSelectStripePayment = async () => {
     if (!currentContractId) {
-      sileo.error({
-        title: "Contrato no disponible",
-        description: "No se ha encontrado el contrato para iniciar el pago.",
-      });
+sileo.error({
+  title: t(
+    "contractFlow.toasts.contractUnavailableTitle",
+    "Contrato no disponible",
+  ),
+  description: t(
+    "contractFlow.toasts.paymentContractUnavailableDescription",
+    "No se ha encontrado el contrato para iniciar el pago.",
+  ),
+});
       return;
     }
 
@@ -2394,30 +2456,48 @@ const response = await axios.post<GeneratedContractResponse>(
       const checkoutUrl = response.data?.stripe?.checkoutUrl;
 
       if (!checkoutUrl) {
-        sileo.error({
-          title: "Pago no disponible",
-          description: "No se pudo obtener la URL de Stripe.",
-        });
+   sileo.error({
+  title: t(
+    "contractFlow.toasts.paymentUnavailableTitle",
+    "Pago no disponible",
+  ),
+  description: t(
+    "contractFlow.toasts.paymentUnavailableDescription",
+    "No se pudo obtener la URL de Stripe.",
+  ),
+});
         return;
       }
 
-      sileo.success({
-        title: "Redirigiendo a Stripe",
-        description: "Te llevamos al pago seguro con tarjeta.",
-      });
+   sileo.success({
+  title: t(
+    "contractFlow.toasts.redirectingStripeTitle",
+    "Redirigiendo a Stripe",
+  ),
+  description: t(
+    "contractFlow.toasts.redirectingStripeDescription",
+    "Te llevamos al pago seguro con tarjeta.",
+  ),
+});
 
       window.location.href = checkoutUrl;
     } catch (error: any) {
       console.error("Error iniciando pago con Stripe:", error);
 
-      sileo.error({
-        title: "No se pudo iniciar el pago con tarjeta",
-        description:
-          error?.response?.data?.details ||
-          error?.response?.data?.error ||
-          error?.message ||
-          "Ha ocurrido un error inesperado.",
-      });
+sileo.error({
+  title: t(
+    "contractFlow.toasts.couldNotStartStripeTitle",
+    "No se pudo iniciar el pago con tarjeta",
+  ),
+  description:
+    error?.response?.data?.details ||
+    error?.response?.data?.error ||
+    error?.message ||
+    t(
+      "contractFlow.toasts.unexpectedError",
+      "Ha ocurrido un error inesperado.",
+    ),
+});
     } finally {
       setIsSelectingPaymentMethod(false);
     }
@@ -2425,10 +2505,16 @@ const response = await axios.post<GeneratedContractResponse>(
 
   const handleSelectBankTransferPayment = async () => {
     if (!currentContractId) {
-      sileo.error({
-        title: "Contrato no disponible",
-        description: "No se ha encontrado el contrato para iniciar el pago.",
-      });
+sileo.error({
+  title: t(
+    "contractFlow.toasts.contractUnavailableTitle",
+    "Contrato no disponible",
+  ),
+  description: t(
+    "contractFlow.toasts.paymentContractUnavailableDescription",
+    "No se ha encontrado el contrato para iniciar el pago.",
+  ),
+});
       return;
     }
 
@@ -2441,10 +2527,17 @@ const response = await axios.post<GeneratedContractResponse>(
 
       setIsPaymentMethodModalOpen(false);
 
-      sileo.success({
-        title: "Instrucciones enviadas",
-        description: `Hemos enviado el email con las instrucciones de transferencia a ${response.data.bankTransfer.emailSentTo}.`,
-      });
+sileo.success({
+  title: t(
+    "contractFlow.toasts.bankTransferSentTitle",
+    "Instrucciones enviadas",
+  ),
+  description: t(
+    "contractFlow.toasts.bankTransferSentDescription",
+    "Hemos enviado el email con las instrucciones de transferencia a {{email}}.",
+    { email: response.data.bankTransfer.emailSentTo },
+  ),
+});
     } catch (error: any) {
       console.error("Error seleccionando transferencia bancaria:", error);
 
@@ -2463,11 +2556,13 @@ const response = await axios.post<GeneratedContractResponse>(
 
   const handleFileSelect = async (file: File) => {
     if (!privacyAccepted) {
-      sileo.warning({
-        title: "Debes aceptar la política de privacidad",
-        description:
-          "Para subir la factura y continuar, debes aceptar el tratamiento de datos.",
-      });
+sileo.warning({
+  title: t("toasts.upload.privacyRequiredTitle", "Debes aceptar la política de privacidad"),
+  description: t(
+    "toasts.upload.privacyRequiredDescription",
+    "Para subir la factura y continuar, debes aceptar el tratamiento de datos.",
+  ),
+});
       return;
     }
 
@@ -2606,7 +2701,7 @@ const response = await axios.post<GeneratedContractResponse>(
         }
 
         setCurrentStep("validation");
-        showExtractionToasts(extraction);
+        showExtractionToasts(extraction,t);
 
         console.log(
           "[EXTRACTION] invoice_data completo:",
@@ -2622,11 +2717,11 @@ const response = await axios.post<GeneratedContractResponse>(
 
         return extraction;
       })(),
-      {
-        loading: { title: "Procesando factura..." },
-        success: { title: "Factura procesada con éxito" },
-        error: { title: "No se pudo extraer la información de la factura" },
-      },
+  {
+    loading: { title: t("toasts.upload.processingInvoice", "Procesando factura...") },
+    success: { title: t("toasts.upload.invoiceProcessedSuccess", "Factura procesada con éxito") },
+    error: { title: t("toasts.upload.invoiceProcessedError", "No se pudo extraer la información de la factura") },
+  },
     );
   };
 
@@ -2657,11 +2752,13 @@ const response = await axios.post<GeneratedContractResponse>(
           setInstallations([]);
           setCurrentStep("map");
 
-          sileo.error({
-            title: "No se pudo localizar la dirección",
-            description:
-              "No hemos podido obtener las coordenadas de la dirección indicada.",
-          });
+sileo.error({
+  title: t("toasts.map.geocodeErrorTitle", "No se pudo localizar la dirección"),
+  description: t(
+    "toasts.map.geocodeErrorDescription",
+    "No hemos podido obtener las coordenadas de la dirección indicada.",
+  ),
+});
 
           return;
         }
@@ -2672,11 +2769,26 @@ const response = await axios.post<GeneratedContractResponse>(
 
         sileo.success({ title: "Datos validados correctamente" });
       })(),
-      {
-        loading: { title: "Validando dirección y buscando instalaciones..." },
-        success: { title: "Datos validados correctamente" },
-        error: { title: "No se pudo validar la ubicación del cliente" },
-      },
+  {
+    loading: {
+      title: t(
+        "toasts.validation.validatingLocationLoading",
+        "Validando dirección y buscando instalaciones...",
+      ),
+    },
+    success: {
+      title: t(
+        "toasts.validation.validatedSuccess",
+        "Datos validados correctamente",
+      ),
+    },
+    error: {
+      title: t(
+        "toasts.validation.validationError",
+        "No se pudo validar la ubicación del cliente",
+      ),
+    },
+  },
     );
   };
 
@@ -2691,21 +2803,25 @@ const response = await axios.post<GeneratedContractResponse>(
     if (!coords) {
       setInstallations([]);
       setInstallationAvailabilityError("no_installations_in_radius");
-      sileo.error({
-        title: "Ubicación no disponible",
-        description:
-          "No se ha podido obtener la latitud y longitud del cliente.",
-      });
+sileo.error({
+  title: t("toasts.map.locationUnavailableTitle", "Ubicación no disponible"),
+  description: t(
+    "toasts.map.locationUnavailableDescription",
+    "No se ha podido obtener la latitud y longitud del cliente.",
+  ),
+});
       return;
     }
 
     if (!validatedData) {
       setInstallations([]);
-      sileo.error({
-        title: "Datos insuficientes",
-        description:
-          "No se han encontrado los datos validados del cliente para calcular la potencia necesaria.",
-      });
+sileo.error({
+  title: t("toasts.map.insufficientDataTitle", "Datos insuficientes"),
+  description: t(
+    "toasts.map.insufficientDataDescription",
+    "No se han encontrado los datos validados del cliente para calcular la potencia necesaria.",
+  ),
+});
       return;
     }
 
@@ -2776,10 +2892,13 @@ const response = await axios.post<GeneratedContractResponse>(
       setInstallations(eligibleInstallations);
     } catch (error) {
       console.error("Error fetching installations:", error);
-      sileo.error({
-        title: "Error al cargar instalaciones",
-        description: "Inténtalo de nuevo más tarde",
-      });
+sileo.error({
+  title: t("toasts.map.loadInstallationsErrorTitle", "Error al cargar instalaciones"),
+  description: t(
+    "toasts.map.loadInstallationsErrorDescription",
+    "Inténtalo de nuevo más tarde",
+  ),
+});
       setInstallations([]);
       setInstallationAvailabilityError(null);
     } finally {
@@ -2796,11 +2915,13 @@ const response = await axios.post<GeneratedContractResponse>(
     const requiredKwp = Number(normalizedInst.required_kwp ?? 0);
 
     if (requiredKwp > 0 && availableKwp < requiredKwp) {
-      sileo.error({
-        title: "Capacidad insuficiente",
-        description:
-          "Esta instalación no dispone de potencia suficiente para cubrir la recomendación del estudio.",
-      });
+sileo.error({
+  title: t("toasts.map.insufficientCapacityTitle", "Capacidad insuficiente"),
+  description: t(
+    "toasts.map.insufficientCapacityDescription",
+    "Esta instalación no dispone de potencia suficiente para cubrir la recomendación del estudio.",
+  ),
+});
       return;
     }
 
@@ -2872,23 +2993,32 @@ const response = await axios.post<GeneratedContractResponse>(
             selectedInstallation,
           );
 
-          sileo.success({
-            title: "Propuesta guardada automáticamente",
-            description: "Cliente, factura, propuesta y estudio registrados.",
-          });
+      sileo.success({
+  title: t("toasts.study.savedTitle", "Propuesta guardada automáticamente"),
+  description: t(
+    "toasts.study.savedDescription",
+    "Cliente, factura, propuesta y estudio registrados.",
+  ),
+});
         } catch (error: any) {
           console.error("Error guardando estudio confirmado:", error);
           console.error("error.message:", error?.message);
           console.error("error.response?.data:", error?.response?.data);
           console.error("error.response?.status:", error?.response?.status);
 
-          sileo.error({
-            title: "El estudio se generó, pero no se pudo guardar",
-            description:
-              error?.response?.data?.details ||
-              error?.message ||
-              "Revisa la configuración del servidor.",
-          });
+      sileo.error({
+  title: t(
+    "toasts.study.saveErrorTitle",
+    "El estudio se generó, pero no se pudo guardar",
+  ),
+  description:
+    error?.response?.data?.details ||
+    error?.message ||
+    t(
+      "toasts.study.saveErrorDescription",
+      "Revisa la configuración del servidor.",
+    ),
+});
         } finally {
           studyPersistLock.current = false;
         }
@@ -3359,25 +3489,27 @@ const response = await axios.post<GeneratedContractResponse>(
                               key={inst.id}
                               position={[Number(inst.lat), Number(inst.lng)]}
                             >
-                              <Popup>
-                                <div className="text-sm">
-                                  <p className="font-bold">
-                                    {inst.nombre_instalacion}
-                                  </p>
-                                  <p>{inst.direccion}</p>
-                                  <p className="mt-1">
-                                    Distancia: {inst.distance_meters ?? "-"} m
-                                  </p>
-                                </div>
-                              </Popup>
+<Popup>
+  <div className="text-sm">
+    <p className="font-bold">{inst.nombre_instalacion}</p>
+    <p>{inst.direccion}</p>
+    <p className="mt-1">
+      {t("map.distanceLabel", "Distancia: {{value}} m", {
+        value: inst.distance_meters ?? "-",
+      })}
+    </p>
+  </div>
+</Popup>
                             </Marker>
                           ))}
                         </MapContainer>
                       ) : (
-                        <div className="absolute inset-0 flex items-center justify-center bg-brand-navy/[0.02] text-brand-navy/40 font-bold">
-                          No se ha podido cargar el mapa porque faltan
-                          coordenadas.
-                        </div>
+                    <div className="absolute inset-0 flex items-center justify-center bg-brand-navy/[0.02] text-brand-navy/40 font-bold">
+  {t(
+    "map.missingCoordinates",
+    "No se ha podido cargar el mapa porque faltan coordenadas.",
+  )}
+</div>
                       )}
 
                       <div className="absolute bottom-8 left-8 right-8 glass-card p-6 rounded-3xl flex items-center justify-between z-[400]">
@@ -3389,10 +3521,9 @@ const response = await axios.post<GeneratedContractResponse>(
                             <p className="text-xs font-bold uppercase tracking-widest text-brand-navy/40">
                               {t("map.yourLocation")}
                             </p>
-                            <p className="font-bold text-brand-navy">
-                              {extractedData?.address ||
-                                "Cargando dirección..."}
-                            </p>
+                           <p className="font-bold text-brand-navy">
+  {extractedData?.address || t("map.loadingAddress", "Cargando dirección...")}
+</p>
                           </div>
                         </div>
 
@@ -3418,26 +3549,36 @@ const response = await axios.post<GeneratedContractResponse>(
                           </p>
                         </div>
                       ) : installations.length === 0 ? (
-                        <div className="rounded-[2rem] border border-amber-200 bg-amber-50 px-6 py-6 text-left">
-                          <p className="text-sm font-bold uppercase tracking-widest text-amber-700">
-                            {installationAvailabilityError ===
-                            "insufficient_capacity"
-                              ? "No hay capacidad suficiente disponible"
-                              : "No hay instalaciones disponibles"}
-                          </p>
+                       <div className="rounded-[2rem] border border-amber-200 bg-amber-50 px-6 py-6 text-left">
+  <p className="text-sm font-bold uppercase tracking-widest text-amber-700">
+    {installationAvailabilityError === "insufficient_capacity"
+      ? t(
+          "map.availability.noCapacityTitle",
+          "No hay capacidad suficiente disponible",
+        )
+      : t(
+          "map.availability.noInstallationsTitle",
+          "No hay instalaciones disponibles",
+        )}
+  </p>
 
-                          <p className="text-sm text-amber-700/80 mt-3 leading-relaxed">
-                            {installationAvailabilityError ===
-                            "insufficient_capacity"
-                              ? "Hemos encontrado instalaciones cercanas, pero ninguna dispone ahora mismo de la potencia necesaria para cubrir la recomendación de tu estudio. Contacta con Sapiens para revisar tu caso."
-                              : "No hemos encontrado instalaciones activas dentro del radio configurado para esta dirección. Contacta con Sapiens para revisar tu caso."}
-                          </p>
+  <p className="text-sm text-amber-700/80 mt-3 leading-relaxed">
+    {installationAvailabilityError === "insufficient_capacity"
+      ? t(
+          "map.availability.noCapacityDescription",
+          "Hemos encontrado instalaciones cercanas, pero ninguna dispone ahora mismo de la potencia necesaria para cubrir la recomendación de tu estudio. Contacta con Sapiens para revisar tu caso.",
+        )
+      : t(
+          "map.availability.noInstallationsDescription",
+          "No hemos encontrado instalaciones activas dentro del radio configurado para esta dirección. Contacta con Sapiens para revisar tu caso.",
+        )}
+  </p>
 
-                          <div className="mt-4 space-y-1 text-sm font-semibold text-brand-navy">
-                            <p>Teléfono: 960 99 27 77</p>
-                            <p>Email: info@sapiensenergia.es</p>
-                          </div>
-                        </div>
+  <div className="mt-4 space-y-1 text-sm font-semibold text-brand-navy">
+    <p>{t("map.contactPhone", "Teléfono")}: 960 99 27 77</p>
+    <p>{t("map.contactEmail", "Email")}: info@sapiensenergia.es</p>
+  </div>
+</div>
                       ) : (
                         installations.map((inst, i) => (
                           <motion.div
@@ -3456,62 +3597,66 @@ const response = await axios.post<GeneratedContractResponse>(
                               </p>
 
                               <span className="text-[10px] font-bold text-brand-mint bg-brand-mint/10 px-2 py-1 rounded-lg uppercase">
-                                {inst.modalidad}
-                              </span>
+  {getInstallationModeLabel(inst.modalidad, t)}
+</span>
                             </div>
 
                             <p className="text-xs font-semibold text-brand-gray flex items-center gap-2 mb-2">
                               <MapPin className="w-3 h-3" />
                               {inst.direccion}
                             </p>
+{/*  */}
+<div className="grid grid-cols-2 gap-3 mt-6">
+  <div className="rounded-2xl bg-brand-navy/[0.03] p-4">
+    <div className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-brand-navy/40 font-bold leading-none">
+      <Icon
+        icon="mdi:solar-panel-large"
+        className="w-3.5 h-3.5 shrink-0"
+      />
+      <span>{t("map.installationCard.solar", "Fotovoltaica")}</span>
+    </div>
 
-                            <div className="grid grid-cols-2 gap-3 mt-6">
-                              <div className="rounded-2xl bg-brand-navy/[0.03] p-4">
-                                <div className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-brand-navy/40 font-bold leading-none">
-                                  <Icon
-                                    icon="mdi:solar-panel-large"
-                                    className="w-3.5 h-3.5 shrink-0"
-                                  />
-                                  <span>Fotovoltaica</span>
-                                </div>
+    <p className="font-bold text-brand-navy">
+      {formatNumber(inst.available_kwp ?? 0)} kWp
+    </p>
+  </div>
 
-                                <p className="font-bold text-brand-navy">
-                                  {formatNumber(inst.available_kwp ?? 0)} kWp
-                                </p>
-                              </div>
+  <div className="rounded-2xl bg-brand-navy/[0.03] p-4">
+    <div className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-brand-navy/40 font-bold leading-none">
+      <Icon
+        icon="mdi:battery-charging-medium"
+        className="w-3.5 h-3.5 shrink-0"
+      />
+      <span>{t("map.installationCard.storage", "Almacenamiento")}</span>
+    </div>
 
-                              <div className="rounded-2xl bg-brand-navy/[0.03] p-4">
-                                <div className="mb-1 flex items-center gap-1.5 text-[10px] uppercase tracking-widest text-brand-navy/40 font-bold leading-none">
-                                  <Icon
-                                    icon="mdi:battery-charging-medium"
-                                    className="w-3.5 h-3.5 shrink-0"
-                                  />
-                                  <span>Almacenamiento</span>
-                                </div>
+    <p className="font-bold text-brand-navy">
+      {formatNumber(inst.almacenamiento_kwh)} kWh
+    </p>
+  </div>
+</div>
 
-                                <p className="font-bold text-brand-navy">
-                                  {formatNumber(inst.almacenamiento_kwh)} kWh
-                                </p>
-                              </div>
-                            </div>
+<div className="mt-5 flex items-center gap-3 text-xs text-brand-gray">
+  <Building2 className="w-4 h-4" />
+  <span>
+    {t("map.installationCard.effectiveHours", "{{value}} h efectivas", {
+      value: formatNumber(inst.horas_efectivas),
+    })}
+  </span>
+</div>
 
-                            <div className="mt-5 flex items-center gap-3 text-xs text-brand-gray">
-                              <Building2 className="w-4 h-4" />
-                              <span>
-                                {formatNumber(inst.horas_efectivas)} h efectivas
-                              </span>
-                            </div>
-                            <div className="mt-2 flex items-center gap-3 text-xs text-brand-gray">
-                              <Icon
-                                icon="solar:chart-bold-duotone"
-                                className="w-4 h-4 text-brand-mint"
-                              />
-                              <span>
-                                Reservados:{" "}
-                                {formatNumber(inst.reserved_kwp ?? 0)} kWp
-                              </span>
-                            </div>
-
+<div className="mt-2 flex items-center gap-3 text-xs text-brand-gray">
+  <Icon
+    icon="solar:chart-bold-duotone"
+    className="w-4 h-4 text-brand-mint"
+  />
+  <span>
+    {t("map.installationCard.reserved", "Reservados: {{value}} kWp", {
+      value: formatNumber(inst.reserved_kwp ?? 0),
+    })}
+  </span>
+</div>
+{/*  */}
                             {/* <div className="mt-2 flex items-center gap-3 text-xs text-brand-gray">
                               <BatteryCharging className="w-4 h-4" />
                               <span>

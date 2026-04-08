@@ -14,7 +14,7 @@
   },
   "admin": {
     "access": "Accés Admin",
-    "backToSite": "Tornar a la web"
+    "backToSite": "Tornar al Web"
   },
   "fields": {
     "name": "Nom",
@@ -25,7 +25,7 @@
     "address": "Adreça completa"
   },
   "placeholders": {
-    "name": "Ex. Juan",
+    "name": "Ex. Joan",
     "lastName": "Ex. Pérez García",
     "dni": "12345678X",
     "email": "tu@email.com",
@@ -53,10 +53,33 @@
     "description": "Estes són les instal·lacions actives disponibles dins del radi de 5 km de la teua ubicació.",
     "clientLocation": "Ubicació del client",
     "yourLocation": "La teua ubicació",
+    "loadingAddress": "Carregant adreça...",
+    "mapUnavailable": "No s'ha pogut carregar el mapa perquè falten coordenades.",
     "availableInstallations_one": "1 instal·lació disponible",
     "availableInstallations_other": "{{count}} instal·lacions disponibles",
     "recommendedPlants": "Plantes recomanades",
-    "searchingPlants": "Buscant plantes..."
+    "searchingPlants": "Buscant plantes...",
+    "installationCard": {
+      "photovoltaic": "Fotovoltaica",
+      "storage": "Emmagatzematge",
+      "effectiveHours": "{{value}} h efectives",
+      "reserved": "Reservats: {{value}} kWp",
+      "modes": {
+        "investment": "Inversió",
+        "service": "Servici",
+        "both": "Ambdues"
+      }
+    },
+    "availability": {
+      "insufficientCapacityTitle": "No hi ha capacitat suficient disponible",
+      "insufficientCapacityDescription": "Hem trobat instal·lacions pròximes, però cap disposa ara mateix de la potència necessària per a cobrir la recomanació del teu estudi. Contacta amb Sapiens per a revisar el teu cas.",
+      "noInstallationsTitle": "No hi ha instal·lacions disponibles",
+      "noInstallationsDescription": "No hem trobat instal·lacions actives dins del radi configurat per a esta adreça. Contacta amb Sapiens per a revisar el teu cas."
+    },
+    "contact": {
+      "phone": "Telèfon",
+      "email": "Email"
+    }
   },
   "calculation": {
     "titleLine1": "Generant el teu estudi",
@@ -64,7 +87,7 @@
     "tasks": {
       "validateBill": "Validant dades de factura",
       "analyzeSolar": "Analitzant radiació solar local",
-      "calculateReturn": "Calculant retorn d'inversió"
+      "calculateReturn": "Calculant retorn de la inversió"
     }
   },
   "fileUploader": {
@@ -78,18 +101,29 @@
     "toasts": {
       "privacyRequiredTitle": "Has d'acceptar la política de privacitat",
       "privacyRequiredDescription": "Per a pujar la factura, primer has d'acceptar el tractament de dades.",
-      "viewPolicy": "Veure política",
+      "viewPolicy": "Vore política",
       "invalidFileTypeTitle": "Tipus d'arxiu no permés",
       "invalidFileTypeDescription": "Només s'accepten: {{formats}}",
       "fileTooLargeTitle": "Arxiu massa gran",
       "fileTooLargeDescription": "El límit és de {{maxSize}}MB"
     }
   },
+  "toasts": {
+    "extraction": {
+      "fallbackTitle": "Extracció completada amb suport del fallback",
+      "fallbackDescription": "Revisa les dades detectades abans de continuar.",
+      "warningTitle": "Avís {{index}}",
+      "manualReviewTitle": "Camps que requerixen revisió",
+      "manualReviewDescription": "Comprova manualment estos camps: {{fields}}",
+      "missingFieldsTitle": "Camps incomplets",
+      "missingFieldsDescription": "Hi ha {{count}} camps que poden necessitar revisió manual."
+    }
+  },
   "result": {
     "badge": "Estudi finalitzat",
     "hero": {
       "titleLine1": "La teua proposta energètica",
-      "titleLine2": "ja està preparada",
+      "titleLine2": "ja està llesta",
       "compareDescription": "Compara les dos modalitats i revisa quina encaixa millor amb tu.",
       "singleModeInvestment": "Esta instal·lació només està disponible en modalitat d'inversió.",
       "singleModeService": "Esta instal·lació només està disponible en modalitat de servici."
@@ -129,18 +163,18 @@
       "reserved": "Reservat",
       "investment": {
         "title": "Reservar inversió",
-        "description": "Inicia la reserva en modalitat d'inversió i continua amb el pagament de la senyal.",
+        "description": "Inicia la reserva en modalitat d'inversió i continua amb el pagament del senyal.",
         "continue": "Continuar amb inversió"
       },
       "service": {
         "title": "Reservar servici",
-        "description": "Inicia la reserva en modalitat de servici i continua amb el pagament de la senyal.",
+        "description": "Inicia la reserva en modalitat de servici i continua amb el pagament del senyal.",
         "continue": "Continuar amb servici"
       }
     },
     "actions": {
       "title": "Accions",
-      "youWillHire": "Vas a contractar",
+      "youWillHire": "Contractaràs",
       "paymentStatus": "Estat del pagament",
       "pendingSignal": "Senyal pendent",
       "mode": "Modalitat",
@@ -164,7 +198,7 @@
         "points": [
           "Sense desemborsament inicial",
           "Quota mensual fixa",
-          "Ideal si priorititzes no desemborsar directament"
+          "Ideal si prioritzes no desemborsar directament"
         ]
       }
     },
@@ -188,7 +222,7 @@
     "mode": "Modalitat",
     "assignedKwp": "kWp assignats",
     "basicConditions": "Condicions bàsiques",
-    "condition1": "El client sol·licita la reserva de la potència indicada en la instal·lació seleccionada, quedant dita reserva pendent de confirmació econòmica.",
+    "condition1": "El client sol·licita la reserva de la potència indicada en la instal·lació seleccionada, quedant esta reserva pendent de confirmació econòmica.",
     "condition2": "S'informa el client d'un termini orientatiu de 15 dies per a realitzar la transferència corresponent.",
     "condition3": "Fins a la validació del pagament, la reserva tindrà caràcter provisional.",
     "clientSignature": "Firma del client",
@@ -204,8 +238,8 @@
     "client": "Client",
     "dni": "DNI",
     "reservationSection": "Reserva",
-    "contractId": "Contracte ID",
-    "reservationId": "Reserva ID",
+    "contractId": "ID del contracte",
+    "reservationId": "ID de la reserva",
     "installation": "Instal·lació",
     "reservedPower": "Potència reservada",
     "paidAmount": "Import abonat",
@@ -214,15 +248,15 @@
     "stripeSection": "Referència Stripe",
     "checkoutSessionId": "Checkout Session ID",
     "paymentIntentId": "Payment Intent ID",
-    "footer": "Este document acredita la recepció de la senyal associada al precontracte de reserva/participació."
+    "footer": "Este document acredita la recepció del senyal associat al precontracte de reserva/participació."
   },
   "continueContract": {
     "badge": "Continuar contractació",
     "accessBadge": "Accés a proposta",
     "hero": {
       "titleLine1": "Reprén la teua proposta",
-      "titleLine2": "quan vulgues",
-      "description": "Accedix amb les teues dades per a continuar la contractació des de la proposta que t'hem enviat per correu i selecciona la modalitat amb la qual desitges seguir."
+      "titleLine2": "quan vullgues",
+      "description": "Accedix amb les teues dades per a continuar la contractació des de la proposta que t'enviàrem per correu i selecciona la modalitat amb la qual desitges seguir."
     },
     "cards": {
       "secureAccess": {
@@ -231,7 +265,7 @@
       },
       "modeChoice": {
         "title": "Modalitat a triar",
-        "description": "Podràs continuar per inversió o per servici i generar el contracte segons l'opció elegida."
+        "description": "Podràs continuar per inversió o per servici i generar el contracte segons l'opció triada."
       },
       "fastProcess": {
         "title": "Procés ràpid",
@@ -272,7 +306,7 @@
       "invalidLinkTitle": "Enllaç no vàlid",
       "invalidLinkDescription": "No s'ha trobat el token d'accés.",
       "missingDataTitle": "Falten dades",
-      "missingDataDescription": "Has de completar DNI, nom i cognoms.",
+      "missingDataDescription": "Has d'omplir DNI, nom i cognoms.",
       "accessValidatedTitle": "Accés validat",
       "accessValidatedDescription": "Continuarem amb la teua contractació.",
       "couldNotContinueTitle": "No s'ha pogut continuar",
@@ -325,7 +359,7 @@
     },
     "selectedMode": {
       "title": "Modalitat seleccionada:",
-      "description": "Esta és la modalitat elegida prèviament abans de firmar el contracte."
+      "description": "Esta és la modalitat triada prèviament abans de firmar el contracte."
     },
     "contractCard": {
       "title": "Contracte",
@@ -334,7 +368,7 @@
     "signature": {
       "title": "Firma",
       "clear": "Netejar",
-      "help": "Firma dins del requadre. En confirmar, es generarà el PDF firmat, es crearà la reserva provisional i podràs elegir la forma de pagament.",
+      "help": "Firma dins del requadre. En confirmar, es generarà el PDF firmat, es crearà la reserva provisional i podràs triar la forma de pagament.",
       "detected": "Firma detectada correctament."
     },
     "reservation": {
@@ -357,7 +391,7 @@
       "bankTransferTitle": "Transferència bancària",
       "bankTransferDescription": "Rebràs un correu amb l'IBAN, el concepte i el PDF del precontracte firmat. Tindràs 15 dies per a realitzar la transferència.",
       "stripeTitle": "Targeta bancària",
-      "stripeDescription": "Et redirigirem a Stripe per a completar el pagament segur de la senyal amb targeta."
+      "stripeDescription": "Et redirigirem a Stripe per a completar el pagament segur del senyal amb targeta."
     },
     "iframe": {
       "title": "Vista prèvia del contracte"
@@ -376,8 +410,8 @@
       "mode": "Modalitat",
       "assignedKwp": "kWp assignats",
       "basicConditions": "Condicions bàsiques",
-      "condition1": "El client sol·licita la reserva de la potència indicada en la instal·lació seleccionada, quedant dita reserva pendent de confirmació econòmica.",
-      "condition2": "La reserva es formalitzarà mitjançant el pagament d'una senyal, ja siga per targeta o per transferència bancària.",
+      "condition1": "El client sol·licita la reserva de la potència indicada en la instal·lació seleccionada, quedant esta reserva pendent de confirmació econòmica.",
+      "condition2": "La reserva es formalitzarà mitjançant el pagament d'un senyal, ja siga per targeta o per transferència bancària.",
       "condition3": "Fins a la validació del pagament, la reserva tindrà caràcter provisional.",
       "clientSignature": "Firma del client",
       "noData": "-"
@@ -402,7 +436,7 @@
       "contractNumber": "Precontracte",
       "installation": "Instal·lació",
       "reservedPower": "Potència reservada",
-      "signalAmount": "Import de la senyal",
+      "signalAmount": "Import del senyal",
       "deadline": "Data límit",
       "iban": "IBAN",
       "beneficiary": "Beneficiari",
@@ -418,14 +452,14 @@
       "contractNumber": "Precontracte",
       "installation": "Instal·lació",
       "reservedPower": "Potència reservada",
-      "signalAmount": "Senyal abonada",
+      "signalAmount": "Senyal abonat",
       "paymentDate": "Data de pagament",
       "body2": "Adjuntem el precontracte i el justificant de pagament per a la teua referència.",
       "body3": "Gràcies per confiar en nosaltres.",
       "farewell": "Una salutació"
     },
     "signedContract": {
-      "subject": "El teu contracte firmat i reserva provisional - Sapiens Energía",
+      "subject": "El teu contracte firmat i reserva provisional - Sapiens Energia",
       "greeting": "Hola {{clientName}},",
       "body1": "Adjuntem una còpia del teu contracte firmat.",
       "body2": "Hem realitzat una reserva provisional de {{reservedKwp}} kWp en la planta {{installationName}}.",
@@ -439,7 +473,7 @@
         "date": "DATA"
       },
       "footer": {
-        "note": "Proposta generada automàticament per Sapiens Energía a partir de l'anàlisi documental de la factura del client."
+        "note": "Proposta generada automàticament per Sapiens Energia a partir de l'anàlisi documental de la factura del client."
       },
       "hero": {
         "executiveReport": "INFORME EXECUTIU",
@@ -514,7 +548,7 @@
             "description": "El nivell de consum detectat fa atractiva una solució fotovoltaica orientada a captar més estalvi acumulat."
           },
           {
-            "title": "Prioritzar la rendibilitat a llarg termini",
+            "title": "Prioritzar rendibilitat a llarg termini",
             "description": "La inversió directa guanya valor quan es busca major estalvi total, control de l'actiu i amortització sostinguda."
           }
         ]
@@ -541,7 +575,7 @@
         "conclusionAndNextStep": "CONCLUSIÓ I SEGÜENT PAS",
         "executiveConclusionTitle": "Conclusió executiva",
         "executiveInvestment": "Pel perfil econòmic i l'estalvi acumulat, recomanem avançar amb la modalitat d'inversió. És l'opció que millor capitalitza el consum detectat i oferix una rendibilitat més sòlida en l'horitzó analitzat.",
-        "executiveService": "Per la flexibilitat d'entrada i l'equilibri entre estalvi i facilitat de contractació, recomanem valorar la modalitat de servici com la via més còmoda per a iniciar el projecte.",
+        "executiveService": "Per flexibilitat d'entrada i equilibri entre estalvi i facilitat de contractació, recomanem valorar la modalitat de servici com la via més còmoda per a iniciar el projecte.",
         "executivePending": "No s'ha pogut establir una recomanació final automàtica.",
         "nextStepTitle": "Següent pas recomanat",
         "nextStepDescription": "Validar la proposta seleccionada, revisar les dades del subministrament i continuar amb la reserva o contractació segons la modalitat triada."

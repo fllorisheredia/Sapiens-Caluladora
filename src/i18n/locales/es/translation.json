@@ -53,10 +53,33 @@
     "description": "Estas son las instalaciones activas disponibles dentro del radio de 5 km de tu ubicación.",
     "clientLocation": "Ubicación del cliente",
     "yourLocation": "Tu ubicación",
+    "loadingAddress": "Cargando dirección...",
+    "mapUnavailable": "No se ha podido cargar el mapa porque faltan coordenadas.",
     "availableInstallations_one": "1 instalación disponible",
     "availableInstallations_other": "{{count}} instalaciones disponibles",
     "recommendedPlants": "Plantas recomendadas",
-    "searchingPlants": "Buscando plantas..."
+    "searchingPlants": "Buscando plantas...",
+    "installationCard": {
+      "photovoltaic": "Fotovoltaica",
+      "storage": "Almacenamiento",
+      "effectiveHours": "{{value}} h efectivas",
+      "reserved": "Reservados: {{value}} kWp",
+      "modes": {
+        "investment": "Inversión",
+        "service": "Servicio",
+        "both": "Ambas"
+      }
+    },
+    "availability": {
+      "insufficientCapacityTitle": "No hay capacidad suficiente disponible",
+      "insufficientCapacityDescription": "Hemos encontrado instalaciones cercanas, pero ninguna dispone ahora mismo de la potencia necesaria para cubrir la recomendación de tu estudio. Contacta con Sapiens para revisar tu caso.",
+      "noInstallationsTitle": "No hay instalaciones disponibles",
+      "noInstallationsDescription": "No hemos encontrado instalaciones activas dentro del radio configurado para esta dirección. Contacta con Sapiens para revisar tu caso."
+    },
+    "contact": {
+      "phone": "Teléfono",
+      "email": "Email"
+    }
   },
   "calculation": {
     "titleLine1": "Generando tu estudio",
@@ -83,6 +106,17 @@
       "invalidFileTypeDescription": "Solo se aceptan: {{formats}}",
       "fileTooLargeTitle": "Archivo demasiado grande",
       "fileTooLargeDescription": "El límite es de {{maxSize}}MB"
+    }
+  },
+  "toasts": {
+    "extraction": {
+      "fallbackTitle": "Extracción completada con apoyo del fallback",
+      "fallbackDescription": "Revisa los datos detectados antes de continuar.",
+      "warningTitle": "Aviso {{index}}",
+      "manualReviewTitle": "Campos que requieren revisión",
+      "manualReviewDescription": "Comprueba manualmente estos campos: {{fields}}",
+      "missingFieldsTitle": "Campos incompletos",
+      "missingFieldsDescription": "Hay {{count}} campos que pueden necesitar revisión manual."
     }
   },
   "result": {
